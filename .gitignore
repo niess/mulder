@@ -1,0 +1,6 @@
+# Ignore binary objects
+*.o
+*.pyc
+*.pyo
+*.so
+*.so.*
