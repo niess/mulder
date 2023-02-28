@@ -1,7 +1,13 @@
-import numpy
+from pathlib import Path
 import weakref
 
+import numpy
+
 from .wrapper import ffi, lib
+
+
+"""Package / C-library installation prefix"""
+PREFIX=str(Path(__file__).parent.resolve())
 
 
 class LibraryError(Exception):
@@ -225,7 +231,7 @@ class Fluxmeter:
     def __init__(self, *layers, physics=None):
 
         if physics is None:
-            physics = "deps/pumas/examples/data/materials.pumas"
+            physics = f"{PREFIX}/data/materials.pumas"
 
         fluxmeter = ffi.new("struct mulder_fluxmeter *[1]")
         fluxmeter[0] = lib.mulder_fluxmeter_create(
@@ -332,3 +338,6 @@ def create_map(path, projection, xlim, ylim, data):
         xlim[0], xlim[1], ylim[0], ylim[1], todouble(data))
     if rc == lib.MULDER_FAILURE:
         raise LibraryError()
+
+
+# XXX Add materials builder

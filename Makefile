@@ -93,6 +93,7 @@ OBJS=    src/wrapper.o
 
 .PHONY: package
 package: mulder/$(PACKAGE) \
+         mulder/data/materials.pumas \
          mulder/lib/$(LIB) \
          mulder/include/mulder.h
 
@@ -102,13 +103,17 @@ mulder/$(PACKAGE): setup.py src/build-wrapper.py $(OBJS) lib/$(LIB)
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
 
+mulder/data/materials.pumas: deps/pumas/examples/data/materials.pumas
+	@mkdir -p mulder/data
+	@ln -fs ../../$< $@
+
 mulder/lib/$(LIB): lib/$(LIB)
 	@mkdir -p mulder/lib
-	@ln -fs ../../lib/$(LIB) $@
+	@ln -fs ../../$< $@
 
 mulder/include/%.h: src/%.h
 	@mkdir -p mulder/include
-	@ln -fs ../../src/$*.h $@
+	@ln -fs ../../$< $@
 
 # Examples
 .PHONY: examples
@@ -130,4 +135,5 @@ clean:
 	rm -rf build
 	rm -rf lib
 	rm -f src/*.o
-	rm -rf mulder/$(PACKAGE) mulder/include mulder/lib mulder/__pycache__
+	rm -rf mulder/$(PACKAGE) mulder/__pycache__
+	rm -rf mulder/data mulder/include mulder/lib
