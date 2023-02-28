@@ -300,10 +300,22 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         /* Initialise PUMAS related data */
         FILE * fid = fopen(physics, "r");
         if (fid == NULL) {
-                /* XXX Do some error */
+                free(fluxmeter);
+                char tmp[strlen(physics) + 32];
+                sprintf(tmp, "could not open physics (%s)", physics);
+                mulder_error(tmp);
+                return NULL;
         }
-        pumas_physics_load(&fluxmeter->physics, fid);
+        pumas_error_catch(1);
+        if (pumas_physics_load(&fluxmeter->physics, fid) !=
+            PUMAS_RETURN_SUCCESS) {
+                fclose(fid);
+                free(fluxmeter);
+                pumas_error_raise();
+                return NULL;
+        }
         fclose(fid);
+        pumas_error_catch(0);
         pumas_context_create(&fluxmeter->context, fluxmeter->physics, 0);
 
         fluxmeter->context->mode.scattering = PUMAS_MODE_DISABLED;
@@ -315,16 +327,30 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         int i;
         fluxmeter->zmax = -DBL_MAX;
         for (i = 0; i < size; i++) {
-                pumas_physics_material_index(fluxmeter->physics,
-                    layers[i]->material, &fluxmeter->layers_media[i].material);
+                pumas_error_catch(1);
+                if (pumas_physics_material_index(fluxmeter->physics,
+                    layers[i]->material, &fluxmeter->layers_media[i].material)
+                    != PUMAS_RETURN_SUCCESS) {
+                        free(fluxmeter);
+                        pumas_error_raise();
+                        return NULL;
+                }
+                pumas_error_catch(0);
                 fluxmeter->layers_media[i].locals = &local_properties;
                 if (layers[i]->zmax > fluxmeter->zmax) {
                         fluxmeter->zmax = layers[i]->zmax;
                 }
         }
 
-        pumas_physics_material_index(fluxmeter->physics,
-            "Air", &fluxmeter->atmosphere_medium.material);
+        pumas_error_catch(1);
+        if (pumas_physics_material_index(fluxmeter->physics,
+            "Air", &fluxmeter->atmosphere_medium.material) !=
+            PUMAS_RETURN_SUCCESS) {
+                free(fluxmeter);
+                pumas_error_raise();
+                return NULL;
+        }
+        pumas_error_catch(0);
         /* XXX Add a density profile for the atmosphere */
         fluxmeter->atmosphere_medium.locals = NULL;
 
@@ -460,7 +486,10 @@ double mulder_fluxmeter_flux(
                 f->context->limit.energy = 1E+21;
 
                 enum pumas_event event;
-                pumas_context_transport(f->context, &s.api, &event, NULL);
+                if (pumas_context_transport(f->context, &s.api, &event, NULL)
+                    != PUMAS_RETURN_SUCCESS) {
+                        return 0.;
+                }
                 if (event != PUMAS_EVENT_MEDIUM) return 0.;
 
                 /* Get coordinates at end location (expected to be at ztop) */
@@ -481,7 +510,10 @@ double mulder_fluxmeter_flux(
                 f->context->limit.energy = 1E-04;
 
                 enum pumas_event event;
-                pumas_context_transport(f->context, &s.api, &event, NULL);
+                if (pumas_context_transport(f->context, &s.api, &event, NULL)
+                    != PUMAS_RETURN_SUCCESS) {
+                        return 0.;
+                }
                 if (event != PUMAS_EVENT_MEDIUM) return 0.;
 
                 /* Get coordinates at end location (expected to be at zref) */
@@ -552,7 +584,10 @@ int mulder_fluxmeter_intersect(
 
         enum pumas_event event;
         struct pumas_medium * media[2];
-        pumas_context_transport(f->context, &s.api, &event, media);
+        if (pumas_context_transport(f->context, &s.api, &event, media)
+            != PUMAS_RETURN_SUCCESS) {
+                return -1;
+        }
         if (event != PUMAS_EVENT_MEDIUM) return -1;
 
         /* Get coordinates at end location */
@@ -608,7 +643,10 @@ double mulder_fluxmeter_grammage(
         for (;;) {
                 enum pumas_event event;
                 struct pumas_medium * media[2];
-                pumas_context_transport(f->context, &s.api, &event, media);
+                if (pumas_context_transport(f->context, &s.api, &event, media)
+                    != PUMAS_RETURN_SUCCESS) {
+                        return 0.;
+                }
 
                 if (grammage != NULL) {
                         int i;
@@ -659,8 +697,15 @@ static double local_properties(struct pumas_medium * medium,
 {
         struct state * s = (void *)state;
         struct fluxmeter * f = s->fluxmeter;
-        ptrdiff_t i = medium - f->layers_media; /* XXX check sign? */
-        locals->density = f->layers[i]->density;
+        ptrdiff_t i = medium - f->layers_media;
+        if (i >= 0) {
+                locals->density = f->layers[i]->density;
+        } else {
+                const char format[] = "bad medium index (%d)";
+                char msg[sizeof(format) + 16];
+                sprintf(msg, format, (int)i);
+                mulder_error(msg);
+        }
         return 0.;
 }
 

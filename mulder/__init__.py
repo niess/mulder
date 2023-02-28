@@ -4,6 +4,15 @@ import weakref
 from ._core import ffi, lib
 
 
+class LibraryError(Exception):
+    """Mulder C-library error"""
+
+    def __init__(self):
+        msg = lib.mulder_error_get()
+        if msg != ffi.NULL:
+            self.args = (ffi.string(msg).decode(),)
+
+
 # Numpy broadcasting
 _asarray = lambda x: numpy.ascontiguousarray(x, dtype="f8")
 
@@ -128,6 +137,9 @@ class Layer:
         layer = ffi.new("struct mulder_layer *[1]")
         layer[0] = lib.mulder_layer_create(_tostr(material), _tostr(model),
                                            0 if offset is None else offset)
+        if layer[0] == ffi.NULL:
+            raise LibraryError()
+
         weakref.finalize(self, lib.mulder_layer_destroy, layer)
 
         self._layer = layer
@@ -139,8 +151,11 @@ class Layer:
         x, y, size = _asmatrix(x, y)
         z = numpy.empty(size)
 
-        lib.mulder_layer_height_v(self._layer[0], x.size, y.size, _todouble(x),
-                                  _todouble(y), _todouble(z))
+        rc = lib.mulder_layer_height_v(self._layer[0], x.size, y.size,
+                                       _todouble(x), _todouble(y), _todouble(z))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
+
         return _frommatrix(x.size, y.size, z)
 
     def gradient(self, x, y):
@@ -150,8 +165,12 @@ class Layer:
         gx = numpy.empty(size)
         gy = numpy.empty(size)
 
-        lib.mulder_layer_gradient_v(self._layer[0], size, _todouble(x),
-                                    _todouble(y), _todouble(gx), _todouble(gy))
+        rc = lib.mulder_layer_gradient_v(self._layer[0], size, _todouble(x),
+                                         _todouble(y), _todouble(gx),
+                                         _todouble(gy))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
+
         return _fromarray2(gx, gy)
 
     def geodetic(self, x, y):
@@ -161,9 +180,12 @@ class Layer:
         latitude = numpy.empty(size)
         longitude = numpy.empty(size)
 
-        lib.mulder_layer_geodetic_v(self._layer[0], size, _todouble(x),
-                                   _todouble(y), _todouble(latitude),
-                                   _todouble(longitude))
+        rc = lib.mulder_layer_geodetic_v(self._layer[0], size, _todouble(x),
+                                        _todouble(y), _todouble(latitude),
+                                        _todouble(longitude))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
+
         return _fromarray2(latitude, longitude)
 
     def coordinates(self, latitude, longitude):
@@ -173,10 +195,13 @@ class Layer:
         x = numpy.empty(size)
         y = numpy.empty(size)
 
-        lib.mulder_layer_coordinates_v(self._layer[0], size,
-                                       _todouble(latitude),
-                                       _todouble(longitude), _todouble(x),
-                                       _todouble(y))
+        rc = lib.mulder_layer_coordinates_v(self._layer[0], size,
+                                           _todouble(latitude),
+                                           _todouble(longitude), _todouble(x),
+                                           _todouble(y))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
+
         return _fromarray2(x, y)
 
 
@@ -205,6 +230,8 @@ class Fluxmeter:
         fluxmeter = ffi.new("struct mulder_fluxmeter *[1]")
         fluxmeter[0] = lib.mulder_fluxmeter_create(
             _tostr(physics), len(layers), [l._layer[0] for l in layers])
+        if fluxmeter[0] == ffi.NULL:
+            raise LibraryError()
 
         weakref.finalize(self, lib.mulder_fluxmeter_destroy, fluxmeter)
         self._fluxmeter = fluxmeter
@@ -215,9 +242,11 @@ class Fluxmeter:
         energy = _asarray(energy)
         flux = numpy.empty(energy.size)
 
-        lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude, longitude,
-            height, azimuth, elevation, energy.size, _todouble(energy),
-            _todouble(flux))
+        rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
+            longitude, height, azimuth, elevation, energy.size,
+            _todouble(energy), _todouble(flux))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
 
         return _fromarray(flux)
 
@@ -227,8 +256,10 @@ class Fluxmeter:
         energy = _asarray(energy)
         flux = numpy.empty(energy.size)
 
-        lib.mulder_fluxmeter_reference_flux_v(self._fluxmeter[0], elevation,
-            energy.size, _todouble(energy), _todouble(flux))
+        rc = lib.mulder_fluxmeter_reference_flux_v(self._fluxmeter[0],
+            elevation, energy.size, _todouble(energy), _todouble(flux))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
 
         return _fromarray(flux)
 
@@ -241,9 +272,11 @@ class Fluxmeter:
         y = numpy.empty(size)
         z = numpy.empty(size)
 
-        lib.mulder_fluxmeter_intersect_v(self._fluxmeter[0], latitude,
+        rc = lib.mulder_fluxmeter_intersect_v(self._fluxmeter[0], latitude,
             longitude, height, size, _todouble(azimuth), _todouble(elevation),
             _toint(i), _todouble(x), _todouble(y), _todouble(z))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
 
         i = _fromarray(i)
         x = _fromarray(x)
@@ -259,9 +292,11 @@ class Fluxmeter:
         m = self.size + 1
         grammage = numpy.empty(size * m)
 
-        lib.mulder_fluxmeter_grammage_v(self._fluxmeter[0], latitude,
+        rc = lib.mulder_fluxmeter_grammage_v(self._fluxmeter[0], latitude,
             longitude, height, size, _todouble(azimuth), _todouble(elevation),
             _todouble(grammage))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
 
         grammage = _frommatrix(m, size, grammage)
 
@@ -274,9 +309,11 @@ class Fluxmeter:
             latitude, longitude, height)
         i = numpy.empty(size, dtype="i4")
 
-        lib.mulder_fluxmeter_whereami_v(self._fluxmeter[0], size,
+        rc = lib.mulder_fluxmeter_whereami_v(self._fluxmeter[0], size,
             _todouble(latitude), _todouble(longitude), _todouble(height),
             _toint(i))
+        if rc == lib.MULDER_FAILURE:
+            raise LibraryError()
 
         i = _fromarray(i)
 
@@ -291,5 +328,7 @@ def create_map(path, projection, xlim, ylim, data):
     data = numpy.asarray(data, dtype="f8", order="C")
 
     todouble = lambda x: ffi.cast("double *", x.ctypes.data)
-    lib.mulder_map_create(path, projection, data.shape[1], data.shape[0],
-                          xlim[0], xlim[1], ylim[0], ylim[1], todouble(data))
+    rc = lib.mulder_map_create(path, projection, data.shape[1], data.shape[0],
+        xlim[0], xlim[1], ylim[0], ylim[1], todouble(data))
+    if rc == lib.MULDER_FAILURE:
+        raise LibraryError()
