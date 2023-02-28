@@ -1,7 +1,7 @@
 import numpy
 import weakref
 
-from ._core import ffi, lib
+from .wrapper import ffi, lib
 
 
 class LibraryError(Exception):

@@ -31,7 +31,7 @@ def main():
         platforms=['Linux'],
         python_requires='>=3.6',
         setup_requires=['cffi>=1.0.0'],
-        cffi_modules=['src/build-core.py:ffi'],
+        cffi_modules=['src/build-wrapper.py:ffi'],
         install_requires=['cffi>=1.0.0', 'numpy'],
     )
 

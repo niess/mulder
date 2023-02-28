@@ -4,3 +4,6 @@
 *.pyo
 *.so
 *.so.*
+# Ignore local install
+mulder/include
+mulder/lib

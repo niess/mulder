@@ -88,20 +88,27 @@ src/turtle_%.o: $(TURTLE_DIR)/src/deps/%.c $(TURTLE_DIR)/src/deps/%.h
 
 # Python3 package
 PYTHON=  python3
-PACKAGE= _core.abi3.$(SOEXT)
+PACKAGE= wrapper.abi3.$(SOEXT)
 OBJS=    src/wrapper.o
 
 .PHONY: package
-package: mulder/$(PACKAGE) mulder/$(LIB)
+package: mulder/$(PACKAGE) \
+         mulder/lib/$(LIB) \
+         mulder/include/mulder.h
 
-mulder/$(PACKAGE): setup.py src/build-core.py $(OBJS) lib/$(LIB)
+mulder/$(PACKAGE): setup.py src/build-wrapper.py $(OBJS) lib/$(LIB)
 	$(PYTHON) setup.py build --build-lib .
 
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
 
-mulder/$(LIB): lib/$(LIB)
-	@ln -fs ../lib/$(LIB) $@
+mulder/lib/$(LIB): lib/$(LIB)
+	@mkdir -p mulder/lib
+	@ln -fs ../../lib/$(LIB) $@
+
+mulder/include/%.h: src/%.h
+	@mkdir -p mulder/include
+	@ln -fs ../../src/$*.h $@
 
 # Examples
 .PHONY: examples
@@ -123,4 +130,4 @@ clean:
 	rm -rf build
 	rm -rf lib
 	rm -f src/*.o
-	rm -rf mulder/$(PACKAGE) mulder/$(LIB) mulder/__pycache__
+	rm -rf mulder/$(PACKAGE) mulder/include mulder/lib mulder/__pycache__
