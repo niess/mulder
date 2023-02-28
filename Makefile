@@ -92,7 +92,7 @@ PACKAGE= _core.abi3.$(SOEXT)
 OBJS=    src/wrapper.o
 
 .PHONY: package
-package: mulder/$(PACKAGE)
+package: mulder/$(PACKAGE) mulder/$(LIB)
 
 mulder/$(PACKAGE): setup.py src/build-core.py $(OBJS) lib/$(LIB)
 	$(PYTHON) setup.py build --build-lib .
@@ -100,6 +100,8 @@ mulder/$(PACKAGE): setup.py src/build-core.py $(OBJS) lib/$(LIB)
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
 
+mulder/$(LIB): lib/$(LIB)
+	@ln -fs ../lib/$(LIB) $@
 
 # Examples
 .PHONY: examples
@@ -121,4 +123,4 @@ clean:
 	rm -rf build
 	rm -rf lib
 	rm -f src/*.o
-	rm -rf mulder/$(PACKAGE) mulder/__pycache__
+	rm -rf mulder/$(PACKAGE) mulder/$(LIB) mulder/__pycache__

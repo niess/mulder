@@ -812,7 +812,7 @@ static double cos_theta_star(double cos_theta)
  * Guan et al. parameterization of the sea level flux of atmospheric muons
  * Ref: https://arxiv.org/abs/1509.06176
  */
-double flux_gccly(double cos_theta, double kinetic_energy)
+static double flux_gccly(double cos_theta, double kinetic_energy)
 {
         const double Emu = kinetic_energy + MUON_MASS;
         const double cs = cos_theta_star(cos_theta);

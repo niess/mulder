@@ -2,6 +2,7 @@
 from io import StringIO
 from os import linesep
 from pathlib import Path
+import platform
 import re
 
 from cffi import FFI
@@ -40,11 +41,21 @@ def objects():
             for module in MODULES if module != "mulder"]
 
 
+def rpath():
+    if platform.system() == "Linux":
+        return ("-Wl,-rpath,$ORIGIN",)
+    elif platform.system() == "Darwin":
+        return ("-Wl,-rpath,@loader_path/../lib",)
+    else:
+        return None
+
+
 ffi = FFI()
 ffi.set_source("mulder._core", source(),
+    extra_link_args=rpath(),
     extra_objects = objects(),
+    libraries = ("mulder",),
     library_dirs=("lib",),
-    libraries = ("mulder",)
 )
 ffi.cdef(definitions())
 
