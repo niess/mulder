@@ -8,7 +8,7 @@ import mulder
 
 # Define the geometry
 layers = (
-    mulder.Layer("StandardRock", "data/mns_roche.png"),
+    mulder.Layer("Rock", "data/mns_roche.png"),
     mulder.Layer("Water", "data/mns_eau.png")
 )
 

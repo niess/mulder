@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import shutil
 import weakref
 
 import numpy
@@ -160,7 +162,7 @@ class Layer:
 
         rc = lib.mulder_layer_height_v(self._layer[0], x.size, y.size,
                                        _todouble(x), _todouble(y), _todouble(z))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return _frommatrix(x.size, y.size, z)
@@ -175,7 +177,7 @@ class Layer:
         rc = lib.mulder_layer_gradient_v(self._layer[0], size, _todouble(x),
                                          _todouble(y), _todouble(gx),
                                          _todouble(gy))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return _fromarray2(gx, gy)
@@ -206,7 +208,7 @@ class Layer:
                                            _todouble(latitude),
                                            _todouble(longitude), _todouble(x),
                                            _todouble(y))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return _fromarray2(x, y)
@@ -252,7 +254,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
             longitude, height, azimuth, elevation, energy.size,
             _todouble(energy), _todouble(flux))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return _fromarray(flux)
@@ -265,7 +267,7 @@ class Fluxmeter:
 
         rc = lib.mulder_fluxmeter_reference_flux_v(self._fluxmeter[0],
             elevation, energy.size, _todouble(energy), _todouble(flux))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return _fromarray(flux)
@@ -282,7 +284,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_intersect_v(self._fluxmeter[0], latitude,
             longitude, height, size, _todouble(azimuth), _todouble(elevation),
             _toint(i), _todouble(x), _todouble(y), _todouble(z))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         i = _fromarray(i)
@@ -302,7 +304,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_grammage_v(self._fluxmeter[0], latitude,
             longitude, height, size, _todouble(azimuth), _todouble(elevation),
             _todouble(grammage))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         grammage = _frommatrix(m, size, grammage)
@@ -319,7 +321,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_whereami_v(self._fluxmeter[0], size,
             _todouble(latitude), _todouble(longitude), _todouble(height),
             _toint(i))
-        if rc == lib.MULDER_FAILURE:
+        if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         i = _fromarray(i)
@@ -337,8 +339,26 @@ def create_map(path, projection, xlim, ylim, data):
     todouble = lambda x: ffi.cast("double *", x.ctypes.data)
     rc = lib.mulder_map_create(path, projection, data.shape[1], data.shape[0],
         xlim[0], xlim[1], ylim[0], ylim[1], todouble(data))
-    if rc == lib.MULDER_FAILURE:
+    if rc != lib.MULDER_SUCCESS:
         raise LibraryError()
 
 
-# XXX Add materials builder
+def generate_physics(path, destination=None):
+    """Generate physics tables for Pumas"""
+
+    pathdir = str(Path(path).parent)
+    if destination is None:
+        destination = pathdir
+
+    if not os.path.exists(destination):
+        os.makedirs(destination)
+
+    dump = str(Path(destination) / Path(path).with_suffix(".pumas").name)
+
+    rc = lib.mulder_generate_physics(
+        _tostr(path), _tostr(destination), _tostr(dump))
+    if rc != lib.MULDER_SUCCESS:
+        raise LibraryError()
+
+    if pathdir != destination:
+        shutil.copy(path, destination)

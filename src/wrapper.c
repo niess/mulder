@@ -5,6 +5,7 @@
 
 /* Custom APIs */
 #include "mulder.h"
+#include "pumas.h"
 #include "turtle.h"
 #include "wrapper.h"
 
@@ -274,4 +275,38 @@ enum mulder_return mulder_map_create(const char * path, const char * projection,
         turtle_map_destroy(&map);
 
         return last_error.rc;
+}
+
+
+/* Generate physics tables for Pumas */
+enum mulder_return mulder_generate_physics(
+    const char * path, const char * destination, const char * dump)
+{
+        /* Pre-compute physics data */
+        struct pumas_physics * physics;
+        if (pumas_physics_create(
+            &physics, PUMAS_PARTICLE_MUON, path, destination, NULL) !=
+            PUMAS_RETURN_SUCCESS) {
+                return MULDER_FAILURE;
+        }
+
+        /* Dump the result */
+        enum mulder_return rc = MULDER_FAILURE;
+        FILE * stream = fopen(dump, "wb");
+        if (stream != NULL) {
+                if (pumas_physics_dump(physics, stream) ==
+                    PUMAS_RETURN_SUCCESS) {
+                        rc = MULDER_SUCCESS;
+                }
+                fclose(stream);
+        } else {
+                const char format[] = "could not open %s";
+                const int n = sizeof(format) + strlen(dump);
+                char msg[n];
+                sprintf(msg, dump);
+                mulder_error(msg);
+        }
+        pumas_physics_destroy(&physics);
+
+        return rc;
 }

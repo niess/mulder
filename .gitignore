@@ -6,6 +6,7 @@
 *.so.*
 # Ignore local install
 mulder/data/*.pumas
+mulder/data/*.txt
 mulder/include
 mulder/lib
 mulder/version.py

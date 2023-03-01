@@ -7,7 +7,7 @@ import mulder
 
 # Define the geometry
 layers = (
-    mulder.Layer("StandardRock", "data/mns_roche.png"),
+    mulder.Layer("Rock", "data/mns_roche.png"),
     mulder.Layer("Water", "data/mns_eau.png")
 )
 
@@ -32,6 +32,7 @@ reference = meter.reference_flux(elevation, energy)
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = energy**2.7 * 1E-04
 
+plot.style.use("examples/paper.mplstyle")
 plot.figure()
 plot.plot(energy, flux * norm, "k-")
 plot.plot(energy, reference * norm, "k--")

@@ -44,18 +44,6 @@ enum mulder_return mulder_layer_coordinates_v(
     double * x,
     double * y);
 
-/* Create a Turtle map from raw data */
-enum mulder_return mulder_map_create(
-    const char * path,
-    const char * projection,
-    int nx,
-    int ny,
-    double xmin,
-    double xmax,
-    double ymin,
-    double ymax,
-    const double * z);
-
 /* Vectorized flux computation */
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter,
@@ -109,3 +97,21 @@ enum mulder_return mulder_fluxmeter_whereami_v(
     const double * longitude,
     const double * height,
     int * layer);
+
+/* Create a Turtle map from raw data */
+enum mulder_return mulder_map_create(
+    const char * path,
+    const char * projection,
+    int nx,
+    int ny,
+    double xmin,
+    double xmax,
+    double ymin,
+    double ymax,
+    const double * z);
+
+/* Generate physics tables for Pumas */
+enum mulder_return mulder_generate_physics(
+    const char * path,
+    const char * destination,
+    const char * dump);

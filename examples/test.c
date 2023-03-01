@@ -10,14 +10,14 @@ int main(int argc, char * argv[])
 {
         /* Define the geometry */
         struct mulder_layer * layers[] = {
-            mulder_layer_create("StandardRock", "data/mns_roche.png", 0.),
+            mulder_layer_create("Rock", "data/mns_roche.png", 0.),
             mulder_layer_create("Water", "data/mns_eau.png", 0.)
         };
         const int n_layers = sizeof(layers) / sizeof(*layers);
 
         /* Create the fluxmeter */
         struct mulder_fluxmeter * meter =
-            mulder_fluxmeter_create("deps/pumas/examples/data/materials.pumas",
+            mulder_fluxmeter_create("mulder/data/materials.pumas",
                 n_layers, layers);
 
         /* Get geodetic coordinates at the middle of the map */
@@ -40,7 +40,7 @@ int main(int argc, char * argv[])
         /* Free memory */
         int i;
         for (i = 0; i < n_layers; i++) {
-                mulder_layer_destroy(&layers[i]);
+                mulder_layer_destroy(layers + i);
         }
         mulder_fluxmeter_destroy(&meter);
 

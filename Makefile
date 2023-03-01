@@ -103,9 +103,9 @@ mulder/$(PACKAGE): setup.py src/build-wrapper.py $(OBJS) lib/$(LIB)
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
 
-mulder/data/materials.pumas: deps/pumas/examples/data/materials.pumas
-	@mkdir -p mulder/data
-	@ln -fs ../../$< $@
+mulder/data/materials.pumas: mulder/data/materials.xml |\
+	                     mulder/$(PACKAGE) mulder/lib/$(LIB)
+	PYTHONPATH=$(PWD) $(PYTHON) -m mulder generate $< --destination=mulder/data
 
 mulder/lib/$(LIB): lib/$(LIB)
 	@mkdir -p mulder/lib
@@ -114,6 +114,7 @@ mulder/lib/$(LIB): lib/$(LIB)
 mulder/include/%.h: src/%.h
 	@mkdir -p mulder/include
 	@ln -fs ../../$< $@
+
 
 # Examples
 .PHONY: examples
@@ -135,5 +136,9 @@ clean:
 	rm -rf build
 	rm -rf lib
 	rm -f src/*.o
-	rm -rf mulder/$(PACKAGE) mulder/__pycache__
-	rm -rf mulder/data mulder/include mulder/lib mulder/version.py
+	rm -rf mulder/$(PACKAGE) mulder/__pycache__ mulder/version.py 
+
+.PHONY: distclean
+distclean: | clean
+	rm -rf mulder/data/*.pumas mulder/data/*.txt
+	rm -rf mulder/include mulder/lib
