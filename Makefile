@@ -116,6 +116,12 @@ mulder/include/%.h: src/%.h
 	@ln -fs ../../$< $@
 
 
+.PHONY: wheel
+wheel: | package
+	$(PYTHON) setup.py build bdist_wheel --py-limited-api cp36
+	rm -rf build mulder.egg-info
+
+
 # Examples
 .PHONY: examples
 examples: bin/test
@@ -142,3 +148,4 @@ clean:
 distclean: | clean
 	rm -rf mulder/data/*.pumas mulder/data/*.txt
 	rm -rf mulder/include mulder/lib
+	rm -rf dist/*.whl

@@ -4,6 +4,7 @@
 *.pyo
 *.so
 *.so.*
+*.whl
 # Ignore local install
 mulder/data/*.pumas
 mulder/data/*.txt

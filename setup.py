@@ -42,6 +42,14 @@ git_revision = "{git_revision:}"
 version = "{version:}"
 """)
 
+    try:
+        package_data = \
+            ["data/" + file_ for file_ in os.listdir("mulder/data")] + \
+            ["include/" + file_ for file_ in os.listdir("mulder/include")] + \
+            ["lib/" + file_ for file_ in os.listdir("mulder/lib")]
+    except FileNotFoundError:
+        package_data = []
+
     setup(
         name="mulder",
         version=version,
@@ -51,11 +59,17 @@ version = "{version:}"
         packages=['mulder'],
         classifiers=[s for s in CLASSIFIERS.split(os.linesep) if s.strip()],
         license='GPLv3',
-        platforms=['Linux'],
-        python_requires='>=3.6',
-        setup_requires=['cffi>=1.0.0'],
-        cffi_modules=['src/build-wrapper.py:ffi'],
-        install_requires=['cffi>=1.0.0', 'numpy'],
+        platforms=["Linux"],
+        python_requires=">=3.6",
+        setup_requires=["cffi>=1.0.0"],
+        cffi_modules=["src/build-wrapper.py:ffi"],
+        install_requires=["cffi>=1.0.0", "numpy"],
+        include_package_data = True,
+        package_data = {"": package_data},
+        entry_points = {
+            "console_scripts" : (
+                "mulder = mulder.__main__:main",)
+        }
     )
 
 

@@ -34,7 +34,7 @@ def convert(path: Path, offset: Optional[float]=None):
     create_map(str(path), projection, (xmin, xmax), (ymin, ymax), data)
 
 
-def mulder():
+def main():
     """Entry point for the mulder utility"""
 
     copyright = "Copyright (C) 2023 Université Clermont Auvergne, "\
@@ -116,7 +116,7 @@ def mulder():
         if flags:
             print(" ".join(flags))
         else:
-            parser.print_usage()
+            config_parser.print_usage()
 
     elif args.command == "convert":
         convert(Path(args.path), args.offset)
@@ -125,8 +125,8 @@ def mulder():
         generate_physics(args.path, args.destination)
 
     else:
-            parser.print_usage()
+        parser.print_usage()
 
 
 if __name__ == "__main__":
-    mulder()
+    main()

@@ -43,9 +43,9 @@ def objects():
 
 def rpath():
     if platform.system() == "Linux":
-        return ("-Wl,-rpath,$ORIGIN/lib",)
+        return ["-Wl,-rpath,$ORIGIN/lib",]
     elif platform.system() == "Darwin":
-        return ("-Wl,-rpath,@loader_path/lib",)
+        return ["-Wl,-rpath,@loader_path/lib",]
     else:
         return None
 
@@ -53,9 +53,9 @@ def rpath():
 ffi = FFI()
 ffi.set_source("mulder.wrapper", source(),
     extra_link_args=rpath(),
-    extra_objects = objects(),
-    libraries = ("mulder",),
-    library_dirs=("lib",),
+    extra_objects=objects(),
+    libraries=["mulder",],
+    library_dirs=["lib",],
 )
 ffi.cdef(definitions())
 
