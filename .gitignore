@@ -8,3 +8,4 @@
 mulder/data/*.pumas
 mulder/include
 mulder/lib
+mulder/version.py

@@ -3,6 +3,7 @@ import weakref
 
 import numpy
 
+from .version import git_revision, version
 from .wrapper import ffi, lib
 
 

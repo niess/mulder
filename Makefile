@@ -136,4 +136,4 @@ clean:
 	rm -rf lib
 	rm -f src/*.o
 	rm -rf mulder/$(PACKAGE) mulder/__pycache__
-	rm -rf mulder/data mulder/include mulder/lib
+	rm -rf mulder/data mulder/include mulder/lib mulder/version.py
