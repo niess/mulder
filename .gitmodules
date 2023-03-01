@@ -1,0 +1,6 @@
+[submodule "pumas"]
+	path = deps/pumas
+	url = https://github.com/niess/pumas.git
+[submodule "turtle"]
+	path = deps/turtle
+	url = https://github.com/niess/turtle.git
