@@ -99,6 +99,7 @@ package: mulder/$(PACKAGE) \
 
 mulder/$(PACKAGE): setup.py src/build-wrapper.py $(OBJS) lib/$(LIB)
 	$(PYTHON) setup.py build --build-lib .
+	@rm -rf build mulder.egg-info
 
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
@@ -119,7 +120,7 @@ mulder/include/%.h: src/%.h
 .PHONY: wheel
 wheel: | package
 	$(PYTHON) setup.py build bdist_wheel --py-limited-api cp36
-	rm -rf build mulder.egg-info
+	@rm -rf build mulder.egg-info
 
 
 # Examples
@@ -148,4 +149,4 @@ clean:
 distclean: | clean
 	rm -rf mulder/data/*.pumas mulder/data/*.txt
 	rm -rf mulder/include mulder/lib
-	rm -rf dist/*.whl
+	rm -rf dist/*.whl build mulder.egg-info

@@ -274,7 +274,10 @@ struct fluxmeter {
 };
 
 
-static double local_properties(struct pumas_medium * medium,
+static double layers_locals(struct pumas_medium * medium,
+    struct pumas_state * state, struct pumas_locals * locals);
+
+static double atmosphere_locals(struct pumas_medium * medium,
     struct pumas_state * state, struct pumas_locals * locals);
 
 static enum pumas_step layers_geometry(struct pumas_context * context,
@@ -336,7 +339,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
                         return NULL;
                 }
                 pumas_error_catch(0);
-                fluxmeter->layers_media[i].locals = &local_properties;
+                fluxmeter->layers_media[i].locals = &layers_locals;
                 if (layers[i]->zmax > fluxmeter->zmax) {
                         fluxmeter->zmax = layers[i]->zmax;
                 }
@@ -351,8 +354,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
                 return NULL;
         }
         pumas_error_catch(0);
-        /* XXX Add a density profile for the atmosphere */
-        fluxmeter->atmosphere_medium.locals = NULL;
+        fluxmeter->atmosphere_medium.locals = &atmosphere_locals;
 
         /* Initialise non-mutable settings */
         init_string((void **)&fluxmeter->api.physics, physics);
@@ -691,8 +693,8 @@ int mulder_fluxmeter_whereami(struct mulder_fluxmeter * fluxmeter,
 }
 
 
-/* Callback for setting local properties of pumas media */
-static double local_properties(struct pumas_medium * medium,
+/* Callback for setting local properties of layers media */
+static double layers_locals(struct pumas_medium * medium,
     struct pumas_state * state, struct pumas_locals * locals)
 {
         struct state * s = (void *)state;
@@ -707,6 +709,55 @@ static double local_properties(struct pumas_medium * medium,
                 mulder_error(msg);
         }
         return 0.;
+}
+
+
+/* CORSIKA parameterisation of the US standard atmospheric density */
+static double us_standard_function(double height, double lambda, double b)
+{
+        return 1E+01 * b / lambda * exp(-height / lambda);
+}
+
+static double us_standard_density(double height, double * lambda)
+{
+        const double hc[4] = { 4.E+03, 1.E+04, 4.E+04, 1.E+05 };
+        const double bi[4] = { 1222.6562E+00, 1144.9069E+00, 1305.5948E+00,
+                540.1778E+00 };
+        const double ci[4] = { 994186.38E+00, 878153.55E+00, 636143.04E+00,
+                772170.16E+00 };
+
+        /* Compute the local density */
+        int i;
+        for (i = 0; i < 4; i++) {
+                if (height < hc[i]) {
+                        const double lb = ci[i] * 1E-02;
+                        *lambda = lb;
+                        return us_standard_function(height, lb, bi[i]);
+                }
+        }
+
+        *lambda = ci[3] * 1E-02;
+        return us_standard_function(hc[3], ci[3] * 1E-02, bi[3]);
+}
+
+
+/* Callback for setting local properties of the atmosphere*/
+static double atmosphere_locals(struct pumas_medium * medium,
+    struct pumas_state * state, struct pumas_locals * locals)
+{
+        double latitude, longitude, height;
+        turtle_ecef_to_geodetic(
+            state->position, &latitude, &longitude, &height);
+        double lambda;
+        locals->density = us_standard_density(height, &lambda);
+
+        double azimuth, elevation;
+        turtle_ecef_to_horizontal(latitude, longitude, state->direction,
+            &azimuth, &elevation);
+        double c = fabs(sin(elevation * M_PI / 180));
+        if (c < 0.1) c = 0.1;
+
+        return lambda / c;
 }
 
 
