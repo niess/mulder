@@ -271,6 +271,7 @@ struct fluxmeter {
         double zref;
         double zref_min;
         double zref_max;
+        int use_external_layer;
         struct mulder_layer * layers[];
 };
 
@@ -372,6 +373,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         /* Initialise Turtle stepper(s) */
         fluxmeter->layers_stepper = NULL;
         fluxmeter->opensky_stepper = NULL;
+        fluxmeter->use_external_layer = 0;
         update_steppers(fluxmeter);
 
         return &fluxmeter->api;
@@ -500,6 +502,7 @@ double mulder_fluxmeter_flux(
 
         f->context->mode.energy_loss = PUMAS_MODE_CSDA;
         f->context->event = PUMAS_EVENT_LIMIT_ENERGY;
+        f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
 
         if (height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
@@ -604,6 +607,7 @@ int mulder_fluxmeter_intersect(
         f->context->mode.direction = PUMAS_MODE_FORWARD;
         f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
         f->context->event = PUMAS_EVENT_MEDIUM;
+        f->use_external_layer = (*height >= f->ztop + FLT_EPSILON);
 
         enum pumas_event event;
         struct pumas_medium * media[2];
@@ -649,7 +653,7 @@ double mulder_fluxmeter_grammage(
         turtle_ecef_from_horizontal(
             latitude, longitude, azimuth, elevation, s.api.direction);
 
-        /* Update Turtle steppers (if the reference heighs have changed) */
+        /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
         /* Transport with Pumas */
@@ -657,6 +661,7 @@ double mulder_fluxmeter_grammage(
         f->context->mode.direction = PUMAS_MODE_FORWARD;
         f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
         f->context->event = PUMAS_EVENT_MEDIUM;
+        f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
 
         if (grammage != NULL) {
                 memset(grammage, 0x0, (f->api.size + 1) * sizeof(*grammage));
@@ -804,9 +809,8 @@ static enum pumas_step layers_geometry(struct pumas_context * context,
                         *medium_ptr = f->layers_media + (index[0] - 1);
                 } else if (index[0] == f->api.size + 1) {
                         *medium_ptr = &f->atmosphere_medium;
-                } else if ((context->mode.direction == PUMAS_MODE_FORWARD) &&
+                } else if ((f->use_external_layer) &&
                            (index[0] == f->api.size + 2)) {
-                        /* Intersect case */
                         *medium_ptr = &f->atmosphere_medium;
                 } else {
                         *medium_ptr = NULL;
