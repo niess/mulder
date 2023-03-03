@@ -72,6 +72,17 @@ void mulder_layer_coordinates(
     double * y);
 
 
+/* Reference (opensky) muon flux model */
+struct mulder_reference {
+    double height_min;
+    double height_max;
+    double (*flux)(struct mulder_reference * reference,
+                   double height,
+                   double elevation,
+                   double kinetic_energy);
+};
+
+
 /* Muon flux calculator (semi-opaque structure) */
 struct mulder_fluxmeter {
     /* Initial settings (non mutable) */
@@ -80,8 +91,7 @@ struct mulder_fluxmeter {
     const struct mulder_layer ** layers;
 
     /* Mutable reference flux */
-    double reference_height;
-    double (*reference_flux)(double kinetic_energy, double elevation);
+    struct mulder_reference * reference;
 };
 
 struct mulder_fluxmeter * mulder_fluxmeter_create(

@@ -214,6 +214,45 @@ class Layer:
         return _fromarray2(x, y)
 
 
+class Reference:
+    """Reference (opensky) muon flux"""
+
+    @property
+    def height_min(self):
+        return float(self._reference[0].height_min)
+
+    @height_min.setter
+    def height_min(self, value):
+        self._reference[0].height_min = value
+
+    @property
+    def height_max(self):
+        return float(self._reference[0].height_max)
+
+    @height_max.setter
+    def height_max(self, value):
+        self._reference[0].height_max = value
+
+    def __init__(self):
+        self._reference = None
+
+    def flux(self, elevation, energy, height=None):
+        """Get reference flux model, defined at reference height(s)"""
+
+        if height is None:
+            height = 0.5 * (self.height_min + self.height_max)
+
+        energy = _asarray(energy)
+        flux = numpy.empty(energy.size)
+
+        rc = lib.mulder_reference_flux_v(self._reference[0],
+            height, elevation, energy.size, _todouble(energy), _todouble(flux))
+        if rc != lib.MULDER_SUCCESS:
+            raise LibraryError()
+
+        return _fromarray(flux)
+
+
 class Fluxmeter:
     """Muon flux calculator"""
 
@@ -227,9 +266,13 @@ class Fluxmeter:
         return ffi.string(self._fluxmeter[0].physics).decode()
 
     @property
-    def reference_height(self):
-        """Height of reference flux model"""
-        return float(self._fluxmeter[0].reference_height)
+    def reference(self):
+        """Reference (opensky) flux model"""
+        if self._reference is None:
+            self._reference = Reference()
+            self._reference._reference = ffi.new(
+                "struct mulder_reference *[1]", (self._fluxmeter[0].reference,))
+        return self._reference
 
     def __init__(self, *layers, physics=None):
 
@@ -244,6 +287,7 @@ class Fluxmeter:
 
         weakref.finalize(self, lib.mulder_fluxmeter_destroy, fluxmeter)
         self._fluxmeter = fluxmeter
+        self._reference = None
 
     def flux(self, latitude, longitude, height, azimuth, elevation, energy):
         """Calculate muon flux"""
@@ -254,19 +298,6 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
             longitude, height, azimuth, elevation, energy.size,
             _todouble(energy), _todouble(flux))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
-
-        return _fromarray(flux)
-
-    def reference_flux(self, elevation, energy):
-        """Get reference flux model, defined at reference height"""
-
-        energy = _asarray(energy)
-        flux = numpy.empty(energy.size)
-
-        rc = lib.mulder_fluxmeter_reference_flux_v(self._fluxmeter[0],
-            elevation, energy.size, _todouble(energy), _todouble(flux))
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 

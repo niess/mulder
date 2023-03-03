@@ -27,7 +27,7 @@ meter = mulder.Fluxmeter(*layers)
 azimuth, elevation = 0, 25
 energy = numpy.logspace(0, 4, 401)
 flux = meter.flux(latitude, longitude, z, azimuth, elevation, energy)
-reference = meter.reference_flux(elevation, energy)
+reference = meter.reference.flux(elevation, energy)
 
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = energy**2.7 * 1E-04

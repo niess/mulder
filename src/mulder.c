@@ -266,10 +266,11 @@ struct fluxmeter {
         struct pumas_medium atmosphere_medium;
         struct turtle_stepper * layers_stepper;
         struct turtle_stepper * opensky_stepper;
-        double * grammage;
         double zmax;
         double ztop;
         double zref;
+        double zref_min;
+        double zref_max;
         struct mulder_layer * layers[];
 };
 
@@ -286,9 +287,9 @@ static enum pumas_step layers_geometry(struct pumas_context * context,
 static enum pumas_step opensky_geometry(struct pumas_context * context,
     struct pumas_state * state, struct pumas_medium ** medium, double * step);
 
-static double reference_flux(double energy, double elevation);
-
 static void update_steppers(struct fluxmeter * fluxmeter);
+
+static struct mulder_reference default_reference;
 
 
 struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
@@ -363,11 +364,12 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         memcpy(fluxmeter->layers, layers, size * sizeof *fluxmeter->layers);
 
         /* Initialise reference flux */
-        fluxmeter->api.reference_height = 0.;
-        fluxmeter->api.reference_flux = &reference_flux;
+        fluxmeter->api.reference = &default_reference;
+        fluxmeter->zref = 0.;
+        fluxmeter->zref_min = DBL_MAX;
+        fluxmeter->zref_max = -DBL_MAX;
 
         /* Initialise Turtle stepper(s) */
-        fluxmeter->zref = DBL_MAX;
         fluxmeter->layers_stepper = NULL;
         fluxmeter->opensky_stepper = NULL;
         update_steppers(fluxmeter);
@@ -396,10 +398,21 @@ void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter)
 /* Update Turtle steppers for the layered & opensky geometries */
 static void update_steppers(struct fluxmeter * fluxmeter)
 {
-        if (fluxmeter->api.reference_height == fluxmeter->zref) {
+        const struct mulder_reference const * reference =
+            fluxmeter->api.reference;
+        if ((fluxmeter->zref_min == reference->height_min) &&
+            (fluxmeter->zref_max == reference->height_max)) {
                 return; /* geometry is already up-to-date */
         } else {
-                fluxmeter->zref = fluxmeter->api.reference_height;
+                fluxmeter->zref_min = reference->height_min;
+                fluxmeter->zref_max = reference->height_max;
+        }
+        double zref_min = reference->height_min;
+        double zref_max = reference->height_max;
+        if (zref_min > zref_max) {
+                const double tmp = zref_min;
+                zref_min = zref_max;
+                zref_max = tmp;
         }
 
         /* Destroy previous steppers */
@@ -423,9 +436,17 @@ static void update_steppers(struct fluxmeter * fluxmeter)
                 }
         }
 
-        fluxmeter->ztop =
-            (fluxmeter->zmax > fluxmeter->api.reference_height) ?
-            fluxmeter->zmax : fluxmeter->api.reference_height;
+        if (fluxmeter->zmax <= zref_min) {
+                fluxmeter->ztop = zref_min;
+                fluxmeter->zref = zref_min;
+        } else if (fluxmeter->zmax <= zref_max) {
+                fluxmeter->ztop = fluxmeter->zmax;
+                fluxmeter->zref = fluxmeter->zmax;
+        } else {
+                fluxmeter->ztop = fluxmeter->zmax;
+                fluxmeter->zref = zref_max;
+        }
+
         turtle_stepper_add_layer(fluxmeter->layers_stepper);
         turtle_stepper_add_flat(fluxmeter->layers_stepper, fluxmeter->ztop);
 
@@ -434,8 +455,7 @@ static void update_steppers(struct fluxmeter * fluxmeter)
 
         /* Create stepper for the opensky geometry */
         turtle_stepper_create(&fluxmeter->opensky_stepper);
-        turtle_stepper_add_flat(fluxmeter->opensky_stepper,
-            fluxmeter->api.reference_height);
+        turtle_stepper_add_flat(fluxmeter->opensky_stepper, fluxmeter->zref);
 
         turtle_stepper_add_layer(fluxmeter->opensky_stepper);
         turtle_stepper_add_flat(fluxmeter->opensky_stepper, ZMAX);
@@ -475,7 +495,7 @@ double mulder_fluxmeter_flux(
                 s.api.direction[i] = -s.api.direction[i];
         }
 
-        /* Update Turtle steppers (if the reference height has changed) */
+        /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
         f->context->mode.energy_loss = PUMAS_MODE_CSDA;
@@ -500,7 +520,7 @@ double mulder_fluxmeter_flux(
                 if (fabs(height - f->ztop) > 1E-04) return 0.;
         }
 
-        if (height > f->api.reference_height + FLT_EPSILON) {
+        if (height > f->zref + FLT_EPSILON) {
                 /* Backup proper time and kinetic energy */
                 const double t0 = s.api.time;
                 const double e0 = s.api.energy;
@@ -521,7 +541,7 @@ double mulder_fluxmeter_flux(
                 /* Get coordinates at end location (expected to be at zref) */
                 turtle_ecef_to_geodetic(
                     s.api.position, &latitude, &longitude, &height);
-                if (fabs(height - f->api.reference_height) > 1E-04) return 0.;
+                if (fabs(height - f->zref) > 1E-04) return 0.;
 
                 /* Update proper time and Jacobian weight */
                 s.api.time = t0 - s.api.time;
@@ -544,8 +564,9 @@ double mulder_fluxmeter_flux(
             latitude, longitude, direction0, &azimuth, &elevation);
 
         /* Sample flux at reference height */
-        const double flux = fluxmeter->reference_flux(
-            s.api.energy, elevation);
+        struct mulder_reference * reference = fluxmeter->reference;
+        const double flux = reference->flux(
+            reference, f->zref, elevation, s.api.energy);
 
         /* Compute decay probaility */
         const double pdec = exp(-s.api.time / MUON_C_TAU);
@@ -575,7 +596,7 @@ int mulder_fluxmeter_intersect(
         turtle_ecef_from_horizontal(
             *latitude, *longitude, azimuth, elevation, s.api.direction);
 
-        /* Update Turtle steppers (if the reference height has changed) */
+        /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
         /* Transport with Pumas */
@@ -628,7 +649,7 @@ double mulder_fluxmeter_grammage(
         turtle_ecef_from_horizontal(
             latitude, longitude, azimuth, elevation, s.api.direction);
 
-        /* Update Turtle steppers (if the reference height has changed) */
+        /* Update Turtle steppers (if the reference heighs have changed) */
         update_steppers(f);
 
         /* Transport with Pumas */
@@ -677,7 +698,7 @@ int mulder_fluxmeter_whereami(struct mulder_fluxmeter * fluxmeter,
 {
         struct fluxmeter * f = (void *)fluxmeter;
 
-        /* Update Turtle steppers (if the reference height has changed) */
+        /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
         /* Get ECEF position */
@@ -873,12 +894,19 @@ static double flux_gccly(double cos_theta, double kinetic_energy)
 
 
 /* Reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
-static double reference_flux(double kinetic_energy, double elevation)
+static double reference_flux(struct mulder_reference * reference,
+    double height, double elevation, double kinetic_energy)
 {
         const double deg = M_PI / 180.;
         const double cos_theta = cos((90. - elevation) * deg);
         return flux_gccly(cos_theta, kinetic_energy);
 }
+
+static struct mulder_reference default_reference = {
+        .height_min = 0.,
+        .height_max = 0.,
+        .flux = &reference_flux
+};
 
 
 /* Floating point exceptions (for debugging, disabled by default) */

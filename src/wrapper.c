@@ -154,13 +154,13 @@ enum mulder_return mulder_fluxmeter_flux_v(
 
 
 /* Vectorized reference flux */
-enum mulder_return mulder_fluxmeter_reference_flux_v(
-    struct mulder_fluxmeter * fluxmeter, double elevation, int n,
+enum mulder_return mulder_reference_flux_v(
+    struct mulder_reference * reference, double height, double elevation, int n,
     const double * energy, double * flux)
 {
         last_error.rc = MULDER_SUCCESS;
         for (; n > 0; n--, energy++, flux++) {
-                *flux = fluxmeter->reference_flux(*energy, elevation);
+                *flux = reference->flux(reference, height, elevation, *energy);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
