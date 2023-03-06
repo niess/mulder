@@ -364,6 +364,9 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         init_ptr((void **)&fluxmeter->api.layers, fluxmeter->layers);
         memcpy(fluxmeter->layers, layers, size * sizeof *fluxmeter->layers);
 
+        /* Initialise transport mode */
+        fluxmeter->api.mode = MULDER_CSDA;
+
         /* Initialise reference flux */
         fluxmeter->api.reference = &default_reference;
         fluxmeter->zref = 0.;
@@ -476,6 +479,11 @@ double mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter, double kinetic_energy, double latitude,
     double longitude, double height, double azimuth, double elevation)
 {
+        if (kinetic_energy <= 0.) {
+                mulder_error("bad kinetic energy (0)");
+                return 0.;
+        }
+
         /* Initialise the muon state */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = {
@@ -500,22 +508,74 @@ double mulder_fluxmeter_flux(
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
-        f->context->mode.energy_loss = PUMAS_MODE_CSDA;
         f->context->event = PUMAS_EVENT_LIMIT_ENERGY;
         f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
 
         if (height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
+                f->context->limit.energy = 1E+21;
+                if (f->api.mode == MULDER_CSDA) {
+                        f->context->mode.energy_loss = PUMAS_MODE_CSDA;
+                        f->context->mode.scattering = PUMAS_MODE_DISABLED;
+                } else if (f->api.mode == MULDER_MIXED) {
+                        f->context->mode.energy_loss = PUMAS_MODE_MIXED;
+                        f->context->mode.scattering = PUMAS_MODE_DISABLED;
+                } else {
+                        /* Detailed mode */
+                        if (s.api.energy <= 1E+01 - FLT_EPSILON) {
+                                f->context->mode.energy_loss =
+                                    PUMAS_MODE_STRAGGLED;
+                                f->context->mode.scattering =
+                                    PUMAS_MODE_MIXED;
+                                f->context->limit.energy = 1E+01;
+                        } else if (s.api.energy <= 1E+02 - FLT_EPSILON) {
+                                f->context->mode.energy_loss = PUMAS_MODE_MIXED;
+                                f->context->mode.scattering =
+                                    PUMAS_MODE_MIXED;
+                                f->context->limit.energy = 1E+02;
+                        } else {
+                                /* Mixed mode is used */
+                                f->context->mode.energy_loss = PUMAS_MODE_MIXED;
+                                f->context->mode.scattering =
+                                    PUMAS_MODE_DISABLED;
+                        }
+                }
                 f->context->medium = &layers_geometry;
                 f->context->mode.direction = PUMAS_MODE_BACKWARD;
-                f->context->limit.energy = 1E+21;
 
                 enum pumas_event event;
-                if (pumas_context_transport(f->context, &s.api, &event, NULL)
-                    != PUMAS_RETURN_SUCCESS) {
-                        return 0.;
+                for (;;) {
+                        if (pumas_context_transport(
+                            f->context, &s.api, &event, NULL)
+                            != PUMAS_RETURN_SUCCESS) {
+                                return 0.;
+                        }
+                        if ((f->api.mode == MULDER_DETAILED) &&
+                            (event == PUMAS_EVENT_LIMIT_ENERGY)) {
+                                if (s.api.energy >= 1E+21 - FLT_EPSILON) {
+                                        return 0.;
+                                } else if (s.api.energy >=
+                                    1E+02 - FLT_EPSILON) {
+                                        f->context->mode.energy_loss =
+                                            PUMAS_MODE_MIXED;
+                                        f->context->mode.scattering =
+                                            PUMAS_MODE_DISABLED;
+                                        f->context->limit.energy = 1E+21;
+                                        continue;
+                                } else {
+                                        f->context->mode.energy_loss =
+                                            PUMAS_MODE_MIXED;
+                                        f->context->mode.scattering =
+                                            PUMAS_MODE_MIXED;
+                                        f->context->limit.energy = 1E+02;
+                                        continue;
+                                }
+                        } else if (event != PUMAS_EVENT_MEDIUM) {
+                                return 0.;
+                        } else {
+                                break;
+                        }
                 }
-                if (event != PUMAS_EVENT_MEDIUM) return 0.;
 
                 /* Get coordinates at end location (expected to be at ztop) */
                 turtle_ecef_to_geodetic(
@@ -529,7 +589,9 @@ double mulder_fluxmeter_flux(
                 const double e0 = s.api.energy;
                 s.api.time = 0.;
 
-                /* Transport forward to reference height */
+                /* Transport forward to reference height using CSDA */
+                f->context->mode.energy_loss = PUMAS_MODE_CSDA;
+                f->context->mode.scattering = PUMAS_MODE_DISABLED;
                 f->context->medium = &opensky_geometry;
                 f->context->mode.direction = PUMAS_MODE_FORWARD;
                 f->context->limit.energy = 1E-04;

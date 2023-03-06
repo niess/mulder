@@ -289,6 +289,26 @@ class Fluxmeter:
     """Muon flux calculator"""
 
     @property
+    def mode(self):
+        """Muons transport mode"""
+        mode = self._fluxmeter[0].mode
+        if mode == lib.MULDER_CSDA:
+            return "csda"
+        elif mode == lib.MULDER_MIXED:
+            return "mixed"
+        else:
+            return "detailed"
+
+    @mode.setter
+    def mode(self, v):
+        try:
+            mode = getattr(lib, f"MULDER_{v.upper()}")
+        except AttributeError:
+            raise ValueError(f"bad mode (v)")
+        else:
+            self._fluxmeter[0].mode = mode
+
+    @property
     def size(self):
         return int(self._fluxmeter[0].size)
 

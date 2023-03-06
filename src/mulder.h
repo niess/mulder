@@ -86,6 +86,23 @@ struct mulder_reference * mulder_reference_load_table(const char * path);
 void mulder_reference_destroy_table(struct mulder_reference ** reference);
 
 
+/* Transport modes for muon flux computations */
+enum mulder_mode {
+    /* Muons are transported using a deterministic CSDA. This is the default
+     * mode of operation
+     */
+    MULDER_CSDA = 0,
+    /* As previously, but catastrophic energy losses are randomised,
+     * e.g. as in MUM (Sokalski, Bugaev and Klimushin, hep-ph/0010322)
+     */
+    MULDER_MIXED,
+    /* A detailed Monte Carlo simulation is done, including multiple
+     * scattering
+     */
+    MULDER_DETAILED
+};
+
+
 /* Muon flux calculator (semi-opaque structure) */
 struct mulder_fluxmeter {
     /* Initial settings (non mutable) */
@@ -93,7 +110,8 @@ struct mulder_fluxmeter {
     const int size;
     const struct mulder_layer ** layers;
 
-    /* Mutable reference flux */
+    /* Mutable properties */
+    enum mulder_mode mode;
     struct mulder_reference * reference;
 };
 
@@ -104,20 +122,20 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 
+int mulder_fluxmeter_intersect(
+    struct mulder_fluxmeter * fluxmeter,
+    double * latitude,
+    double * longitude,
+    double * height,
+    double azimuth,
+    double elevation);
+
 double mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
     double kinetic_energy,
     double latitude,
     double longitude,
     double height,
-    double azimuth,
-    double elevation);
-
-int mulder_fluxmeter_intersect(
-    struct mulder_fluxmeter * fluxmeter,
-    double * latitude,
-    double * longitude,
-    double * height,
     double azimuth,
     double elevation);
 
