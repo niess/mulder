@@ -11,7 +11,6 @@ layer = mulder.Layer("Rock", offset=3E+03)
 # Load the reference flux
 reference = mulder.Reference(
     "deps/atmospheric-muon-flux/data/simulated/flux-mceq-yfm-gsf-usstd.table")
-reference.height_max = 0 # Disable ref for height > 0 (for fluxmeter)
 
 # Create a fluxmeter and compute the muon spectrum along some direction of
 # observation
@@ -21,7 +20,14 @@ meter.reference = reference
 latitude, longitude, height = 45, 3, layer.offset + 0.5
 azimuth, elevation = 0, 60
 energy = numpy.logspace(-1, 4, 51)
+
+hmax = reference.height_max
+reference.height_max = 0 # Disable heights > 0. This is in order to force
+                         # the fluxmeter to use reference data at 0 height.
 flux = meter.flux(latitude, longitude, height, azimuth, elevation, energy)
+
+reference.height_max = hmax # Restore ref. max height.
+
 
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = energy**2.7 * 1E-04

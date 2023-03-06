@@ -951,11 +951,19 @@ static double reference_table_flux(struct mulder_reference * reference,
         const int ic = (int)hc;
         hc -= ic;
 
-        const double dh = (table->h_max - table->h_min) / (table->n_h - 1);
-        double hh = (height - table->h_min) / dh;
-        if ((hh < 0.) || (hh > table->n_h - 1)) return 0.;
-        const int ih = (int)hh;
-        hh -= ih;
+        int ih;
+        double hh;
+        if (table->n_h > 1) {
+                const double dh = (table->h_max - table->h_min) /
+                    (table->n_h - 1);
+                hh = (height - table->h_min) / dh;
+                if ((hh < 0.) || (hh > table->n_h - 1)) return 0.;
+                ih = (int)hh;
+                hh -= ih;
+        } else {
+                hh = 0.;
+                ih = 0;
+        }
 
         const int ik1 = (ik < table->n_k - 1) ?
             ik + 1 : table->n_k - 1;

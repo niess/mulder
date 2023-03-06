@@ -29,9 +29,11 @@ def convert(path: Path, offset: Optional[float]=None):
 
     ny, nx = g.tif_shape
     (xmin, ymin), (xmax, ymax) = g.tif_bBox
+    x = numpy.linspace(xmin, xmax, nx)
+    y = numpy.linspace(ymin, ymax, ny)
 
     path = path.with_suffix(".png")
-    create_map(str(path), projection, (xmin, xmax), (ymin, ymax), data)
+    create_map(str(path), projection, x, y, data)
 
 
 def main():
@@ -95,6 +97,9 @@ def main():
 
     convert_parser.add_argument("-d", "--destination",
         help="destination directory for physics tables")
+
+
+    # XXX Add a generator for references? (e.g. using MCEq)
 
 
     # Parse and process arguments

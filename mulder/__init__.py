@@ -60,6 +60,14 @@ _tostr = lambda x: ffi.NULL if x is None else \
                    ffi.new("const char[]", x.encode())
 
 
+def _is_regular(a):
+    """Check if a 1d array has a regular stepping"""
+    d = numpy.diff(a)
+    dmin, dmax = min(d), max(d)
+    amax = max(numpy.absolute(a))
+    return dmax - dmin <= 1E-15 * amax
+
+
 class Layer:
     """Topographic layer"""
 
@@ -257,8 +265,6 @@ class Reference:
             reference[0] = lib.mulder_reference_load_table(_tostr(path))
             self._reference = reference
 
-            # XXX Create from table & dump method
-
     def flux(self, elevation, energy, height=None):
         """Get reference flux model, defined at reference height(s)"""
 
@@ -394,18 +400,63 @@ class Fluxmeter:
         return i
 
 
-def create_map(path, projection, xlim, ylim, data):
+def create_map(path, projection, x, y, data):
     """Create a Turtle map from a numpy array"""
 
-    path = ffi.new("const char[]", path.encode())
-    projection = ffi.new("const char[]", projection.encode())
-    data = numpy.asarray(data, dtype="f8", order="C")
+    assert(len(x) > 1)
+    assert(_is_regular(x))
+    assert(len(y) > 1)
+    assert(_is_regular(y))
 
-    todouble = lambda x: ffi.cast("double *", x.ctypes.data)
-    rc = lib.mulder_map_create(path, projection, data.shape[1], data.shape[0],
-        xlim[0], xlim[1], ylim[0], ylim[1], todouble(data))
+    data = _asarray(data)
+
+    assert(data.ndim == 2)
+    assert(data.shape[0] == len(y))
+    assert(data.shape[1] == len(x))
+
+    rc = lib.mulder_map_create(_tostr(path), _tostr(projection), len(x),
+        len(y), x[0], x[-1], y[0], y[-1], _todouble(data))
     if rc != lib.MULDER_SUCCESS:
         raise LibraryError()
+
+
+def create_reference_table(path, height, cos_theta, energy, data):
+    """Create a reference flux table from a numpy array"""
+
+    # Check inputs
+    assert(len(cos_theta) > 1)
+    assert(_is_regular(cos_theta))
+    assert(len(energy) > 1)
+    assert(_is_regular(numpy.log(energy)))
+
+    data = numpy.ascontiguousarray(data, dtype="f4")
+
+    if isinstance(height, Number):
+        assert(data.ndim == 3)
+        assert(data.shape[0] == len(cos_theta))
+        assert(data.shape[1] == len(energy))
+        assert(data.shape[2] == 2)
+        height = _asarray(height)
+    else:
+        assert(_is_regular(height))
+        assert(data.ndim == 4)
+        assert(data.shape[0] == len(height))
+        assert(data.shape[1] == len(cos_theta))
+        assert(data.shape[2] == len(energy))
+        assert(data.shape[3] == 2)
+
+    # Generate binary table file
+    with open(path, "wb") as f:
+        dims = numpy.array((len(energy), len(cos_theta), len(height)),
+                           dtype="i8")
+        dims.astype("<i8").tofile(f)
+
+        lims = numpy.array((energy[0], energy[-1], cos_theta[0],
+                            cos_theta[-1], altitude[0], altitude[-1]),
+                           dtype="f8")
+        lims.astype("<f8").tofile(f)
+
+        data.flatten().astype("<f4").tofile(f)
 
 
 def generate_physics(path, destination=None):
