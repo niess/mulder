@@ -400,7 +400,7 @@ void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter)
 /* Update Turtle steppers for the layered & opensky geometries */
 static void update_steppers(struct fluxmeter * fluxmeter)
 {
-        const struct mulder_reference const * reference =
+        const struct mulder_reference * const reference =
             fluxmeter->api.reference;
         if ((fluxmeter->zref_min == reference->height_min) &&
             (fluxmeter->zref_max == reference->height_max)) {
@@ -523,7 +523,7 @@ double mulder_fluxmeter_flux(
                 if (fabs(height - f->ztop) > 1E-04) return 0.;
         }
 
-        if (height > f->zref + FLT_EPSILON) {
+        if (height > f->api.reference->height_max + FLT_EPSILON) {
                 /* Backup proper time and kinetic energy */
                 const double t0 = s.api.time;
                 const double e0 = s.api.energy;
@@ -566,10 +566,10 @@ double mulder_fluxmeter_flux(
         turtle_ecef_to_horizontal(
             latitude, longitude, direction0, &azimuth, &elevation);
 
-        /* Sample flux at reference height */
+        /* Sample reference flux at final height */
         struct mulder_reference * reference = fluxmeter->reference;
         const double flux = reference->flux(
-            reference, f->zref, elevation, s.api.energy);
+            reference, height, elevation, s.api.energy);
 
         /* Compute decay probaility */
         const double pdec = exp(-s.api.time / MUON_C_TAU);
@@ -911,6 +911,181 @@ static struct mulder_reference default_reference = {
         .height_max = 0.,
         .flux = &reference_flux
 };
+
+
+/* Data layout for a tabulated reference flux */
+struct reference_table {
+        struct mulder_reference api;
+        int n_k;
+        int n_c;
+        int n_h;
+        double k_min;
+        double k_max;
+        double c_min;
+        double c_max;
+        double h_min;
+        double h_max;
+        float data[];
+};
+
+
+/* Intepolation of tabulated reference flux */
+static double reference_table_flux(struct mulder_reference * reference,
+    double height, double elevation, double kinetic_energy)
+{
+        struct reference_table * table = (void *)reference;
+
+        /* Compute the interpolation indices and coefficients */
+        const double dlk = log(table->k_max / table->k_min) /
+            (table->n_k - 1);
+        double hk = log(kinetic_energy / table->k_min) / dlk;
+        if ((hk < 0.) || (hk > table->n_k - 1)) return 0.;
+        const int ik = (int)hk;
+        hk -= ik;
+
+        const double deg = M_PI / 180;
+        const double c = cos((90 - elevation) * deg);
+        const double dc = (table->c_max - table->c_min) / (table->n_c - 1);
+        double hc = (c - table->c_min) / dc;
+        if ((hc < 0.) || (hc > table->n_c - 1)) return 0.;
+        const int ic = (int)hc;
+        hc -= ic;
+
+        const double dh = (table->h_max - table->h_min) / (table->n_h - 1);
+        double hh = (height - table->h_min) / dh;
+        if ((hh < 0.) || (hh > table->n_h - 1)) return 0.;
+        const int ih = (int)hh;
+        hh -= ih;
+
+        const int ik1 = (ik < table->n_k - 1) ?
+            ik + 1 : table->n_k - 1;
+        const int ic1 = (ic < table->n_c - 1) ?
+            ic + 1 : table->n_c - 1;
+        const int ih1 = (ih < table->n_h - 1) ?
+            ih + 1 : table->n_h - 1;
+        const float * const f000 =
+            table->data + 2 * ((ih * table->n_c + ic) *
+            table->n_k + ik);
+        const float * const f010 =
+            table->data + 2 * ((ih * table->n_c + ic1) *
+            table->n_k + ik);
+        const float * const f100 =
+            table->data + 2 * ((ih * table->n_c + ic) *
+            table->n_k + ik1);
+        const float * const f110 =
+            table->data + 2 * ((ih * table->n_c + ic1) *
+            table->n_k + ik1);
+        const float * const f001 =
+            table->data + 2 * ((ih1 * table->n_c + ic) *
+            table->n_k + ik);
+        const float * const f011 =
+            table->data + 2 * ((ih1 * table->n_c + ic1) *
+            table->n_k + ik);
+        const float * const f101 =
+            table->data + 2 * ((ih1 * table->n_c + ic) *
+            table->n_k + ik1);
+        const float * const f111 =
+            table->data + 2 * ((ih1 * table->n_c + ic1) *
+            table->n_k + ik1);
+
+        /* Interpolate the flux */
+        double flux = 0.;
+        int i;
+        for (i = 0; i < 2; i++) {
+                /* Linear interpolation along cos(theta) */
+                const double g00 = f000[i] * (1. - hc) + f010[i] * hc;
+                const double g10 = f100[i] * (1. - hc) + f110[i] * hc;
+                const double g01 = f001[i] * (1. - hc) + f011[i] * hc;
+                const double g11 = f101[i] * (1. - hc) + f111[i] * hc;
+
+                /* Log or linear interpolation along log(kinetic) */
+                double g0;
+                if ((g00 <= 0.) || (g10 <= 0.))
+                        g0 = g00 * (1. - hk) + g10 * hk;
+                else
+                        g0 = exp(log(g00) * (1. - hk) + log(g10) * hk);
+
+                double g1;
+                if ((g01 <= 0.) || (g11 <= 0.))
+                        g1 = g01 * (1. - hk) + g11 * hk;
+                else
+                        g1 = exp(log(g01) * (1. - hk) + log(g11) * hk);
+
+                /* Log or linear interpolation along altitude */
+                if ((g0 <= 0.) || (g1 <= 0.))
+                        flux += g0 * (1. - hh) + g1 * hh;
+                else
+                        flux += exp(log(g0) * (1. - hh) + log(g1) * hh);
+        }
+        return flux;
+}
+
+
+/* Load a tabulated reference flux */
+struct mulder_reference * mulder_reference_load_table(const char * path)
+{
+        FILE * fid = fopen(path, "rb");
+        if (fid == NULL) {
+                char format[] = "could not open %s";
+                const int n = strlen(path) + sizeof format;
+                char msg[n];
+                sprintf(msg, path);
+                mulder_error(msg);
+                return NULL;
+        }
+
+        struct reference_table * table = NULL;
+        int64_t shape[3];
+        double range[6];
+
+        if (fread(shape, 8, 3, fid) != 3) goto error;
+        if (fread(range, 8, 6, fid) != 6) goto error;
+
+        /* XXX check endianess ? */
+
+        size_t size = (size_t)(2 * shape[0] * shape[1] * shape[2]);
+        table = malloc(sizeof(*table) + size * sizeof(*table->data));
+        if (table == NULL) goto error;
+
+        if (fread(table->data, sizeof(*table->data), size, fid) != size) {
+                goto error;
+        }
+        fclose(fid);
+
+        table->n_k = shape[0];
+        table->n_c = shape[1];
+        table->n_h = shape[2];
+        table->k_min = range[0];
+        table->k_max = range[1];
+        table->c_min = range[2];
+        table->c_max = range[3];
+        table->h_min = range[4];
+        table->h_max = range[5];
+
+        /* Set API fields */
+        table->api.height_min = table->h_min;
+        table->api.height_max = table->h_max;
+        table->api.flux = &reference_table_flux;
+
+        return &table->api;
+error:
+        fclose(fid);
+        free(table);
+        char format[] = "bad format (%s)";
+        const int n = strlen(path) + sizeof format;
+        char msg[n];
+        sprintf(msg, path);
+        mulder_error(msg);
+        return NULL;
+}
+
+
+void mulder_reference_destroy_table(struct mulder_reference ** reference)
+{
+        if ((reference == NULL) || (*reference == NULL)) return;
+        free(*reference);
+        *reference = NULL;
+}
 
 
 /* Floating point exceptions (for debugging, disabled by default) */

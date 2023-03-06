@@ -219,22 +219,45 @@ class Reference:
 
     @property
     def height_min(self):
-        return float(self._reference[0].height_min)
+        if self._reference is None:
+            return None
+        else:
+            return float(self._reference[0].height_min)
 
     @height_min.setter
     def height_min(self, value):
-        self._reference[0].height_min = value
+        if self._reference is None:
+            raise ValueError("bad reference")
+        else:
+            self._reference[0].height_min = value
 
     @property
     def height_max(self):
-        return float(self._reference[0].height_max)
+        if self._reference is None:
+            return None
+        else:
+            return float(self._reference[0].height_max)
 
     @height_max.setter
     def height_max(self, value):
-        self._reference[0].height_max = value
+        if self._reference is None:
+            raise ValueError("bad reference")
+        else:
+            self._reference[0].height_max = value
 
-    def __init__(self):
-        self._reference = None
+    def __init__(self, path=None):
+        if path is None:
+            self._reference = None
+        else:
+            # Load a tabulated reference flux from a file
+            reference = ffi.gc(
+                ffi.new("struct mulder_reference *[1]", (ffi.NULL,)),
+                lib.mulder_reference_destroy_table
+            )
+            reference[0] = lib.mulder_reference_load_table(_tostr(path))
+            self._reference = reference
+
+            # XXX Create from table & dump method
 
     def flux(self, elevation, energy, height=None):
         """Get reference flux model, defined at reference height(s)"""
@@ -245,10 +268,13 @@ class Reference:
         energy = _asarray(energy)
         flux = numpy.empty(energy.size)
 
-        rc = lib.mulder_reference_flux_v(self._reference[0],
-            height, elevation, energy.size, _todouble(energy), _todouble(flux))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
+        if self._reference is None:
+            flux[:] = 0
+        else:
+            rc = lib.mulder_reference_flux_v(self._reference[0], height,
+                elevation, energy.size, _todouble(energy), _todouble(flux))
+            if rc != lib.MULDER_SUCCESS:
+                raise LibraryError()
 
         return _fromarray(flux)
 
@@ -273,6 +299,14 @@ class Fluxmeter:
             self._reference._reference = ffi.new(
                 "struct mulder_reference *[1]", (self._fluxmeter[0].reference,))
         return self._reference
+
+    @reference.setter
+    def reference(self, v):
+        if not isinstance(v, Reference):
+            raise TypeError("bad type (expected a mulder.Reference)")
+        else:
+            self._fluxmeter[0].reference = v._reference[0]
+            self._reference = v
 
     def __init__(self, *layers, physics=None):
 

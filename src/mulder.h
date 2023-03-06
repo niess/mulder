@@ -82,6 +82,9 @@ struct mulder_reference {
                    double kinetic_energy);
 };
 
+struct mulder_reference * mulder_reference_load_table(const char * path);
+void mulder_reference_destroy_table(struct mulder_reference ** reference);
+
 
 /* Muon flux calculator (semi-opaque structure) */
 struct mulder_fluxmeter {
