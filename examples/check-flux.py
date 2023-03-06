@@ -28,6 +28,8 @@ flux = meter.flux(latitude, longitude, height, azimuth, elevation, energy)
 
 reference.height_max = hmax # Restore ref. max height.
 
+# Get default reference flux, for comparison
+default = mulder.Reference()
 
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = energy**2.7 * 1E-04
@@ -39,6 +41,8 @@ plot.plot(energy, reference.flux(elevation, energy, height=0) * norm, "k--",
     label="MCEq (0m)")
 plot.plot(energy, reference.flux(elevation, energy, height=height) * norm, "k-",
     label="MCEq (3000m)")
+plot.plot(energy, default.flux(elevation, energy, height=0) * norm, "k:",
+    label="GCCLY (0m)")
 plot.xscale("log")
 plot.yscale("log")
 plot.xlabel("energy, $E$ (GeV)")

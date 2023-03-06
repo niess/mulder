@@ -513,7 +513,7 @@ double mulder_fluxmeter_flux(
 
         if (height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
-                f->context->limit.energy = 1E+21;
+                f->context->limit.energy = f->api.reference->energy_max;
                 if (f->api.mode == MULDER_CSDA) {
                         f->context->mode.energy_loss = PUMAS_MODE_CSDA;
                         f->context->mode.scattering = PUMAS_MODE_DISABLED;
@@ -552,7 +552,9 @@ double mulder_fluxmeter_flux(
                         }
                         if ((f->api.mode == MULDER_DETAILED) &&
                             (event == PUMAS_EVENT_LIMIT_ENERGY)) {
-                                if (s.api.energy >= 1E+21 - FLT_EPSILON) {
+                                if (s.api.energy >=
+                                    f->api.reference->energy_max -
+                                    FLT_EPSILON) {
                                         return 0.;
                                 } else if (s.api.energy >=
                                     1E+02 - FLT_EPSILON) {
@@ -560,7 +562,8 @@ double mulder_fluxmeter_flux(
                                             PUMAS_MODE_MIXED;
                                         f->context->mode.scattering =
                                             PUMAS_MODE_DISABLED;
-                                        f->context->limit.energy = 1E+21;
+                                        f->context->limit.energy =
+                                            f->api.reference->energy_max;
                                         continue;
                                 } else {
                                         f->context->mode.energy_loss =
@@ -594,7 +597,7 @@ double mulder_fluxmeter_flux(
                 f->context->mode.scattering = PUMAS_MODE_DISABLED;
                 f->context->medium = &opensky_geometry;
                 f->context->mode.direction = PUMAS_MODE_FORWARD;
-                f->context->limit.energy = 1E-04;
+                f->context->limit.energy = f->api.reference->energy_min;
 
                 enum pumas_event event;
                 if (pumas_context_transport(f->context, &s.api, &event, NULL)
@@ -959,7 +962,7 @@ static double flux_gccly(double cos_theta, double kinetic_energy)
 }
 
 
-/* Reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
+/* Default reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
 static double reference_flux(struct mulder_reference * reference,
     double height, double elevation, double kinetic_energy)
 {
@@ -969,10 +972,17 @@ static double reference_flux(struct mulder_reference * reference,
 }
 
 static struct mulder_reference default_reference = {
+        .energy_min = 1E-04,
+        .energy_max = 1E+21,
         .height_min = 0.,
         .height_max = 0.,
         .flux = &reference_flux
 };
+
+struct mulder_reference * mulder_reference_default(void)
+{
+        return &default_reference;
+}
 
 
 /* Data layout for a tabulated reference flux */
@@ -1133,6 +1143,8 @@ struct mulder_reference * mulder_reference_load_table(const char * path)
         table->h_max = range[5];
 
         /* Set API fields */
+        table->api.energy_min = table->k_min;
+        table->api.energy_max = table->k_max;
         table->api.height_min = table->h_min;
         table->api.height_max = table->h_max;
         table->api.flux = &reference_table_flux;

@@ -226,36 +226,41 @@ class Reference:
     """Reference (opensky) muon flux"""
 
     @property
+    def energy_min(self):
+        return float(self._reference[0].energy_min)
+
+    @energy_min.setter
+    def energy_min(self, value):
+        self._reference[0].energy_min = value
+
+    @property
+    def energy_max(self):
+        return float(self._reference[0].energy_max)
+
+    @energy_max.setter
+    def energy_max(self, value):
+        self._reference[0].energy_max = value
+
+    @property
     def height_min(self):
-        if self._reference is None:
-            return None
-        else:
-            return float(self._reference[0].height_min)
+        return float(self._reference[0].height_min)
 
     @height_min.setter
     def height_min(self, value):
-        if self._reference is None:
-            raise ValueError("bad reference")
-        else:
-            self._reference[0].height_min = value
+        self._reference[0].height_min = value
 
     @property
     def height_max(self):
-        if self._reference is None:
-            return None
-        else:
-            return float(self._reference[0].height_max)
+        return float(self._reference[0].height_max)
 
     @height_max.setter
     def height_max(self, value):
-        if self._reference is None:
-            raise ValueError("bad reference")
-        else:
-            self._reference[0].height_max = value
+        self._reference[0].height_max = value
 
     def __init__(self, path=None):
         if path is None:
-            self._reference = None
+            self._reference = ffi.new("struct mulder_reference *[1]",
+                (lib.mulder_reference_default(),))
         else:
             # Load a tabulated reference flux from a file
             reference = ffi.gc(
