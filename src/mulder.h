@@ -90,6 +90,17 @@ struct mulder_reference * mulder_reference_load_table(const char * path);
 void mulder_reference_destroy_table(struct mulder_reference ** reference);
 
 
+/* Memory layout for Pseudo Random Numbers Generators (PRNGs) */
+struct mulder_prng {
+    unsigned long (*get_seed)(struct mulder_prng * prng);
+
+    void (*set_seed)(struct mulder_prng * prng,
+                     const unsigned long * seed);
+
+    double (*uniform01)(struct mulder_prng * prng); /* Mandatory */
+};
+
+
 /* Transport modes for muon flux computations */
 enum mulder_mode {
     /* Muons are transported using a deterministic CSDA. This is the default
@@ -116,6 +127,7 @@ struct mulder_fluxmeter {
 
     /* Mutable properties */
     enum mulder_mode mode;
+    struct mulder_prng * prng;
     struct mulder_reference * reference;
 };
 

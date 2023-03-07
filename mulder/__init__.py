@@ -290,6 +290,51 @@ class Reference:
         return _fromarray(flux)
 
 
+class Prng:
+    """Pseudo random numbers generator"""
+
+    @property
+    def fluxmeter(self):
+        return self._fluxmeter()
+
+    @property
+    def seed(self):
+        fluxmeter = self._fluxmeter()
+        if fluxmeter is None:
+            raise RuntimeError("dead fluxmeter ref")
+        else:
+            prng = fluxmeter._fluxmeter[0].prng
+            return int(prng.get_seed(prng))
+
+    @seed.setter
+    def seed(self, value):
+        fluxmeter = self._fluxmeter()
+        if fluxmeter is None:
+            raise RuntimeError("dead fluxmeter ref")
+        else:
+            value = ffi.NULL if value is None else \
+                    ffi.new("unsigned long [1]", (value,))
+            prng = fluxmeter._fluxmeter[0].prng
+            prng.set_seed(prng, value)
+
+    def __init__(self, fluxmeter):
+        assert(isinstance(fluxmeter, Fluxmeter))
+        self._fluxmeter = weakref.ref(fluxmeter)
+
+    def __call__(self, n=None):
+        """Get numbers pseudo-uniformly distributed overs (0, 1)"""
+
+        fluxmeter = self._fluxmeter()
+        if fluxmeter is None:
+            raise RuntimeError("dead fluxmeter ref")
+        else:
+            prng = fluxmeter._fluxmeter[0].prng
+            if n is None: n = 1
+            values = numpy.empty(n, dtype="f8")
+            lib.mulder_prng_uniform01_v(prng, n, _todouble(values))
+            return _fromarray(values)
+
+
 class Fluxmeter:
     """Muon flux calculator"""
 
@@ -323,6 +368,11 @@ class Fluxmeter:
         return ffi.string(self._fluxmeter[0].physics).decode()
 
     @property
+    def prng(self):
+        """Pseudo random numbers generator"""
+        return self._prng
+
+    @property
     def reference(self):
         """Reference (opensky) flux model"""
         if self._reference is None:
@@ -353,6 +403,7 @@ class Fluxmeter:
         weakref.finalize(self, lib.mulder_fluxmeter_destroy, fluxmeter)
         self._fluxmeter = fluxmeter
         self._reference = None
+        self._prng = Prng(self)
 
     def flux(self, latitude, longitude, height, azimuth, elevation, energy):
         """Calculate muon flux"""

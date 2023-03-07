@@ -260,8 +260,10 @@ void mulder_layer_coordinates(const struct mulder_layer * layer,
 /* Internal data layout of a fluxmeter */
 struct fluxmeter {
         struct mulder_fluxmeter api;
+        struct mulder_prng prng;
         struct pumas_physics * physics;
         struct pumas_context * context;
+        double (*context_random)(struct pumas_context * context);
         struct pumas_medium * layers_media;
         struct pumas_medium atmosphere_medium;
         struct turtle_stepper * layers_stepper;
@@ -289,6 +291,14 @@ static enum pumas_step opensky_geometry(struct pumas_context * context,
     struct pumas_state * state, struct pumas_medium ** medium, double * step);
 
 static void update_steppers(struct fluxmeter * fluxmeter);
+
+static double random_pumas(struct pumas_context * context);
+
+static unsigned long get_seed(struct mulder_prng * prng);
+
+static void set_seed(struct mulder_prng * prng, const unsigned long * seed);
+
+static double uniform01(struct mulder_prng * prng);
 
 static struct mulder_reference default_reference;
 
@@ -323,6 +333,9 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         pumas_error_catch(0);
         pumas_context_create(&fluxmeter->context, fluxmeter->physics, 0);
 
+        fluxmeter->context->user_data = fluxmeter;
+        fluxmeter->context_random = fluxmeter->context->random;
+        fluxmeter->context->random = &random_pumas;
         fluxmeter->context->mode.scattering = PUMAS_MODE_DISABLED;
         fluxmeter->context->mode.decay = PUMAS_MODE_DISABLED;
 
@@ -378,6 +391,12 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         fluxmeter->opensky_stepper = NULL;
         fluxmeter->use_external_layer = 0;
         update_steppers(fluxmeter);
+
+        /* Initialise PRNG API */
+        fluxmeter->api.prng = &fluxmeter->prng;
+        fluxmeter->prng.get_seed = &get_seed;
+        fluxmeter->prng.set_seed = &set_seed;
+        fluxmeter->prng.uniform01 = &uniform01;
 
         return &fluxmeter->api;
 }
@@ -1167,6 +1186,48 @@ void mulder_reference_destroy_table(struct mulder_reference ** reference)
         if ((reference == NULL) || (*reference == NULL)) return;
         free(*reference);
         *reference = NULL;
+}
+
+
+/* Pumas PRNG wrapper */
+static double random_pumas(struct pumas_context * context)
+{
+        struct fluxmeter * f = context->user_data;
+        struct mulder_prng * prng = f->api.prng;
+        return prng->uniform01(prng);
+}
+
+
+static unsigned long get_seed(struct mulder_prng * prng)
+{
+        struct fluxmeter * f = (void *)prng - offsetof(struct fluxmeter, prng);
+        struct pumas_context * context = f->context;
+
+        unsigned long seed;
+        pumas_error_catch(1); /* Silently ignore unlikely error(s) below */
+        pumas_context_random_seed_get(context, &seed);
+        pumas_error_catch(0);
+        return seed;
+}
+
+
+static void set_seed(struct mulder_prng * prng, const unsigned long * seed)
+{
+        struct fluxmeter * f = (void *)prng - offsetof(struct fluxmeter, prng);
+        struct pumas_context * context = f->context;
+
+        pumas_error_catch(1); /* Silently ignore unlikely error(s) below */
+        pumas_context_random_seed_set(context, seed);
+        pumas_error_catch(0);
+}
+
+
+static double uniform01(struct mulder_prng * prng)
+{
+        struct fluxmeter * f = (void *)prng - offsetof(struct fluxmeter, prng);
+        struct pumas_context * context = f->context;
+
+        return f->context_random(context);
 }
 
 

@@ -99,6 +99,12 @@ enum mulder_return mulder_fluxmeter_whereami_v(
     const double * height,
     int * layer);
 
+/* Vectorized pseudo-random numbers */
+void mulder_prng_uniform01_v(
+    struct mulder_prng * prng,
+    int n,
+    double * values);
+
 /* Create a Turtle map from raw data */
 enum mulder_return mulder_map_create(
     const char * path,
