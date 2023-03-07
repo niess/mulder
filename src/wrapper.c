@@ -135,6 +135,18 @@ enum mulder_return mulder_layer_coordinates_v(
 }
 
 
+/* Vectorized geomagnetif field */
+void mulder_geomagnet_field_v(
+    struct mulder_geomagnet * geomagnet, int n, const double * latitude,
+    const double * longitude, const double * height, double * field)
+{
+        for (; n > 0; n--, latitude++, longitude++, height++, field += 3) {
+                mulder_geomagnet_field(geomagnet, *latitude, *longitude,
+                    *height, field, field + 1, field  + 2);
+        }
+}
+
+
 /* Vectorized flux computation */
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,

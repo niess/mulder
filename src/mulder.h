@@ -72,6 +72,38 @@ void mulder_layer_coordinates(
     double * y);
 
 
+/* Geomagnetic field (semi-opaque structure) */
+struct mulder_geomagnet {
+    /* Initial settings (non-mutable) */
+    const char * const model;
+    const int day;
+    const int month;
+    const int year;
+
+    /* Model metadata */
+    const int order;
+    const double height_min;
+    const double height_max;
+};
+
+struct mulder_geomagnet * mulder_geomagnet_create(
+    const char * model,
+    int day,
+    int month,
+    int year);
+
+void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet);
+
+void mulder_geomagnet_field(
+    const struct mulder_geomagnet * geomagnet,
+    double latitude,
+    double longitude,
+    double height,
+    double * east,
+    double * north,
+    double * upward);
+
+
 /* Particle(s) selection (using PDG PIDs) */
 enum mulder_selection {
     MULDER_ALL = 0,
@@ -139,6 +171,7 @@ struct mulder_fluxmeter {
     enum mulder_selection selection;
     struct mulder_prng * prng;
     struct mulder_reference * reference;
+    struct mulder_geomagnet * geomagnet;
 };
 
 struct mulder_fluxmeter * mulder_fluxmeter_create(

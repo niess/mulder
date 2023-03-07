@@ -20,6 +20,11 @@ int main(int argc, char * argv[])
             mulder_fluxmeter_create("mulder/data/materials.pumas",
                 n_layers, layers);
 
+        /* Attach a geomagnetic field (optional) */
+        struct mulder_geomagnet * magnet =
+            mulder_geomagnet_create("mulder/data/IGRF13.COF", 1, 1, 2020);
+        meter->geomagnet = magnet;
+
         /* Get geodetic coordinates at the middle of the map */
         const double x = 0.5 * (layers[0]->xmin + layers[0]->xmax);
         const double y = 0.5 * (layers[0]->ymin + layers[0]->ymax);
@@ -32,18 +37,19 @@ int main(int argc, char * argv[])
         const double kinetic_energy = 1E+01;
         const double azimuth = 0.;
         const double elevation = 90.;
-        struct mulder_result result = mulder_fluxmeter_flux(meter,
+        struct mulder_result flux = mulder_fluxmeter_flux(meter,
             kinetic_energy, latitude, longitude, height - 30., azimuth,
             elevation);
 
         printf("flux = %.5E GeV^-1 m^-2 s^-1 sr^1 (%+.5f)\n",
-            result.flux, result.charge);
+            flux.value, flux.asymmetry);
 
         /* Free memory */
         int i;
         for (i = 0; i < n_layers; i++) {
                 mulder_layer_destroy(layers + i);
         }
+        mulder_geomagnet_destroy(&magnet);
         mulder_fluxmeter_destroy(&meter);
 
         exit(EXIT_SUCCESS);

@@ -7,6 +7,7 @@
 #include <string.h>
 
 /* Custom libraries */
+#include "gull.h"
 #include "mulder.h"
 #include "pumas.h"
 #include "turtle.h"
@@ -257,15 +258,104 @@ void mulder_layer_coordinates(const struct mulder_layer * layer,
 }
 
 
+/* Internal data layout of a geomagnetic field */
+struct geomagnet {
+        struct mulder_geomagnet api;
+        struct gull_snapshot * snapshot;
+        double * workspace;
+};
+
+
+struct mulder_geomagnet * mulder_geomagnet_create(const char * model,
+    int day, int month, int year)
+{
+        struct geomagnet * geomagnet = malloc(sizeof *geomagnet);
+
+        /* Load the snapshot */
+        enum gull_return rc = gull_snapshot_create(
+            &geomagnet->snapshot, model, day, month, year);
+        if (rc != GULL_RETURN_SUCCESS) {
+                free(geomagnet);
+                if (rc == GULL_RETURN_MEMORY_ERROR) {
+                        mulder_error("could not allocate memory");
+                } else if (rc == GULL_RETURN_PATH_ERROR) {
+                        const char format[] = "could not open %s";
+                        const int size = strlen(model) + sizeof(format);
+                        char msg[size];
+                        sprintf(msg, format, model);
+                        mulder_error(msg);
+                } else if (rc == GULL_RETURN_MISSING_DATA) {
+                        mulder_error("no data for the given date");
+                }
+                return NULL;
+        }
+
+        /* Mirror initial settings */
+        init_string((void **)&geomagnet->api.model, model);
+        init_int((int *)&geomagnet->api.day, day);
+        init_int((int *)&geomagnet->api.month, month);
+        init_int((int *)&geomagnet->api.year, year);
+
+        /* Fetch metadata */
+        int order;
+        double height_min;
+        double height_max;
+        gull_snapshot_info(
+            geomagnet->snapshot, &order, &height_min, &height_max);
+
+        init_int((int *)&geomagnet->api.order, order);
+        init_double((double *)&geomagnet->api.height_min, height_min);
+        init_double((double *)&geomagnet->api.height_max, height_max);
+
+        /* Initialise workspace */
+        geomagnet->workspace = NULL;
+
+        return &geomagnet->api;
+}
+
+
+void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet)
+{
+        if ((geomagnet == NULL) || (*geomagnet == NULL)) return;
+
+        struct geomagnet * g = (void *)(*geomagnet);
+        gull_snapshot_destroy(&g->snapshot);
+        free(g->workspace);
+        free((void *)g->api.model);
+        free(g);
+        *geomagnet = NULL;
+}
+
+
+void mulder_geomagnet_field(const struct mulder_geomagnet * geomagnet,
+    double latitude, double longitude, double height, double * east,
+    double * north, double * upward)
+{
+        struct geomagnet * g = (void *)geomagnet;
+        double enu[3];
+        enum gull_return rc = gull_snapshot_field(g->snapshot,
+            latitude, longitude, height, enu, &g->workspace);
+        if (rc == GULL_RETURN_SUCCESS) {
+                *east = enu[0];
+                *north = enu[1];
+                *upward = enu[2];
+        } else {
+                *east = *north = *upward = 0.;
+        }
+}
+
+
 /* Internal data layout of a fluxmeter */
 struct fluxmeter {
         struct mulder_fluxmeter api;
         struct mulder_prng prng;
+        /* Pumas related data */
         struct pumas_physics * physics;
         struct pumas_context * context;
         double (*context_random)(struct pumas_context * context);
         struct pumas_medium * layers_media;
         struct pumas_medium atmosphere_medium;
+        /* Steooers related data */
         struct turtle_stepper * layers_stepper;
         struct turtle_stepper * opensky_stepper;
         double zmax;
@@ -274,6 +364,13 @@ struct fluxmeter {
         double zref_min;
         double zref_max;
         int use_external_layer;
+        /* Geomagnet related data */
+        struct geomagnet * current_geomagnet;
+        double * geomagnet_workspace;
+        double geomagnet_field[3];
+        double geomagnet_position[3];
+        int use_geomagnet;
+        /* Layers and extra storage */
         struct mulder_layer * layers[];
 };
 
@@ -399,6 +496,16 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         fluxmeter->prng.set_seed = &set_seed;
         fluxmeter->prng.uniform01 = &uniform01;
 
+        /* Initialise geomagnet */
+        fluxmeter->api.geomagnet = NULL;
+        fluxmeter->current_geomagnet = NULL;
+        fluxmeter->geomagnet_workspace = NULL;
+        memset(fluxmeter->geomagnet_field, 0x0,
+            sizeof(fluxmeter->geomagnet_field));
+        memset(fluxmeter->geomagnet_position, 0x0,
+            sizeof(fluxmeter->geomagnet_position));
+        fluxmeter->use_geomagnet = 0;
+
         return &fluxmeter->api;
 }
 
@@ -415,6 +522,7 @@ void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter)
 
         free((void *)f->api.physics);
         free(f->physics);
+        free(f->geomagnet_workspace);
         free(f);
         *fluxmeter = NULL;
 }
@@ -528,6 +636,17 @@ struct mulder_result mulder_fluxmeter_flux(
 
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
+
+        /* Update geomagnet (if needed) */
+        if (f->api.geomagnet != (void *)f->current_geomagnet) {
+                free(f->geomagnet_workspace);
+                f->geomagnet_workspace = NULL;
+                memset(f->geomagnet_field, 0x0, sizeof f->geomagnet_field);
+                memset(f->geomagnet_position, 0x0,
+                    sizeof f->geomagnet_position);
+                f->current_geomagnet = (void *)f->api.geomagnet;
+        }
+        f->use_geomagnet = (f->current_geomagnet != NULL);
 
         f->context->event = PUMAS_EVENT_LIMIT_ENERGY;
         f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
@@ -722,6 +841,9 @@ int mulder_fluxmeter_intersect(
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
 
+        /* Disable geomagnetic field */
+        f->use_geomagnet = 0;
+
         /* Transport with Pumas */
         f->context->medium = &layers_geometry;
         f->context->mode.direction = PUMAS_MODE_FORWARD;
@@ -775,6 +897,9 @@ double mulder_fluxmeter_grammage(
 
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
+
+        /* Disable geomagnetic field */
+        f->use_geomagnet = 0;
 
         /* Transport with Pumas */
         f->context->medium = &layers_geometry;
@@ -887,10 +1012,24 @@ static double us_standard_density(double height, double * lambda)
 }
 
 
+/* Compute rotation matrix from ECEF to ENU */
+static void ecef_to_enu(double latitude, double longitude,
+    double declination, double inclination, double rotation[3][3])
+{
+        turtle_ecef_from_horizontal(
+             latitude, longitude, 90 + declination, 0, &rotation[0][0]);
+        turtle_ecef_from_horizontal(latitude, longitude,
+            declination, -inclination, &rotation[1][0]);
+        turtle_ecef_from_horizontal(latitude, longitude,
+            0, 90 - inclination, &rotation[2][0]);
+}
+
+
 /* Callback for setting local properties of the atmosphere*/
 static double atmosphere_locals(struct pumas_medium * medium,
     struct pumas_state * state, struct pumas_locals * locals)
 {
+        /* Get local density */
         double latitude, longitude, height;
         turtle_ecef_to_geodetic(
             state->position, &latitude, &longitude, &height);
@@ -902,8 +1041,54 @@ static double atmosphere_locals(struct pumas_medium * medium,
             &azimuth, &elevation);
         double c = fabs(sin(elevation * M_PI / 180));
         if (c < 0.1) c = 0.1;
+        lambda /= c;
 
-        return lambda / c;
+        struct state * s = (void *)state;
+        struct fluxmeter * f = s->fluxmeter;
+        if (!f->use_geomagnet) {
+                return lambda;
+        }
+
+        /* Get local geomagnetic field */
+        double lambda_g = 1E+03;
+        double d2 = 0.;
+        int i;
+        for (i = 0; i < 3; i++) {
+                const double tmp =
+                    state->position[i] - f->geomagnet_position[i];
+                d2 += tmp * tmp;
+        }
+        if (d2 > lambda_g * lambda_g) {
+                /* Get the local magnetic field (in ENU frame) */
+                double enu[3];
+                gull_snapshot_field(f->current_geomagnet->snapshot, latitude,
+                    longitude, height, enu, &f->geomagnet_workspace);
+
+                /* Transform to ECEF (using transposed/inverse matrix) */
+                double rotation[3][3];
+                ecef_to_enu(latitude, longitude, 0., 0., rotation);
+
+                int i;
+                double ecef[3] = {0., 0., 0.};
+                for (i = 0; i < 3; i++) {
+                        int j;
+                        for (j = 0; j < 3; j++) {
+                                ecef[i] += rotation[j][i] * enu[j];
+                        }
+                }
+
+                /* Update the cache */
+                memcpy(f->geomagnet_field, ecef, sizeof f->geomagnet_field);
+                memcpy(f->geomagnet_position, state->position,
+                    sizeof f->geomagnet_position);
+        }
+
+        /* Fetch the cached geomagnetic field */
+        memcpy(locals->magnet, f->geomagnet_field,
+            sizeof locals->magnet);
+
+        lambda_g /= f->context->accuracy;
+        return (lambda < lambda_g) ? lambda : lambda_g;
 }
 
 

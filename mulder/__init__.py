@@ -223,6 +223,85 @@ class Layer:
         return _fromarray2(x, y)
 
 
+class Geomagnet:
+    """Earth magnetic field"""
+
+    @property
+    def model(self):
+        """Geomagnetic model"""
+        v =  self._geomagnet[0].model
+        return None if v == ffi.NULL else ffi.string(v).decode()
+
+    @property
+    def day(self):
+        """Calendar day"""
+        return int(self._geomagnet[0].day)
+
+    @property
+    def month(self):
+        """Calendar month"""
+        return int(self._geomagnet[0].month)
+
+    @property
+    def year(self):
+        """Calendar year"""
+        return int(self._geomagnet[0].year)
+
+    @property
+    def order(self):
+        """Model harmonics order"""
+        return int(self._geomagnet[0].order)
+
+    @property
+    def height_min(self):
+        """Maximum model height, in m"""
+        return float(self._geomagnet[0].height_min)
+
+    @property
+    def height_max(self):
+        """Minimum model height, in m"""
+        return float(self._geomagnet[0].height_max)
+
+
+    def __init__(self, model=None, day=None, month=None, year=None):
+        if model is None: model = f"{PREFIX}/data/IGRF13.COF"
+        if day is None: day = 1
+        if month is None: month = 1
+        if year is None: year = 2020
+
+        geomagnet = ffi.new("struct mulder_geomagnet *[1]")
+        geomagnet[0] = lib.mulder_geomagnet_create(_tostr(model), day, month,
+                                                   year)
+        if geomagnet[0] == ffi.NULL:
+            raise LibraryError()
+        else:
+            self._geomagnet = ffi.gc(geomagnet, lib.mulder_geomagnet_destroy)
+
+    def field(self, latitude, longitude, height):
+        """Geomagnetic field, in T
+
+        The field components are given in East-North-Upward (ENU) coordinates.
+        """
+
+        latitude, longitude, height, size = _asarray3(
+            latitude, longitude, height)
+        field = numpy.empty((size, 3))
+
+        lib.mulder_geomagnet_field_v(self._geomagnet[0], size,
+            _todouble(latitude), _todouble(longitude), _todouble(height),
+            _todouble(field))
+
+        class EnuVector(NamedTuple):
+            east: numpy.ndarray
+            north: numpy.ndarray
+            upward: numpy.ndarray
+
+        if size == 1:
+            return EnuVector(field[0,0], field[0,1], field[0,2])
+        else:
+            return EnuVector(field[:,0], field[:,1], field[:,2])
+
+
 class Reference:
     """Reference (opensky) muon flux"""
 
@@ -355,6 +434,22 @@ class Fluxmeter:
     """Muon flux calculator"""
 
     @property
+    def geomagnet(self):
+        """Earth magnetic field"""
+        return self._geomagnet
+
+    @geomagnet.setter
+    def geomagnet(self, v):
+        if v is None:
+            self._geomagnet = None
+            self._fluxmeter[0].geomagnet = ffi.NULL
+        elif isinstance(v, Geomagnet):
+            self._fluxmeter[0].geomagnet = v._geomagnet[0]
+            self._geomagnet = v
+        else:
+            raise TypeError("bad type (expected a mulder.Geomagnet)")
+
+    @property
     def mode(self):
         """Muons transport mode"""
         mode = self._fluxmeter[0].mode
@@ -438,6 +533,7 @@ class Fluxmeter:
 
         weakref.finalize(self, lib.mulder_fluxmeter_destroy, fluxmeter)
         self._fluxmeter = fluxmeter
+        self._geomagnet = None
         self._reference = None
         self._prng = Prng(self)
 

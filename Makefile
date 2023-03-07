@@ -26,13 +26,17 @@ LIB_FULLNAME=  $(LIB_SHORTNAME).$(VERSION_MINOR).$(VERSION_PATCH)
 
 
 # C library compilation
+GULL_DIR= deps/gull
 PUMAS_DIR= deps/pumas
 TURTLE_DIR= deps/turtle
 
 LIB_CFLAGS= $(CFLAGS) -shared -fPIC \
-            -I$(PUMAS_DIR)/include -I$(TURTLE_DIR)/include
+            -I$(GULL_DIR)/include \
+            -I$(PUMAS_DIR)/include \
+            -I$(TURTLE_DIR)/include
 
-LIB_DEPS = src/pumas.o \
+LIB_DEPS = src/gull.o \
+           src/pumas.o \
            src/turtle_client.o \
            src/turtle_ecef.o \
            src/turtle_error.o \
@@ -66,6 +70,9 @@ lib/$(LIB): lib/$(LIB_SHORTNAME)
 libdir:
 	@mkdir -p lib
 
+src/gull.o: $(GULL_DIR)/src/gull.c $(GULL_DIR)/include/gull.h
+	$(CC) $(LIB_CFLAGS) -o $@ -c $<
+
 src/pumas.o: $(PUMAS_DIR)/src/pumas.c $(PUMAS_DIR)/include/pumas.h
 	$(CC) $(LIB_CFLAGS) -o $@ -c $<
 
@@ -93,6 +100,7 @@ OBJS=    src/wrapper.o
 
 .PHONY: package
 package: mulder/$(PACKAGE) \
+         mulder/data/IGRF13.COF \
          mulder/data/materials.pumas \
          mulder/lib/$(LIB) \
          mulder/include/mulder.h
@@ -103,6 +111,9 @@ mulder/$(PACKAGE): setup.py src/build-wrapper.py $(OBJS) lib/$(LIB)
 
 src/%.o: src/%.c src/%.h
 	$(CC) $(LIB_CFLAGS) -c -o $@ $<
+
+mulder/data/%.COF: $(GULL_DIR)/share/data/%.COF
+	@ln -fs ../../$< $@
 
 mulder/data/materials.pumas: mulder/data/materials.xml |\
 	                     mulder/$(PACKAGE) mulder/lib/$(LIB)
@@ -147,6 +158,6 @@ clean:
 
 .PHONY: distclean
 distclean: | clean
-	rm -rf mulder/data/*.pumas mulder/data/*.txt
+	rm -rf mulder/data/*.COF mulder/data/*.pumas mulder/data/*.txt
 	rm -rf mulder/include mulder/lib
 	rm -rf dist/*.whl build mulder.egg-info

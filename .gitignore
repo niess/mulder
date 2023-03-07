@@ -6,6 +6,7 @@
 *.so.*
 *.whl
 # Ignore local install
+mulder/data/*.COF
 mulder/data/*.pumas
 mulder/data/*.txt
 mulder/include

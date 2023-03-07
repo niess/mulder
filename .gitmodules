@@ -4,3 +4,6 @@
 [submodule "turtle"]
 	path = deps/turtle
 	url = https://github.com/niess/turtle.git
+[submodule "gull"]
+	path = deps/gull
+	url = https://github.com/niess/gull.git
