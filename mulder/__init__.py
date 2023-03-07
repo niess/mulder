@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import shutil
+from typing import NamedTuple
 import weakref
 
 import numpy
@@ -270,11 +271,19 @@ class Reference:
             reference[0] = lib.mulder_reference_load_table(_tostr(path))
             self._reference = reference
 
-    def flux(self, elevation, energy, height=None):
+    def flux(self, elevation, energy, height=None, selection=None):
         """Get reference flux model, defined at reference height(s)"""
 
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
+
+        if selection is None:
+            selection = lib.MULDER_ALL
+        else:
+            try:
+                selection = getattr(lib, f"MULDER_{selection.upper()}")
+            except AttributeError:
+                raise ValueError(f"bad selection ({selection})")
 
         energy = _asarray(energy)
         flux = numpy.empty(energy.size)
@@ -282,8 +291,9 @@ class Reference:
         if self._reference is None:
             flux[:] = 0
         else:
-            rc = lib.mulder_reference_flux_v(self._reference[0], height,
-                elevation, energy.size, _todouble(energy), _todouble(flux))
+            rc = lib.mulder_reference_flux_v(self._reference[0], selection,
+                height, elevation, energy.size, _todouble(energy),
+                _todouble(flux))
             if rc != lib.MULDER_SUCCESS:
                 raise LibraryError()
 
@@ -335,6 +345,12 @@ class Prng:
             return _fromarray(values)
 
 
+class Result(NamedTuple):
+    """Flux computation result"""
+    value: numpy.ndarray
+    asymmetry: numpy.ndarray
+
+
 class Fluxmeter:
     """Muon flux calculator"""
 
@@ -354,9 +370,29 @@ class Fluxmeter:
         try:
             mode = getattr(lib, f"MULDER_{v.upper()}")
         except AttributeError:
-            raise ValueError(f"bad mode (v)")
+            raise ValueError(f"bad mode ({v})")
         else:
             self._fluxmeter[0].mode = mode
+
+    @property
+    def selection(self):
+        """Particle(s) selection"""
+        sel = self._fluxmeter[0].selection
+        if sel == lib.MULDER_ALL:
+            return "all"
+        elif sel == lib.MULDER_MUON:
+            return "muon"
+        else:
+            return "antimuon"
+
+    @selection.setter
+    def selection(self, v):
+        try:
+            sel = getattr(lib, f"MULDER_{v.upper()}")
+        except AttributeError:
+            raise ValueError(f"bad selection ({v})")
+        else:
+            self._fluxmeter[0].selection = sel
 
     @property
     def size(self):
@@ -409,15 +445,17 @@ class Fluxmeter:
         """Calculate muon flux"""
 
         energy = _asarray(energy)
-        flux = numpy.empty(energy.size)
+        result = numpy.empty((energy.size, 2))
 
         rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
             longitude, height, azimuth, elevation, energy.size,
-            _todouble(energy), _todouble(flux))
+            _todouble(energy), _todouble(result))
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
-        return _fromarray(flux)
+        flux, charge = result.T
+        flux, charge = _fromarray2(flux, charge)
+        return Result(flux, charge)
 
     def intersect(self, latitude, longitude, height, azimuth, elevation):
         """Compute first intersection with topographic layer(s)"""

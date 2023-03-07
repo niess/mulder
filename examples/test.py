@@ -20,8 +20,8 @@ z = layers[0].height(x, y)
 latitude, longitude = layers[0].geodetic(x, y)
 z -= 30.
 
-# Create a fluxmeter and compute the muon spectrum along some direction of
-# observation
+# Create a fluxmeter and compute the differential muon flux along some
+# direction of observation
 meter = mulder.Fluxmeter(*layers)
 
 azimuth, elevation = 0, 25
@@ -34,7 +34,7 @@ norm = energy**2.7 * 1E-04
 
 plot.style.use("examples/paper.mplstyle")
 plot.figure()
-plot.plot(energy, flux * norm, "k-")
+plot.plot(energy, flux.value * norm, "k-")
 plot.plot(energy, reference * norm, "k--")
 plot.xscale("log")
 plot.yscale("log")

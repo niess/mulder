@@ -32,10 +32,12 @@ int main(int argc, char * argv[])
         const double kinetic_energy = 1E+01;
         const double azimuth = 0.;
         const double elevation = 90.;
-        const double flux = mulder_fluxmeter_flux(meter, kinetic_energy,
-            latitude, longitude, height - 30., azimuth, elevation);
+        struct mulder_result result = mulder_fluxmeter_flux(meter,
+            kinetic_energy, latitude, longitude, height - 30., azimuth,
+            elevation);
 
-        printf("flux = %12.5E GeV^-1 m^-2 s^-1 sr^1\n", flux);
+        printf("flux = %.5E GeV^-1 m^-2 s^-1 sr^1 (%+.5f)\n",
+            result.flux, result.charge);
 
         /* Free memory */
         int i;

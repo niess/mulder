@@ -72,6 +72,14 @@ void mulder_layer_coordinates(
     double * y);
 
 
+/* Particle(s) selection (using PDG PIDs) */
+enum mulder_selection {
+    MULDER_ALL = 0,
+    MULDER_MUON = 13,
+    MULDER_ANTIMUON = -13
+};
+
+
 /* Reference (opensky) muon flux model */
 struct mulder_reference {
     double energy_min;
@@ -79,6 +87,7 @@ struct mulder_reference {
     double height_min;
     double height_max;
     double (*flux)(struct mulder_reference * reference,
+                   enum mulder_selection selection,
                    double height,
                    double elevation,
                    double kinetic_energy);
@@ -127,6 +136,7 @@ struct mulder_fluxmeter {
 
     /* Mutable properties */
     enum mulder_mode mode;
+    enum mulder_selection selection;
     struct mulder_prng * prng;
     struct mulder_reference * reference;
 };
@@ -138,20 +148,29 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 
-int mulder_fluxmeter_intersect(
-    struct mulder_fluxmeter * fluxmeter,
-    double * latitude,
-    double * longitude,
-    double * height,
-    double azimuth,
-    double elevation);
 
-double mulder_fluxmeter_flux(
+/* Flux computation */
+struct mulder_result {
+    double value;
+    double asymmetry;
+};
+
+struct mulder_result mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
     double kinetic_energy,
     double latitude,
     double longitude,
     double height,
+    double azimuth,
+    double elevation);
+
+
+/* Geometry related utilities */
+int mulder_fluxmeter_intersect(
+    struct mulder_fluxmeter * fluxmeter,
+    double * latitude,
+    double * longitude,
+    double * height,
     double azimuth,
     double elevation);
 

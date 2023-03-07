@@ -139,28 +139,31 @@ enum mulder_return mulder_layer_coordinates_v(
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,
     double height, double azimuth, double elevation, int n,
-    const double * energy, double * flux)
+    const double * energy, double * result)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, energy++, flux++) {
-                *flux = mulder_fluxmeter_flux(fluxmeter, *energy, latitude,
-                    longitude, height, azimuth, elevation);
+        for (; n > 0; n--, energy++, result+=2) {
+                struct mulder_result r = mulder_fluxmeter_flux(fluxmeter,
+                    *energy, latitude, longitude, height, azimuth, elevation);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                result[0] = r.value;
+                result[1] = r.asymmetry;
         }
         return MULDER_SUCCESS;
 }
 
 
 /* Vectorized reference flux */
-enum mulder_return mulder_reference_flux_v(
-    struct mulder_reference * reference, double height, double elevation, int n,
+enum mulder_return mulder_reference_flux_v(struct mulder_reference * reference,
+    enum mulder_selection selection, double height, double elevation, int n,
     const double * energy, double * flux)
 {
         last_error.rc = MULDER_SUCCESS;
         for (; n > 0; n--, energy++, flux++) {
-                *flux = reference->flux(reference, height, elevation, *energy);
+                *flux = reference->flux(
+                    reference, selection, height, elevation, *energy);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }

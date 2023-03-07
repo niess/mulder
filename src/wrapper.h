@@ -54,11 +54,12 @@ enum mulder_return mulder_fluxmeter_flux_v(
     double elevation,
     int n,
     const double * energy,
-    double * flux);
+    double * result);
 
 /* Vectorized reference flux */
 enum mulder_return mulder_reference_flux_v(
     struct mulder_reference * reference,
+    enum mulder_selection selection,
     double height,
     double elevation,
     int n,

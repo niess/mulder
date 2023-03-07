@@ -377,8 +377,9 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
         init_ptr((void **)&fluxmeter->api.layers, fluxmeter->layers);
         memcpy(fluxmeter->layers, layers, size * sizeof *fluxmeter->layers);
 
-        /* Initialise transport mode */
+        /* Initialise transport mode etc. */
         fluxmeter->api.mode = MULDER_CSDA;
+        fluxmeter->api.selection = MULDER_ALL;
 
         /* Initialise reference flux */
         fluxmeter->api.reference = &default_reference;
@@ -494,13 +495,14 @@ struct state {
 
 
 /* Compute muon flux */
-double mulder_fluxmeter_flux(
+struct mulder_result mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter, double kinetic_energy, double latitude,
     double longitude, double height, double azimuth, double elevation)
 {
         if (kinetic_energy <= 0.) {
                 mulder_error("bad kinetic energy (0)");
-                return 0.;
+                struct mulder_result result = {0., 0.};
+                return result;
         }
 
         /* Initialise the muon state */
@@ -567,14 +569,16 @@ double mulder_fluxmeter_flux(
                         if (pumas_context_transport(
                             f->context, &s.api, &event, NULL)
                             != PUMAS_RETURN_SUCCESS) {
-                                return 0.;
+                                struct mulder_result result = {0., 0.};
+                                return result;
                         }
                         if ((f->api.mode == MULDER_DETAILED) &&
                             (event == PUMAS_EVENT_LIMIT_ENERGY)) {
                                 if (s.api.energy >=
                                     f->api.reference->energy_max -
                                     FLT_EPSILON) {
-                                        return 0.;
+                                        struct mulder_result result = {0., 0.};
+                                        return result;
                                 } else if (s.api.energy >=
                                     1E+02 - FLT_EPSILON) {
                                         f->context->mode.energy_loss =
@@ -593,7 +597,8 @@ double mulder_fluxmeter_flux(
                                         continue;
                                 }
                         } else if (event != PUMAS_EVENT_MEDIUM) {
-                                return 0.;
+                                struct mulder_result result = {0., 0.};
+                                return result;
                         } else {
                                 break;
                         }
@@ -602,7 +607,10 @@ double mulder_fluxmeter_flux(
                 /* Get coordinates at end location (expected to be at ztop) */
                 turtle_ecef_to_geodetic(
                     s.api.position, &latitude, &longitude, &height);
-                if (fabs(height - f->ztop) > 1E-04) return 0.;
+                if (fabs(height - f->ztop) > 1E-04) {
+                        struct mulder_result result = {0., 0.};
+                        return result;
+                }
         }
 
         if (height > f->api.reference->height_max + FLT_EPSILON) {
@@ -621,14 +629,21 @@ double mulder_fluxmeter_flux(
                 enum pumas_event event;
                 if (pumas_context_transport(f->context, &s.api, &event, NULL)
                     != PUMAS_RETURN_SUCCESS) {
-                        return 0.;
+                        struct mulder_result result = {0., 0.};
+                        return result;
                 }
-                if (event != PUMAS_EVENT_MEDIUM) return 0.;
+                if (event != PUMAS_EVENT_MEDIUM) {
+                        struct mulder_result result = {0., 0.};
+                        return result;
+                }
 
                 /* Get coordinates at end location (expected to be at zref) */
                 turtle_ecef_to_geodetic(
                     s.api.position, &latitude, &longitude, &height);
-                if (fabs(height - f->zref) > 1E-04) return 0.;
+                if (fabs(height - f->zref) > 1E-04) {
+                        struct mulder_result result = {0., 0.};
+                        return result;
+                }
 
                 /* Update proper time and Jacobian weight */
                 s.api.time = t0 - s.api.time;
@@ -639,7 +654,10 @@ double mulder_fluxmeter_flux(
                     PUMAS_MODE_CSDA, material, e0, &dedx0);
                 pumas_physics_property_stopping_power(f->physics,
                     PUMAS_MODE_CSDA, material, s.api.energy, &dedx1);
-                if ((dedx0 <= 0.) || (dedx1 <= 0.)) return 0.;
+                if ((dedx0 <= 0.) || (dedx1 <= 0.)) {
+                        struct mulder_result result = {0., 0.};
+                        return result;
+                }
                 s.api.weight *= dedx1 / dedx0;
         }
 
@@ -650,15 +668,33 @@ double mulder_fluxmeter_flux(
         turtle_ecef_to_horizontal(
             latitude, longitude, direction0, &azimuth, &elevation);
 
-        /* Sample reference flux at final height */
-        struct mulder_reference * reference = fluxmeter->reference;
-        const double flux = reference->flux(
-            reference, height, elevation, s.api.energy);
-
-        /* Compute decay probaility */
+        /* Compute decay probability */
         const double pdec = exp(-s.api.time / MUON_C_TAU);
 
-        return flux * pdec * s.api.weight;
+        /* Sample reference flux at final height */
+        struct mulder_reference * reference = fluxmeter->reference;
+        struct mulder_result result = {0., 0.};
+        if (f->api.selection == MULDER_ALL) {
+                const double f0 = reference->flux(reference, MULDER_MUON,
+                    height, elevation, s.api.energy);
+                const double f1 = reference->flux(reference, MULDER_ANTIMUON,
+                    height, elevation, s.api.energy);
+                const double tmp = f0 + f1;
+                if (tmp > 0.) {
+                        result.value = tmp;
+                        result.asymmetry = (f1 - f0) / tmp;
+                } else {
+                        result.value = 0.;
+                        result.asymmetry = 0.;
+                }
+        } else {
+                result.value = reference->flux(reference, f->api.selection,
+                    height, elevation, s.api.energy);
+                result.asymmetry = (f->api.selection > 0) ? -1. : 1.;
+        }
+        result.value *= pdec * s.api.weight;
+
+        return result;
 }
 
 
@@ -981,13 +1017,33 @@ static double flux_gccly(double cos_theta, double kinetic_energy)
 }
 
 
+/* Fraction of the muon flux for a given charge */
+static double charge_fraction(enum mulder_selection selection)
+{
+        /* Use a constant charge ratio.
+         * Ref: CMS (https://arxiv.org/abs/1005.5332)
+         */
+        const double charge_ratio = 1.2766;
+
+        if (selection == MULDER_MUON) {
+                return 1. / (1. + charge_ratio);
+        } else if (selection == MULDER_ANTIMUON) {
+                return charge_ratio / (1. + charge_ratio);
+        } else {
+                return 1.;
+        }
+}
+
+
 /* Default reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
 static double reference_flux(struct mulder_reference * reference,
-    double height, double elevation, double kinetic_energy)
+    enum mulder_selection selection, double height, double elevation,
+    double kinetic_energy)
 {
         const double deg = M_PI / 180.;
         const double cos_theta = cos((90. - elevation) * deg);
-        return flux_gccly(cos_theta, kinetic_energy);
+        const double f = flux_gccly(cos_theta, kinetic_energy);
+        return f * charge_fraction(selection);
 }
 
 static struct mulder_reference default_reference = {
@@ -1022,7 +1078,8 @@ struct reference_table {
 
 /* Intepolation of tabulated reference flux */
 static double reference_table_flux(struct mulder_reference * reference,
-    double height, double elevation, double kinetic_energy)
+    enum mulder_selection selection, double height, double elevation,
+    double kinetic_energy)
 {
         struct reference_table * table = (void *)reference;
 
@@ -1089,8 +1146,11 @@ static double reference_table_flux(struct mulder_reference * reference,
 
         /* Interpolate the flux */
         double flux = 0.;
+        const int charge = selection / MULDER_ANTIMUON;
         int i;
         for (i = 0; i < 2; i++) {
+                if ((1 - 2 * i) * charge < 0) continue;
+
                 /* Linear interpolation along cos(theta) */
                 const double g00 = f000[i] * (1. - hc) + f010[i] * hc;
                 const double g10 = f100[i] * (1. - hc) + f110[i] * hc;

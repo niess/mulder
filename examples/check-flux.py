@@ -35,8 +35,9 @@ default = mulder.Reference()
 norm = energy**2.7 * 1E-04
 
 plot.style.use("examples/paper.mplstyle")
+
 plot.figure()
-plot.plot(energy, flux * norm, "ko", label="CSDA evolution")
+plot.plot(energy, flux.value * norm, "ko", label="CSDA evolution")
 plot.plot(energy, reference.flux(elevation, energy, height=0) * norm, "k--",
     label="MCEq (0m)")
 plot.plot(energy, reference.flux(elevation, energy, height=height) * norm, "k-",
@@ -48,4 +49,24 @@ plot.yscale("log")
 plot.xlabel("energy, $E$ (GeV)")
 plot.ylabel("$E^{2.7} \phi$ (GeV$^{1.7}$ cm$^{-2}$ s$^{-1}$ sr$^{-1}$)")
 plot.legend()
+
+# Plot charge asymmetry
+fm = reference.flux(elevation, energy, height=0, selection="muon")
+fa = reference.flux(elevation, energy, height=0, selection="antimuon")
+charge0 = (fa - fm) / (fa + fm)
+
+fm = reference.flux(elevation, energy, height=height, selection="muon")
+fa = reference.flux(elevation, energy, height=height, selection="antimuon")
+charge1 = (fa - fm) / (fa + fm)
+
+plot.figure()
+sel = flux.value > 0
+plot.plot(energy[sel], flux.asymmetry[sel], "ko", label="CSDA evolution")
+plot.plot(energy, charge0, "k--", label="MCEq (0m)")
+plot.plot(energy, charge1, "k-", label="MCEq (3000m)")
+plot.xscale("log")
+plot.xlabel("energy, $E$ (GeV)")
+plot.ylabel("charge asymmetry")
+plot.legend()
+
 plot.show()
