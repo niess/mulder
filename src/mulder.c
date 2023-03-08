@@ -476,7 +476,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
 
         /* Initialise transport mode etc. */
         fluxmeter->api.mode = MULDER_CSDA;
-        fluxmeter->api.selection = MULDER_ALL;
+        fluxmeter->api.selection = MULDER_ANY;
 
         /* Initialise reference flux */
         fluxmeter->api.reference = &default_reference;
@@ -604,64 +604,59 @@ struct state {
 
 /* Muon flux computation */
 static struct state init_event(struct fluxmeter * fluxmeter,
-    double energy, double latitude, double longitude, double height,
-    double azimuth, double elevation);
+    enum mulder_pid pid, double energy, double latitude, double longitude,
+    double height, double azimuth, double elevation);
 
 static struct mulder_state transport_event(struct fluxmeter * fluxmeter,
     double latitude, double longitude, double height, struct state state);
 
-struct mulder_result mulder_fluxmeter_flux(
+struct mulder_flux mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter, double energy, double latitude,
     double longitude, double height, double azimuth, double elevation)
 {
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
-        struct mulder_result result = {0.};
-        struct state s = init_event(
-            f, energy, latitude, longitude, height, azimuth, elevation);
+        struct mulder_flux result = {0.};
+        struct state s = init_event(f, MULDER_MUON, energy, latitude, longitude,
+            height, azimuth, elevation);
         if (s.api.weight <= 0.) {
                 return result;
         }
 
         /* Sample the reference flux */
         struct mulder_reference * reference = f->api.reference;
-        if (f->api.selection == MULDER_ALL) {
-                double f0, f1;
+        if (f->api.selection == MULDER_ANY) {
                 if (f->api.geomagnet == NULL) {
                         struct mulder_state state = transport_event(
                             f, latitude, longitude, height, s);
                         if (state.weight <= 0.) {
                                 return result;
                         }
-                        f0 = reference->flux(reference, MULDER_MUON,
-                            state.height, state.elevation, state.energy) *
-                            state.weight;
-                        f1 = reference->flux(reference, MULDER_ANTIMUON,
-                            state.height, state.elevation, state.energy) *
-                            state.weight;
+                        state.pid = MULDER_ANY;
+                        return mulder_state_flux(&state, reference);
                 } else {
                         s.api.charge = -1.;
                         struct mulder_state s0 = transport_event(
                             f, latitude, longitude, height, s);
-                        f0 = reference->flux(reference, MULDER_MUON, s0.height,
-                            s0.elevation, s0.energy) * s0.weight;
+                        struct mulder_flux r0 = mulder_state_flux(
+                            &s0, reference);
 
                         s.api.charge = 1.;
                         struct mulder_state s1 = transport_event(
                             f, latitude, longitude, height, s);
-                        f1 = reference->flux(reference, MULDER_ANTIMUON,
-                            s1.height, s1.elevation, s1.energy) * s1.weight;
-                }
+                        struct mulder_flux r1 = mulder_state_flux(
+                            &s1, reference);
 
-                const double tmp = f0 + f1;
-                if (tmp > 0.) {
-                        result.value = tmp;
-                        result.asymmetry = (f1 - f0) / tmp;
-                } else {
-                        result.value = 0.;
-                        result.asymmetry = 0.;
+                        const double tmp = r0.value + r1.value;
+                        if (tmp > 0.) {
+                                result.value = tmp;
+                                result.asymmetry = (r1.value - r0.value) / tmp;
+                        } else {
+                                result.value = 0.;
+                                result.asymmetry = 0.;
+                        }
+                        return result;
                 }
-                return result;
         } else {
                 s.api.charge = (fluxmeter->selection == MULDER_MUON) ?
                     -1. : 1.;
@@ -670,31 +665,37 @@ struct mulder_result mulder_fluxmeter_flux(
                 if (state.weight <= 0.) {
                         return result;
                 }
-                result.value = reference->flux(reference, fluxmeter->selection,
-                    state.height, state.elevation, state.energy) *
-                    state.weight;
-                result.asymmetry = s.api.charge;
-                return result;
+                return mulder_state_flux(&state, reference);
         }
 }
 
 
 /* Monte Carlo interface */
+struct mulder_flux mulder_state_flux(
+    const struct mulder_state * state, struct mulder_reference * reference)
+{
+        struct mulder_flux result = reference->flux(reference, state->height,
+            state->elevation, state->energy);
+
+        if (state->pid != MULDER_ANY) {
+                const double charge = (state->pid == MULDER_MUON) ? -1. : 1.;
+                result.value *= 0.5 * (1. + charge * result.asymmetry);
+                result.asymmetry = charge;
+        }
+
+        result.value *= state->weight;
+        return result;
+}
+
+
 struct mulder_state mulder_fluxmeter_transport(
     struct mulder_fluxmeter * fluxmeter, const struct mulder_state * state)
 {
-        /* Check selection */
-        if (fluxmeter->selection == MULDER_ALL) {
-                mulder_error("bad selection (all)");
-                struct mulder_state tmp = {0.};
-                return tmp;
-        }
-
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = init_event(
-            f, state->energy, state->latitude, state->longitude, state->height,
-            state->azimuth, state->elevation);
+            f, state->pid, state->energy, state->latitude, state->longitude,
+            state->height, state->azimuth, state->elevation);
         if (s.api.weight <= 0.) {
                 struct mulder_state tmp = {0.};
                 return tmp;
@@ -708,8 +709,8 @@ struct mulder_state mulder_fluxmeter_transport(
 
 /* Low level sampling routines */
 static struct state init_event(struct fluxmeter * f,
-    double energy, double latitude, double longitude, double height,
-    double azimuth, double elevation)
+    enum mulder_pid pid, double energy, double latitude, double longitude,
+    double height, double azimuth, double elevation)
 {
         struct state s = {.api = {.weight = 0.}};
         if (energy <= 0.) {
@@ -739,10 +740,17 @@ static struct state init_event(struct fluxmeter * f,
         f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
 
         /* Initialise the muon state */
-        s.api.charge = 1.;
         s.api.energy = energy;
         s.api.weight = 1.;
         s.fluxmeter = f;
+
+        if (pid == MULDER_ANY) {
+                struct mulder_prng * prng = f->api.prng;
+                s.api.charge = (prng->uniform01(prng) <= 0.5) ? -1. : 1.;
+                s.api.weight *= 2;
+        } else {
+                s.api.charge = (pid == MULDER_MUON) ? -1. : 1.;
+        }
 
         turtle_ecef_from_geodetic(latitude, longitude, height, s.api.position);
         turtle_ecef_from_horizontal(
@@ -904,6 +912,7 @@ static struct mulder_state transport_event(struct fluxmeter * f,
 
         /* Fill and return the reference state */
         struct mulder_state state = {
+                .pid = (s.api.charge < 0.) ? MULDER_MUON : MULDER_ANTIMUON,
                 .latitude = latitude,
                 .longitude = longitude,
                 .height = height,
@@ -1303,16 +1312,16 @@ static double flux_gccly(double cos_theta, double kinetic_energy)
 
 
 /* Fraction of the muon flux for a given charge */
-static double charge_fraction(enum mulder_selection selection)
+static double charge_fraction(enum mulder_pid pid)
 {
         /* Use a constant charge ratio.
          * Ref: CMS (https://arxiv.org/abs/1005.5332)
          */
         const double charge_ratio = 1.2766;
 
-        if (selection == MULDER_MUON) {
+        if (pid == MULDER_MUON) {
                 return 1. / (1. + charge_ratio);
-        } else if (selection == MULDER_ANTIMUON) {
+        } else if (pid == MULDER_ANTIMUON) {
                 return charge_ratio / (1. + charge_ratio);
         } else {
                 return 1.;
@@ -1321,19 +1330,19 @@ static double charge_fraction(enum mulder_selection selection)
 
 
 /* Default reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
-static double reference_flux(struct mulder_reference * reference,
-    enum mulder_selection selection, double height, double elevation,
-    double kinetic_energy)
+static struct mulder_flux reference_flux(struct mulder_reference * reference,
+    double height, double elevation, double kinetic_energy)
 {
-        if ((height < reference->height_min) ||
-            (height > reference->height_max)) {
-                return 0.;
-        } else {
+        struct mulder_flux result = {0.};
+        if ((height >= reference->height_min) &&
+            (height <= reference->height_max)) {
                 const double deg = M_PI / 180.;
                 const double cos_theta = cos((90. - elevation) * deg);
-                const double f = flux_gccly(cos_theta, kinetic_energy);
-                return f * charge_fraction(selection);
+                result.value = flux_gccly(cos_theta, kinetic_energy);
+                const double f = charge_fraction(MULDER_ANTIMUON);
+                result.asymmetry = 2 * f - 1.;
         }
+        return result;
 }
 
 static struct mulder_reference default_reference = {
@@ -1367,17 +1376,18 @@ struct reference_table {
 
 
 /* Intepolation of tabulated reference flux */
-static double reference_table_flux(struct mulder_reference * reference,
-    enum mulder_selection selection, double height, double elevation,
+static struct mulder_flux reference_table_flux(
+    struct mulder_reference * reference, double height, double elevation,
     double kinetic_energy)
 {
         struct reference_table * table = (void *)reference;
+        struct mulder_flux result = {0.};
 
         /* Compute the interpolation indices and coefficients */
         const double dlk = log(table->k_max / table->k_min) /
             (table->n_k - 1);
         double hk = log(kinetic_energy / table->k_min) / dlk;
-        if ((hk < 0.) || (hk > table->n_k - 1)) return 0.;
+        if ((hk < 0.) || (hk > table->n_k - 1)) return result;
         const int ik = (int)hk;
         hk -= ik;
 
@@ -1385,7 +1395,7 @@ static double reference_table_flux(struct mulder_reference * reference,
         const double c = cos((90 - elevation) * deg);
         const double dc = (table->c_max - table->c_min) / (table->n_c - 1);
         double hc = (c - table->c_min) / dc;
-        if ((hc < 0.) || (hc > table->n_c - 1)) return 0.;
+        if ((hc < 0.) || (hc > table->n_c - 1)) return result;
         const int ic = (int)hc;
         hc -= ic;
 
@@ -1395,7 +1405,7 @@ static double reference_table_flux(struct mulder_reference * reference,
                 const double dh = (table->h_max - table->h_min) /
                     (table->n_h - 1);
                 hh = (height - table->h_min) / dh;
-                if ((hh < 0.) || (hh > table->n_h - 1)) return 0.;
+                if ((hh < 0.) || (hh > table->n_h - 1)) return result;
                 ih = (int)hh;
                 hh -= ih;
         } else {
@@ -1435,12 +1445,9 @@ static double reference_table_flux(struct mulder_reference * reference,
             table->n_k + ik1);
 
         /* Interpolate the flux */
-        double flux = 0.;
-        const int charge = selection / MULDER_ANTIMUON;
+        double flux[2] = {0.};
         int i;
         for (i = 0; i < 2; i++) {
-                if ((1 - 2 * i) * charge < 0) continue;
-
                 /* Linear interpolation along cos(theta) */
                 const double g00 = f000[i] * (1. - hc) + f010[i] * hc;
                 const double g10 = f100[i] * (1. - hc) + f110[i] * hc;
@@ -1462,11 +1469,17 @@ static double reference_table_flux(struct mulder_reference * reference,
 
                 /* Log or linear interpolation along altitude */
                 if ((g0 <= 0.) || (g1 <= 0.))
-                        flux += g0 * (1. - hh) + g1 * hh;
+                        flux[i] = g0 * (1. - hh) + g1 * hh;
                 else
-                        flux += exp(log(g0) * (1. - hh) + log(g1) * hh);
+                        flux[i] = exp(log(g0) * (1. - hh) + log(g1) * hh);
         }
-        return flux;
+
+        const double tmp = flux[0] + flux[1];
+        if (tmp > 0.) {
+                result.value = tmp;
+                result.asymmetry = (flux[0] - flux[1]) / tmp;
+        }
+        return result;
 }
 
 

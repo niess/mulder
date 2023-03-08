@@ -39,7 +39,7 @@ norm = energy**2.7 * 1E-04
 plot.style.use("examples/paper.mplstyle")
 plot.figure()
 plot.plot(energy, flux.value * norm, "k-")
-plot.plot(energy, reference * norm, "k--")
+plot.plot(energy, reference.value * norm, "k--")
 plot.xscale("log")
 plot.yscale("log")
 plot.xlabel("energy, $E$ (GeV)")

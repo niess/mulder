@@ -37,7 +37,7 @@ int main(int argc, char * argv[])
         const double kinetic_energy = 1E+01;
         const double azimuth = 0.;
         const double elevation = 90.;
-        struct mulder_result flux = mulder_fluxmeter_flux(meter,
+        struct mulder_flux flux = mulder_fluxmeter_flux(meter,
             kinetic_energy, latitude, longitude, height - 30., azimuth,
             elevation);
 

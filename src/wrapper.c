@@ -154,62 +154,86 @@ enum mulder_return mulder_fluxmeter_flux_v(
     const double * energy, double * result)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, energy++, result+=2) {
-                struct mulder_result r = mulder_fluxmeter_flux(fluxmeter,
+        for (; n > 0; n--, energy++, result+= 2) {
+                struct mulder_flux flux = mulder_fluxmeter_flux(fluxmeter,
                     *energy, latitude, longitude, height, azimuth, elevation);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
-                result[0] = r.value;
-                result[1] = r.asymmetry;
+                result[0] = flux.value;
+                result[1] = flux.asymmetry;
         }
         return MULDER_SUCCESS;
 }
 
 
 /* Vectorized reference flux */
-enum mulder_return mulder_reference_flux_v(struct mulder_reference * reference,
-    enum mulder_selection selection, double height, double elevation, int n,
-    const double * energy, double * flux)
+void mulder_reference_flux_v(struct mulder_reference * reference,
+    double height, double elevation, int n, const double * energy,
+    double * result)
 {
-        last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, energy++, flux++) {
-                *flux = reference->flux(
-                    reference, selection, height, elevation, *energy);
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
-                }
+        for (; n > 0; n--, energy++, result+= 2) {
+                struct mulder_flux flux = reference->flux(
+                    reference, height, elevation, *energy);
+                result[0] = flux.value;
+                result[1] = flux.asymmetry;
         }
-        return MULDER_SUCCESS;
+}
+
+
+/* Vectorized state flux */
+void mulder_state_flux_v(struct mulder_reference * reference,
+    int n, const int * pid, const double * data, double * result)
+{
+        for (; n > 0; n--, pid++, data+= 7, result+= 2) {
+                /* XXX use memcpy? */
+                struct mulder_state state = {
+                        .pid = *pid,
+                        .latitude = data[0],
+                        .longitude = data[1],
+                        .height = data[2],
+                        .azimuth = data[3],
+                        .elevation = data[4],
+                        .energy = data[5],
+                        .weight = data[6]
+                };
+                struct mulder_flux flux = mulder_state_flux(
+                    &state, reference);
+                result[0] = flux.value;
+                result[1] = flux.asymmetry;
+        }
 }
 
 
 /* Vectorized transport */
 enum mulder_return mulder_fluxmeter_transport_v(
-    struct mulder_fluxmeter * fluxmeter, int n, const double * input,
-    double * output)
+    struct mulder_fluxmeter * fluxmeter, int n, const int * pid_in,
+    const double * data_in, int * pid_out, double * data_out)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, input += 7, output += 7) {
+        for (; n > 0; n--, pid_in++, data_in+= 7, pid_out++, data_out+= 7) {
                 struct mulder_state s = {
-                        .latitude = input[0],
-                        .longitude = input[1],
-                        .height = input[2],
-                        .azimuth = input[3],
-                        .elevation = input[4],
-                        .energy = input[5]
+                        .pid = *pid_in,
+                        .latitude = data_in[0],
+                        .longitude = data_in[1],
+                        .height = data_in[2],
+                        .azimuth = data_in[3],
+                        .elevation = data_in[4],
+                        .energy = data_in[5],
+                        .weight = data_in[6]
                 };
                 s = mulder_fluxmeter_transport(fluxmeter, &s);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
-                output[0] = s.latitude;
-                output[1] = s.longitude;
-                output[2] = s.height;
-                output[3] = s.azimuth;
-                output[4] = s.elevation;
-                output[5] = s.energy;
-                output[6] = s.weight;
+                *pid_out = s.pid;
+                data_out[0] = s.latitude;
+                data_out[1] = s.longitude;
+                data_out[2] = s.height;
+                data_out[3] = s.azimuth;
+                data_out[4] = s.elevation;
+                data_out[5] = s.energy;
+                data_out[6] = s.weight;
         }
         return MULDER_SUCCESS;
 }

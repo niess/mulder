@@ -303,6 +303,42 @@ class Geomagnet:
             return EnuVector(field[:,0], field[:,1], field[:,2])
 
 
+class Flux:
+    """Container for flux data"""
+
+    @property
+    def asymmetry(self):
+        """Charge asymmetry"""
+        return self._view[1]
+
+    @asymmetry.setter
+    def value(self, v):
+        self._view[1] = v
+
+    @property
+    def size(self):
+        """Number of entries"""
+        return self._size
+
+    @property
+    def value(self):
+        """Flux value(s)"""
+        return self._view[0]
+
+    @value.setter
+    def value(self, v):
+        self._view[0] = v
+
+    def __init__(self, size=None):
+        if size is None:
+            self._data = numpy.empty(2)
+            self._view = self._data
+        else:
+            self._data = numpy.empty((size, 2))
+            self._view = self._data.T
+        self._size = size
+
+
 class Reference:
     """Reference (opensky) muon flux"""
 
@@ -351,33 +387,23 @@ class Reference:
             reference[0] = lib.mulder_reference_load_table(_tostr(path))
             self._reference = reference
 
-    def flux(self, elevation, energy, height=None, selection=None):
+    def flux(self, elevation, energy, height=None):
         """Get reference flux model, defined at reference height(s)"""
 
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
 
-        if selection is None:
-            selection = lib.MULDER_ALL
-        else:
-            try:
-                selection = getattr(lib, f"MULDER_{selection.upper()}")
-            except AttributeError:
-                raise ValueError(f"bad selection ({selection})")
-
         energy = _asarray(energy)
-        flux = numpy.empty(energy.size)
+        flux = Flux(energy.size)
 
         if self._reference is None:
-            flux[:] = 0
+            flux._data[:] = 0
         else:
-            rc = lib.mulder_reference_flux_v(self._reference[0], selection,
-                height, elevation, energy.size, _todouble(energy),
-                _todouble(flux))
-            if rc != lib.MULDER_SUCCESS:
-                raise LibraryError()
+            lib.mulder_reference_flux_v(self._reference[0], height,
+                elevation, energy.size, _todouble(energy),
+                _todouble(flux._data))
 
-        return _fromarray(flux)
+        return flux
 
 
 class Prng:
@@ -423,12 +449,6 @@ class Prng:
             values = numpy.empty(n, dtype="f8")
             lib.mulder_prng_uniform01_v(prng, n, _todouble(values))
             return _fromarray(values)
-
-
-class Result(NamedTuple):
-    """Flux computation result"""
-    value: numpy.ndarray
-    asymmetry: numpy.ndarray
 
 
 class State:
@@ -489,6 +509,18 @@ class State:
         self._view[1] = v
 
     @property
+    def pid(self):
+        """Particle(s) identifier(s)
+
+        The PDG numbering scheme is used.
+        """
+        return self._pid[0] if self._size is None else self._pid
+
+    @pid.setter
+    def pid(self, v):
+        self._pid[:] = v
+
+    @property
     def size(self):
         """Number of state(s)"""
         return self._size
@@ -504,12 +536,26 @@ class State:
 
     def __init__(self, size=None):
         if size is None:
+            self._pid = numpy.zeros(1, dtype="i4")
             self._data = numpy.zeros(7)
             self._view = self._data
         else:
+            self._pid = numpy.zeros(size, dtype="i4")
             self._data = numpy.zeros((size, 7))
             self._view = self._data.T
         self._size = size
+
+    def flux(self, reference):
+        """Sample a reference flux"""
+
+        assert(isinstance(reference, Reference))
+
+        result = Flux(self._size)
+        size = 1 if self._size is None else self._size
+        lib.mulder_state_flux_v(reference._reference[0], size,
+            _toint(self._pid), _todouble(self._data), _todouble(result._data))
+
+        return result
 
 
 def state(**kwargs):
@@ -645,29 +691,29 @@ class Fluxmeter:
         self._prng = Prng(self)
 
     def flux(self, latitude, longitude, height, azimuth, elevation, energy):
-        """Calculate muon flux"""
+        """Calculate the muon flux for the given observation settings"""
 
         energy = _asarray(energy)
-        result = numpy.empty((energy.size, 2))
+        result = Flux(energy.size)
 
         rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
             longitude, height, azimuth, elevation, energy.size,
-            _todouble(energy), _todouble(result))
+            _todouble(energy), _todouble(result._data))
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
-        flux, charge = result.T
-        flux, charge = _fromarray2(flux, charge)
-        return Result(flux, charge)
+        return result
 
     def transport(self, state):
-        """Transport state(s) to the reference"""
+        """Transport muon state(s) to the reference location"""
 
         assert(isinstance(state, State))
 
-        result = State(state.size)
-        rc = lib.mulder_fluxmeter_transport_v(self._fluxmeter[0], state.size,
-            _todouble(state._data), _todouble(result._data))
+        size = 1 if state._size is None else state._size
+        result = State(size)
+        rc = lib.mulder_fluxmeter_transport_v(self._fluxmeter[0], size,
+            _toint(state._pid), _todouble(state._data), _toint(result._pid),
+            _todouble(result._data))
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 

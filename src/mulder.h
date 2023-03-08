@@ -104,11 +104,18 @@ void mulder_geomagnet_field(
     double * upward);
 
 
-/* Particle(s) selection (using PDG PIDs) */
-enum mulder_selection {
-    MULDER_ALL = 0,
+/* Particles identifiers (PDG nubering scheme) */
+enum mulder_pid {
+    MULDER_ANY = 0,
     MULDER_MUON = 13,
     MULDER_ANTIMUON = -13
+};
+
+
+/* Container for muon flux data */
+struct mulder_flux {
+    double value;
+    double asymmetry; /* charge asymmetry */
 };
 
 
@@ -118,11 +125,11 @@ struct mulder_reference {
     double energy_max;
     double height_min;
     double height_max;
-    double (*flux)(struct mulder_reference * reference,
-                   enum mulder_selection selection,
-                   double height,
-                   double elevation,
-                   double kinetic_energy);
+    struct mulder_flux (*flux)(
+        struct mulder_reference * reference,
+        double height,
+        double elevation,
+        double kinetic_energy);
 };
 
 struct mulder_reference * mulder_reference_default(void);
@@ -168,7 +175,7 @@ struct mulder_fluxmeter {
 
     /* Mutable properties */
     enum mulder_mode mode;
-    enum mulder_selection selection;
+    enum mulder_pid selection;
     struct mulder_prng * prng;
     struct mulder_reference * reference;
     struct mulder_geomagnet * geomagnet;
@@ -182,15 +189,8 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 
 
-/* Container for a flux result */
-struct mulder_result {
-    double value;
-    double asymmetry; /* charge asymmetry */
-};
-
-
-/* Flux computation */
-struct mulder_result mulder_fluxmeter_flux(
+/* Muon flux computation */
+struct mulder_flux mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
     double kinetic_energy,
     double latitude,
@@ -202,6 +202,8 @@ struct mulder_result mulder_fluxmeter_flux(
 
 /* Monte Carlo interface */
 struct mulder_state {
+    /* Particle identifier */
+    enum mulder_pid pid;
     /* Location */
     double latitude;
     double longitude;
@@ -215,7 +217,11 @@ struct mulder_state {
     double weight;
 };
 
-struct mulder_state mulder_fluxmeter_transport(
+struct mulder_flux mulder_state_flux( /* sample reference flux */
+    const struct mulder_state * state,
+    struct mulder_reference * reference);
+
+struct mulder_state mulder_fluxmeter_transport( /* transport state */
     struct mulder_fluxmeter * fluxmeter,
     const struct mulder_state * state);
 

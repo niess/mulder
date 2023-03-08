@@ -38,12 +38,12 @@ plot.style.use("examples/paper.mplstyle")
 
 plot.figure()
 plot.plot(energy, flux.value * norm, "ko", label="CSDA evolution")
-plot.plot(energy, reference.flux(elevation, energy, height=0) * norm, "k--",
-    label="MCEq (0m)")
-plot.plot(energy, reference.flux(elevation, energy, height=height) * norm, "k-",
-    label="MCEq (3000m)")
-plot.plot(energy, default.flux(elevation, energy, height=0) * norm, "k:",
-    label="GCCLY (0m)")
+plot.plot(energy, reference.flux(elevation, energy, height=0).value * norm,
+    "k--", label="MCEq (0m)")
+plot.plot(energy, reference.flux(elevation, energy, height=height).value * norm,
+    "k-", label="MCEq (3000m)")
+plot.plot(energy, default.flux(elevation, energy, height=0).value * norm,
+    "k:", label="GCCLY (0m)")
 plot.xscale("log")
 plot.yscale("log")
 plot.xlabel("energy, $E$ (GeV)")
@@ -51,13 +51,8 @@ plot.ylabel("$E^{2.7} \phi$ (GeV$^{1.7}$ cm$^{-2}$ s$^{-1}$ sr$^{-1}$)")
 plot.legend()
 
 # Plot charge asymmetry
-fm = reference.flux(elevation, energy, height=0, selection="muon")
-fa = reference.flux(elevation, energy, height=0, selection="antimuon")
-charge0 = (fa - fm) / (fa + fm)
-
-fm = reference.flux(elevation, energy, height=height, selection="muon")
-fa = reference.flux(elevation, energy, height=height, selection="antimuon")
-charge1 = (fa - fm) / (fa + fm)
+charge0 = reference.flux(elevation, energy, height=0).asymmetry
+charge1 = reference.flux(elevation, energy, height=height).asymmetry
 
 plot.figure()
 sel = flux.value > 0
