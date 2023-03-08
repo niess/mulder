@@ -602,36 +602,123 @@ struct state {
 };
 
 
-/* Compute muon flux */
+/* Muon flux computation */
+static struct state init_event(struct fluxmeter * fluxmeter,
+    double energy, double latitude, double longitude, double height,
+    double azimuth, double elevation);
+
+static struct mulder_state transport_event(struct fluxmeter * fluxmeter,
+    double latitude, double longitude, double height, struct state state);
+
 struct mulder_result mulder_fluxmeter_flux(
-    struct mulder_fluxmeter * fluxmeter, double kinetic_energy, double latitude,
+    struct mulder_fluxmeter * fluxmeter, double energy, double latitude,
     double longitude, double height, double azimuth, double elevation)
 {
-        if (kinetic_energy <= 0.) {
-                mulder_error("bad kinetic energy (0)");
-                struct mulder_result result = {0., 0.};
+        /* Initialise the geometry etc. */
+        struct fluxmeter * f = (void *)fluxmeter;
+        struct mulder_result result = {0.};
+        struct state s = init_event(
+            f, energy, latitude, longitude, height, azimuth, elevation);
+        if (s.api.weight <= 0.) {
                 return result;
         }
 
-        /* Initialise the muon state */
+        /* Sample the reference flux */
+        struct mulder_reference * reference = f->api.reference;
+        if (f->api.selection == MULDER_ALL) {
+                double f0, f1;
+                if (f->api.geomagnet == NULL) {
+                        struct mulder_state state = transport_event(
+                            f, latitude, longitude, height, s);
+                        if (state.weight <= 0.) {
+                                return result;
+                        }
+                        f0 = reference->flux(reference, MULDER_MUON,
+                            state.height, state.elevation, state.energy) *
+                            state.weight;
+                        f1 = reference->flux(reference, MULDER_ANTIMUON,
+                            state.height, state.elevation, state.energy) *
+                            state.weight;
+                } else {
+                        s.api.charge = -1.;
+                        struct mulder_state s0 = transport_event(
+                            f, latitude, longitude, height, s);
+                        f0 = reference->flux(reference, MULDER_MUON, s0.height,
+                            s0.elevation, s0.energy) * s0.weight;
+
+                        s.api.charge = 1.;
+                        struct mulder_state s1 = transport_event(
+                            f, latitude, longitude, height, s);
+                        f1 = reference->flux(reference, MULDER_ANTIMUON,
+                            s1.height, s1.elevation, s1.energy) * s1.weight;
+                }
+
+                const double tmp = f0 + f1;
+                if (tmp > 0.) {
+                        result.value = tmp;
+                        result.asymmetry = (f1 - f0) / tmp;
+                } else {
+                        result.value = 0.;
+                        result.asymmetry = 0.;
+                }
+                return result;
+        } else {
+                s.api.charge = (fluxmeter->selection == MULDER_MUON) ?
+                    -1. : 1.;
+                struct mulder_state state =
+                    transport_event(f, latitude, longitude, height, s);
+                if (state.weight <= 0.) {
+                        return result;
+                }
+                result.value = reference->flux(reference, fluxmeter->selection,
+                    state.height, state.elevation, state.energy) *
+                    state.weight;
+                result.asymmetry = s.api.charge;
+                return result;
+        }
+}
+
+
+/* Monte Carlo interface */
+struct mulder_state mulder_fluxmeter_transport(
+    struct mulder_fluxmeter * fluxmeter, const struct mulder_state * state)
+{
+        /* Check selection */
+        if (fluxmeter->selection == MULDER_ALL) {
+                mulder_error("bad selection (all)");
+                struct mulder_state tmp = {0.};
+                return tmp;
+        }
+
+        /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
-        struct state s = {
-                .api = {
-                        .charge = 1.,
-                        .energy = kinetic_energy,
-                        .weight = 1.
-                },
-                .fluxmeter = f
-        };
+        struct state s = init_event(
+            f, state->energy, state->latitude, state->longitude, state->height,
+            state->azimuth, state->elevation);
+        if (s.api.weight <= 0.) {
+                struct mulder_state tmp = {0.};
+                return tmp;
+        }
 
-        turtle_ecef_from_geodetic(latitude, longitude, height, s.api.position);
-        turtle_ecef_from_horizontal(
-            latitude, longitude, azimuth, elevation, s.api.direction);
+        /* Transport state */
+        return transport_event(
+            f, state->latitude, state->longitude, state->height, s);
+}
 
-        int i;
-        for (i = 0; i < 3; i++) {
-                /* Revert direction, due to observer convention */
-                s.api.direction[i] = -s.api.direction[i];
+
+/* Low level sampling routines */
+static struct state init_event(struct fluxmeter * f,
+    double energy, double latitude, double longitude, double height,
+    double azimuth, double elevation)
+{
+        struct state s = {.api = {.weight = 0.}};
+        if (energy <= 0.) {
+                const char format[] = "bad kinetic energy (%g)";
+                const int size = sizeof(format) + 32;
+                char msg[size];
+                sprintf(msg, format, energy);
+                mulder_error(msg);
+                return s;
         }
 
         /* Update Turtle steppers (if the reference heights have changed) */
@@ -651,6 +738,28 @@ struct mulder_result mulder_fluxmeter_flux(
         f->context->event = PUMAS_EVENT_LIMIT_ENERGY;
         f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
 
+        /* Initialise the muon state */
+        s.api.charge = 1.;
+        s.api.energy = energy;
+        s.api.weight = 1.;
+        s.fluxmeter = f;
+
+        turtle_ecef_from_geodetic(latitude, longitude, height, s.api.position);
+        turtle_ecef_from_horizontal(
+            latitude, longitude, azimuth, elevation, s.api.direction);
+
+        int i;
+        for (i = 0; i < 3; i++) {
+                /* Revert direction, due to observer convention */
+                s.api.direction[i] = -s.api.direction[i];
+        }
+
+        return s;
+}
+
+static struct mulder_state transport_event(struct fluxmeter * f,
+    double latitude, double longitude, double height, struct state s)
+{
         if (height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
                 f->context->limit.energy = f->api.reference->energy_max;
@@ -688,16 +797,16 @@ struct mulder_result mulder_fluxmeter_flux(
                         if (pumas_context_transport(
                             f->context, &s.api, &event, NULL)
                             != PUMAS_RETURN_SUCCESS) {
-                                struct mulder_result result = {0., 0.};
-                                return result;
+                                struct mulder_state state = {0.};
+                                return state;
                         }
                         if ((f->api.mode == MULDER_DETAILED) &&
                             (event == PUMAS_EVENT_LIMIT_ENERGY)) {
                                 if (s.api.energy >=
                                     f->api.reference->energy_max -
                                     FLT_EPSILON) {
-                                        struct mulder_result result = {0., 0.};
-                                        return result;
+                                        struct mulder_state state = {0.};
+                                        return state;
                                 } else if (s.api.energy >=
                                     1E+02 - FLT_EPSILON) {
                                         f->context->mode.energy_loss =
@@ -716,8 +825,8 @@ struct mulder_result mulder_fluxmeter_flux(
                                         continue;
                                 }
                         } else if (event != PUMAS_EVENT_MEDIUM) {
-                                struct mulder_result result = {0., 0.};
-                                return result;
+                                struct mulder_state state = {0.};
+                                return state;
                         } else {
                                 break;
                         }
@@ -727,8 +836,8 @@ struct mulder_result mulder_fluxmeter_flux(
                 turtle_ecef_to_geodetic(
                     s.api.position, &latitude, &longitude, &height);
                 if (fabs(height - f->ztop) > 1E-04) {
-                        struct mulder_result result = {0., 0.};
-                        return result;
+                        struct mulder_state state = {0.};
+                        return state;
                 }
         }
 
@@ -748,20 +857,22 @@ struct mulder_result mulder_fluxmeter_flux(
                 enum pumas_event event;
                 if (pumas_context_transport(f->context, &s.api, &event, NULL)
                     != PUMAS_RETURN_SUCCESS) {
-                        struct mulder_result result = {0., 0.};
-                        return result;
+                        struct mulder_state state = {0.};
+                        return state;
                 }
                 if (event != PUMAS_EVENT_MEDIUM) {
-                        struct mulder_result result = {0., 0.};
-                        return result;
+                        struct mulder_state state = {0.};
+                        return state;
                 }
 
                 /* Get coordinates at end location (expected to be at zref) */
                 turtle_ecef_to_geodetic(
                     s.api.position, &latitude, &longitude, &height);
                 if (fabs(height - f->zref) > 1E-04) {
-                        struct mulder_result result = {0., 0.};
-                        return result;
+                        struct mulder_state state = {0.};
+                        return state;
+                } else {
+                        height = f->zref; /* due to potential rounding errors */
                 }
 
                 /* Update proper time and Jacobian weight */
@@ -774,13 +885,14 @@ struct mulder_result mulder_fluxmeter_flux(
                 pumas_physics_property_stopping_power(f->physics,
                     PUMAS_MODE_CSDA, material, s.api.energy, &dedx1);
                 if ((dedx0 <= 0.) || (dedx1 <= 0.)) {
-                        struct mulder_result result = {0., 0.};
-                        return result;
+                        struct mulder_state state = {0.};
+                        return state;
                 }
                 s.api.weight *= dedx1 / dedx0;
         }
 
         /* Get direction at reference height */
+        double azimuth, elevation;
         const double direction0[] = {
             -s.api.direction[0], -s.api.direction[1], -s.api.direction[2]
         };
@@ -790,30 +902,18 @@ struct mulder_result mulder_fluxmeter_flux(
         /* Compute decay probability */
         const double pdec = exp(-s.api.time / MUON_C_TAU);
 
-        /* Sample reference flux at final height */
-        struct mulder_reference * reference = fluxmeter->reference;
-        struct mulder_result result = {0., 0.};
-        if (f->api.selection == MULDER_ALL) {
-                const double f0 = reference->flux(reference, MULDER_MUON,
-                    height, elevation, s.api.energy);
-                const double f1 = reference->flux(reference, MULDER_ANTIMUON,
-                    height, elevation, s.api.energy);
-                const double tmp = f0 + f1;
-                if (tmp > 0.) {
-                        result.value = tmp;
-                        result.asymmetry = (f1 - f0) / tmp;
-                } else {
-                        result.value = 0.;
-                        result.asymmetry = 0.;
-                }
-        } else {
-                result.value = reference->flux(reference, f->api.selection,
-                    height, elevation, s.api.energy);
-                result.asymmetry = (f->api.selection > 0) ? -1. : 1.;
-        }
-        result.value *= pdec * s.api.weight;
+        /* Fill and return the reference state */
+        struct mulder_state state = {
+                .latitude = latitude,
+                .longitude = longitude,
+                .height = height,
+                .azimuth = azimuth,
+                .elevation = elevation,
+                .energy = s.api.energy,
+                .weight = pdec * s.api.weight
+        };
 
-        return result;
+        return state;
 }
 
 
@@ -1225,10 +1325,15 @@ static double reference_flux(struct mulder_reference * reference,
     enum mulder_selection selection, double height, double elevation,
     double kinetic_energy)
 {
-        const double deg = M_PI / 180.;
-        const double cos_theta = cos((90. - elevation) * deg);
-        const double f = flux_gccly(cos_theta, kinetic_energy);
-        return f * charge_fraction(selection);
+        if ((height < reference->height_min) ||
+            (height > reference->height_max)) {
+                return 0.;
+        } else {
+                const double deg = M_PI / 180.;
+                const double cos_theta = cos((90. - elevation) * deg);
+                const double f = flux_gccly(cos_theta, kinetic_energy);
+                return f * charge_fraction(selection);
+        }
 }
 
 static struct mulder_reference default_reference = {

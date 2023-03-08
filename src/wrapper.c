@@ -184,6 +184,37 @@ enum mulder_return mulder_reference_flux_v(struct mulder_reference * reference,
 }
 
 
+/* Vectorized transport */
+enum mulder_return mulder_fluxmeter_transport_v(
+    struct mulder_fluxmeter * fluxmeter, int n, const double * input,
+    double * output)
+{
+        last_error.rc = MULDER_SUCCESS;
+        for (; n > 0; n--, input += 7, output += 7) {
+                struct mulder_state s = {
+                        .latitude = input[0],
+                        .longitude = input[1],
+                        .height = input[2],
+                        .azimuth = input[3],
+                        .elevation = input[4],
+                        .energy = input[5]
+                };
+                s = mulder_fluxmeter_transport(fluxmeter, &s);
+                if (last_error.rc == MULDER_FAILURE) {
+                        return MULDER_FAILURE;
+                }
+                output[0] = s.latitude;
+                output[1] = s.longitude;
+                output[2] = s.height;
+                output[3] = s.azimuth;
+                output[4] = s.elevation;
+                output[5] = s.energy;
+                output[6] = s.weight;
+        }
+        return MULDER_SUCCESS;
+}
+
+
 /* Vectorized intersections */
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,

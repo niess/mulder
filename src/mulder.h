@@ -182,12 +182,14 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 
 
-/* Flux computation */
+/* Container for a flux result */
 struct mulder_result {
     double value;
-    double asymmetry;
+    double asymmetry; /* charge asymmetry */
 };
 
+
+/* Flux computation */
 struct mulder_result mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
     double kinetic_energy,
@@ -196,6 +198,26 @@ struct mulder_result mulder_fluxmeter_flux(
     double height,
     double azimuth,
     double elevation);
+
+
+/* Monte Carlo interface */
+struct mulder_state {
+    /* Location */
+    double latitude;
+    double longitude;
+    double height;
+    /* Observation direction */
+    double azimuth;
+    double elevation;
+    /* Kinetic energy, in GeV */
+    double energy;
+    /* Transport weight (unused on input) */
+    double weight;
+};
+
+struct mulder_state mulder_fluxmeter_transport(
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_state * state);
 
 
 /* Geometry related utilities */

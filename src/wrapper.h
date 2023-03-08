@@ -75,6 +75,13 @@ enum mulder_return mulder_reference_flux_v(
     const double * energy,
     double * flux);
 
+/* Vectorized transport */
+enum mulder_return mulder_fluxmeter_transport_v(
+    struct mulder_fluxmeter * fluxmeter,
+    int n,
+    const double * input,
+    double * output);
+
 /* Vectorized intersections */
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter,

@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import shutil
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 import weakref
 
 import numpy
@@ -280,7 +280,8 @@ class Geomagnet:
     def field(self, latitude, longitude, height):
         """Geomagnetic field, in T
 
-        The field components are given in East-North-Upward (ENU) coordinates.
+        The magnetic field components are returned in East-North-Upward (ENU)
+        coordinates.
         """
 
         latitude, longitude, height, size = _asarray3(
@@ -430,6 +431,112 @@ class Result(NamedTuple):
     asymmetry: numpy.ndarray
 
 
+class State:
+    """Container for Monte Carlo state(s)"""
+
+    @property
+    def azimuth(self):
+        """Observation azimuth angle, in deg"""
+        return self._view[3]
+
+    @azimuth.setter
+    def azimuth(self, v):
+        self._view[3] = v
+
+    @property
+    def elevation(self):
+        """Observation elevation angle, in deg"""
+        return self._view[4]
+
+    @elevation.setter
+    def elevation(self, v):
+        self._view[4] = v
+
+    @property
+    def energy(self):
+        """Kinetic energy, in GeV"""
+        return self._view[5]
+
+    @energy.setter
+    def energy(self, v):
+        self._view[5] = v
+
+    @property
+    def height(self):
+        """Geographic height, in m"""
+        return self._view[2]
+
+    @height.setter
+    def height(self, v):
+        self._view[2] = v
+
+    @property
+    def latitude(self):
+        """Geographic latitude, in deg"""
+        return self._view[0]
+
+    @latitude.setter
+    def latitude(self, v):
+        self._view[0] = v
+
+    @property
+    def longitude(self):
+        """Geographic longitude, in deg"""
+        return self._view[1]
+
+    @longitude.setter
+    def longitude(self, v):
+        self._view[1] = v
+
+    @property
+    def size(self):
+        """Number of state(s)"""
+        return self._size
+
+    @property
+    def weight(self):
+        """Transport weight"""
+        return self._view[6]
+
+    @weight.setter
+    def weight(self, v):
+        self._view[6] = v
+
+    def __init__(self, size=None):
+        if size is None:
+            self._data = numpy.zeros(7)
+            self._view = self._data
+        else:
+            self._data = numpy.zeros((size, 7))
+            self._view = self._data.T
+        self._size = size
+
+
+def state(**kwargs):
+    """Helper function for creating Monte Carlo state(s)"""
+
+    size = None
+    for v in kwargs.values():
+        try:
+            s = len(v)
+        except:
+            pass
+        else:
+            if size is None: size = s
+            elif (s != size) and (s != 1):
+                raise ValueError("incompatible size(s)")
+
+    s = State(size)
+
+    for k, v in kwargs.items():
+        try:
+            setattr(s, k, v)
+        except AttributeError:
+            raise ValueError(f"unknown property for mulder.State ({k})")
+
+    return s
+
+
 class Fluxmeter:
     """Muon flux calculator"""
 
@@ -552,6 +659,19 @@ class Fluxmeter:
         flux, charge = result.T
         flux, charge = _fromarray2(flux, charge)
         return Result(flux, charge)
+
+    def transport(self, state):
+        """Transport state(s) to the reference"""
+
+        assert(isinstance(state, State))
+
+        result = State(state.size)
+        rc = lib.mulder_fluxmeter_transport_v(self._fluxmeter[0], state.size,
+            _todouble(state._data), _todouble(result._data))
+        if rc != lib.MULDER_SUCCESS:
+            raise LibraryError()
+
+        return result
 
     def intersect(self, latitude, longitude, height, azimuth, elevation):
         """Compute first intersection with topographic layer(s)"""
