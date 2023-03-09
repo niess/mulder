@@ -15,15 +15,30 @@ extern "C" {
 extern void (*mulder_error)(const char * message);
 
 
+/* Geographic coordinates (GPS-like, using WGS84) */
+struct mulder_coordinates {
+    double latitude;  /* deg */
+    double longitude; /* deg */
+    double height;    /* m */
+};
+
+
+/* Observation direction, using Horizontal coordinates */
+struct mulder_direction {
+    double azimuth;   /* deg, w.r.t. geographic North */
+    double elevation; /* deg, w.r.t. the local horizontal */
+};
+
+
 /* Topographic layer (semi-opaque structure) */
 struct mulder_layer {
     /* Initial settings (non-mutable) */
     const char * const material;
     const char * const model;
-    const double offset;
+    const double offset; /* m */
 
     /* Mutable propertie(s) */
-    double density;
+    double density;      /* kg / m^3 */
 
     /* Map metadata */
     const char * const encoding;
@@ -34,8 +49,8 @@ struct mulder_layer {
     const double xmax;
     const double ymin;
     const double ymax;
-    const double zmin; /* including offset */
-    const double zmax; /* including offset */
+    const double zmin; /* m, including offset */
+    const double zmax; /* m, including offset */
 };
 
 struct mulder_layer * mulder_layer_create(
@@ -57,17 +72,14 @@ void mulder_layer_gradient(
     double * gx,
     double * gy);
 
-void mulder_layer_geodetic(
+struct mulder_coordinates mulder_layer_coordinates(
     const struct mulder_layer * layer,
     double x,
-    double y,
-    double * latitude,
-    double * longitude);
+    double y);
 
-void mulder_layer_coordinates(
+void mulder_layer_project(
     const struct mulder_layer * layer,
-    double latitude,
-    double longitude,
+    const struct mulder_coordinates * coordinates,
     double * x,
     double * y);
 
@@ -94,14 +106,15 @@ struct mulder_geomagnet * mulder_geomagnet_create(
 
 void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet);
 
-void mulder_geomagnet_field(
+struct mulder_enu { /* East, North, Upward (ENU) coordinates */
+    double east;
+    double north;
+    double upward;
+};
+
+struct mulder_enu mulder_geomagnet_field(
     const struct mulder_geomagnet * geomagnet,
-    double latitude,
-    double longitude,
-    double height,
-    double * east,
-    double * north,
-    double * upward);
+    const struct mulder_coordinates * coordinates);
 
 
 /* Particles identifiers (PDG nubering scheme) */
@@ -192,12 +205,9 @@ void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 /* Muon flux computation */
 struct mulder_flux mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
-    double kinetic_energy,
-    double latitude,
-    double longitude,
-    double height,
-    double azimuth,
-    double elevation);
+    struct mulder_coordinates position,
+    struct mulder_direction direction,
+    double kinetic_energy);
 
 
 /* Monte Carlo interface */
@@ -205,12 +215,9 @@ struct mulder_state {
     /* Particle identifier */
     enum mulder_pid pid;
     /* Location */
-    double latitude;
-    double longitude;
-    double height;
+    struct mulder_coordinates position;
     /* Observation direction */
-    double azimuth;
-    double elevation;
+    struct mulder_direction direction;
     /* Kinetic energy, in GeV */
     double energy;
     /* Transport weight (unused on input) */
@@ -218,37 +225,34 @@ struct mulder_state {
 };
 
 struct mulder_flux mulder_state_flux( /* sample reference flux */
-    const struct mulder_state * state,
+    struct mulder_state state,
     struct mulder_reference * reference);
 
 struct mulder_state mulder_fluxmeter_transport( /* transport state */
     struct mulder_fluxmeter * fluxmeter,
-    const struct mulder_state * state);
+    struct mulder_state state);
 
 
 /* Geometry related utilities */
-int mulder_fluxmeter_intersect(
+struct mulder_intersection {
+    int layer;
+    struct mulder_coordinates position;
+};
+
+struct mulder_intersection mulder_fluxmeter_intersect(
     struct mulder_fluxmeter * fluxmeter,
-    double * latitude,
-    double * longitude,
-    double * height,
-    double azimuth,
-    double elevation);
+    struct mulder_coordinates position,
+    struct mulder_direction direction);
 
 double mulder_fluxmeter_grammage(
     struct mulder_fluxmeter * fluxmeter,
-    double latitude,
-    double longitude,
-    double height,
-    double azimuth,
-    double elevation,
+    struct mulder_coordinates position,
+    struct mulder_direction direction,
     double * grammage);
 
 int mulder_fluxmeter_whereami(
     struct mulder_fluxmeter * fluxmeter,
-    double latitude,
-    double longitude,
-    double height);
+    struct mulder_coordinates position);
 
 
 #ifdef __cplusplus

@@ -228,32 +228,38 @@ void mulder_layer_gradient(const struct mulder_layer * layer,
 }
 
 
-void mulder_layer_geodetic(const struct mulder_layer * layer, double x,
-    double y, double * latitude, double * longitude)
+struct mulder_coordinates mulder_layer_coordinates(
+    const struct mulder_layer * layer, double x, double y)
 {
+        struct mulder_coordinates coordinates;
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
-                *longitude = x;
-                *latitude = y;
+                coordinates.longitude = x;
+                coordinates.latitude = y;
         } else {
                 const struct turtle_projection * p =
                     turtle_map_projection(l->map);
-                turtle_projection_unproject(p, x, y, latitude, longitude);
+                turtle_projection_unproject(p, x, y, &coordinates.latitude,
+                    &coordinates.longitude);
         }
+
+        coordinates.height = mulder_layer_height(layer, x, y);
+        return coordinates;
 }
 
 
-void mulder_layer_coordinates(const struct mulder_layer * layer,
-    double latitude, double longitude, double * x, double * y)
+void mulder_layer_project(const struct mulder_layer * layer,
+    const struct mulder_coordinates * coordinates, double * x, double * y)
 {
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
-                *x = longitude;
-                *y = latitude;
+                *x = coordinates->longitude;
+                *y = coordinates->latitude;
         } else {
                 const struct turtle_projection * p =
                     turtle_map_projection(l->map);
-                turtle_projection_project(p, latitude, longitude, x, y);
+                turtle_projection_project(p, coordinates->latitude,
+                    coordinates->longitude, x, y);
         }
 }
 
@@ -327,21 +333,19 @@ void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet)
 }
 
 
-void mulder_geomagnet_field(const struct mulder_geomagnet * geomagnet,
-    double latitude, double longitude, double height, double * east,
-    double * north, double * upward)
+struct mulder_enu mulder_geomagnet_field(
+    const struct mulder_geomagnet * geomagnet,
+    const struct mulder_coordinates * coordinates)
 {
         struct geomagnet * g = (void *)geomagnet;
-        double enu[3];
+        struct mulder_enu enu;
         enum gull_return rc = gull_snapshot_field(g->snapshot,
-            latitude, longitude, height, enu, &g->workspace);
-        if (rc == GULL_RETURN_SUCCESS) {
-                *east = enu[0];
-                *north = enu[1];
-                *upward = enu[2];
-        } else {
-                *east = *north = *upward = 0.;
+            coordinates->latitude, coordinates->longitude, coordinates->height,
+            (double *)&enu, &g->workspace);
+        if (rc != GULL_RETURN_SUCCESS) {
+                enu.north = enu.east = enu.upward;
         }
+        return enu;
 }
 
 
@@ -604,21 +608,23 @@ struct state {
 
 /* Muon flux computation */
 static struct state init_event(struct fluxmeter * fluxmeter,
-    enum mulder_pid pid, double energy, double latitude, double longitude,
-    double height, double azimuth, double elevation);
+    enum mulder_pid pid, struct mulder_coordinates position,
+    struct mulder_direction direction, double energy);
 
 static struct mulder_state transport_event(struct fluxmeter * fluxmeter,
-    double latitude, double longitude, double height, struct state state);
+    struct mulder_coordinates position, struct state state);
 
 struct mulder_flux mulder_fluxmeter_flux(
-    struct mulder_fluxmeter * fluxmeter, double energy, double latitude,
-    double longitude, double height, double azimuth, double elevation)
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_coordinates position,
+    const struct mulder_direction direction,
+    double energy)
 {
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct mulder_flux result = {0.};
-        struct state s = init_event(f, MULDER_MUON, energy, latitude, longitude,
-            height, azimuth, elevation);
+        struct state s = init_event(
+            f, MULDER_MUON, position, direction, energy);
         if (s.api.weight <= 0.) {
                 return result;
         }
@@ -627,25 +633,25 @@ struct mulder_flux mulder_fluxmeter_flux(
         struct mulder_reference * reference = f->api.reference;
         if (f->api.selection == MULDER_ANY) {
                 if (f->api.geomagnet == NULL) {
-                        struct mulder_state state = transport_event(
-                            f, latitude, longitude, height, s);
+                        struct mulder_state state =
+                            transport_event(f, position, s);
                         if (state.weight <= 0.) {
                                 return result;
                         }
                         state.pid = MULDER_ANY;
-                        return mulder_state_flux(&state, reference);
+                        return mulder_state_flux(state, reference);
                 } else {
                         s.api.charge = -1.;
-                        struct mulder_state s0 = transport_event(
-                            f, latitude, longitude, height, s);
+                        struct mulder_state s0 =
+                            transport_event(f, position, s);
                         struct mulder_flux r0 = mulder_state_flux(
-                            &s0, reference);
+                            s0, reference);
 
                         s.api.charge = 1.;
-                        struct mulder_state s1 = transport_event(
-                            f, latitude, longitude, height, s);
+                        struct mulder_state s1 =
+                            transport_event(f, position, s);
                         struct mulder_flux r1 = mulder_state_flux(
-                            &s1, reference);
+                            s1, reference);
 
                         const double tmp = r0.value + r1.value;
                         if (tmp > 0.) {
@@ -661,56 +667,59 @@ struct mulder_flux mulder_fluxmeter_flux(
                 s.api.charge = (fluxmeter->selection == MULDER_MUON) ?
                     -1. : 1.;
                 struct mulder_state state =
-                    transport_event(f, latitude, longitude, height, s);
+                    transport_event(f, position, s);
                 if (state.weight <= 0.) {
                         return result;
                 }
-                return mulder_state_flux(&state, reference);
+                return mulder_state_flux(state, reference);
         }
 }
 
 
 /* Monte Carlo interface */
 struct mulder_flux mulder_state_flux(
-    const struct mulder_state * state, struct mulder_reference * reference)
+    const struct mulder_state state,
+    struct mulder_reference * reference)
 {
-        struct mulder_flux result = reference->flux(reference, state->height,
-            state->elevation, state->energy);
+        struct mulder_flux result = reference->flux(reference,
+            state.position.height, state.direction.elevation, state.energy);
 
-        if (state->pid != MULDER_ANY) {
-                const double charge = (state->pid == MULDER_MUON) ? -1. : 1.;
+        if (state.pid != MULDER_ANY) {
+                const double charge = (state.pid == MULDER_MUON) ? -1. : 1.;
                 result.value *= 0.5 * (1. + charge * result.asymmetry);
                 result.asymmetry = charge;
         }
 
-        result.value *= state->weight;
+        result.value *= state.weight;
         return result;
 }
 
 
 struct mulder_state mulder_fluxmeter_transport(
-    struct mulder_fluxmeter * fluxmeter, const struct mulder_state * state)
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_state state)
 {
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = init_event(
-            f, state->pid, state->energy, state->latitude, state->longitude,
-            state->height, state->azimuth, state->elevation);
+            f, state.pid, state.position, state.direction, state.energy);
         if (s.api.weight <= 0.) {
                 struct mulder_state tmp = {0.};
                 return tmp;
         }
 
         /* Transport state */
-        return transport_event(
-            f, state->latitude, state->longitude, state->height, s);
+        return transport_event(f, state.position, s);
 }
 
 
 /* Low level sampling routines */
-static struct state init_event(struct fluxmeter * f,
-    enum mulder_pid pid, double energy, double latitude, double longitude,
-    double height, double azimuth, double elevation)
+static struct state init_event(
+    struct fluxmeter * f,
+    enum mulder_pid pid,
+    const struct mulder_coordinates position,
+    const struct mulder_direction direction,
+    double energy)
 {
         struct state s = {.api = {.weight = 0.}};
         if (energy <= 0.) {
@@ -737,7 +746,7 @@ static struct state init_event(struct fluxmeter * f,
         f->use_geomagnet = (f->current_geomagnet != NULL);
 
         f->context->event = PUMAS_EVENT_LIMIT_ENERGY;
-        f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
+        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
 
         /* Initialise the muon state */
         s.api.energy = energy;
@@ -752,9 +761,11 @@ static struct state init_event(struct fluxmeter * f,
                 s.api.charge = (pid == MULDER_MUON) ? -1. : 1.;
         }
 
-        turtle_ecef_from_geodetic(latitude, longitude, height, s.api.position);
+        turtle_ecef_from_geodetic(position.latitude, position.longitude,
+            position.height, s.api.position);
         turtle_ecef_from_horizontal(
-            latitude, longitude, azimuth, elevation, s.api.direction);
+            position.latitude, position.longitude, direction.azimuth,
+            direction.elevation, s.api.direction);
 
         int i;
         for (i = 0; i < 3; i++) {
@@ -765,10 +776,12 @@ static struct state init_event(struct fluxmeter * f,
         return s;
 }
 
-static struct mulder_state transport_event(struct fluxmeter * f,
-    double latitude, double longitude, double height, struct state s)
+static struct mulder_state transport_event(
+    struct fluxmeter * f,
+    struct mulder_coordinates position,
+    struct state s)
 {
-        if (height < f->ztop - FLT_EPSILON) {
+        if (position.height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
                 f->context->limit.energy = f->api.reference->energy_max;
                 if (f->api.mode == MULDER_CSDA) {
@@ -841,15 +854,15 @@ static struct mulder_state transport_event(struct fluxmeter * f,
                 }
 
                 /* Get coordinates at end location (expected to be at ztop) */
-                turtle_ecef_to_geodetic(
-                    s.api.position, &latitude, &longitude, &height);
-                if (fabs(height - f->ztop) > 1E-04) {
+                turtle_ecef_to_geodetic(s.api.position, &position.latitude,
+                    &position.longitude, &position.height);
+                if (fabs(position.height - f->ztop) > 1E-04) {
                         struct mulder_state state = {0.};
                         return state;
                 }
         }
 
-        if (height > f->api.reference->height_max + FLT_EPSILON) {
+        if (position.height > f->api.reference->height_max + FLT_EPSILON) {
                 /* Backup proper time and kinetic energy */
                 const double t0 = s.api.time;
                 const double e0 = s.api.energy;
@@ -874,13 +887,14 @@ static struct mulder_state transport_event(struct fluxmeter * f,
                 }
 
                 /* Get coordinates at end location (expected to be at zref) */
-                turtle_ecef_to_geodetic(
-                    s.api.position, &latitude, &longitude, &height);
-                if (fabs(height - f->zref) > 1E-04) {
+                turtle_ecef_to_geodetic(s.api.position, &position.latitude,
+                    &position.longitude, &position.height);
+                if (fabs(position.height - f->zref) > 1E-04) {
                         struct mulder_state state = {0.};
                         return state;
                 } else {
-                        height = f->zref; /* due to potential rounding errors */
+                        position.height = f->zref;
+                        /* due to potential rounding errors */
                 }
 
                 /* Update proper time and Jacobian weight */
@@ -900,12 +914,12 @@ static struct mulder_state transport_event(struct fluxmeter * f,
         }
 
         /* Get direction at reference height */
-        double azimuth, elevation;
+        struct mulder_direction direction;
         const double direction0[] = {
             -s.api.direction[0], -s.api.direction[1], -s.api.direction[2]
         };
-        turtle_ecef_to_horizontal(
-            latitude, longitude, direction0, &azimuth, &elevation);
+        turtle_ecef_to_horizontal(position.latitude, position.longitude,
+            direction0, &direction.azimuth, &direction.elevation);
 
         /* Compute decay probability */
         const double pdec = exp(-s.api.time / MUON_C_TAU);
@@ -913,11 +927,8 @@ static struct mulder_state transport_event(struct fluxmeter * f,
         /* Fill and return the reference state */
         struct mulder_state state = {
                 .pid = (s.api.charge < 0.) ? MULDER_MUON : MULDER_ANTIMUON,
-                .latitude = latitude,
-                .longitude = longitude,
-                .height = height,
-                .azimuth = azimuth,
-                .elevation = elevation,
+                .position = position,
+                .direction = direction,
                 .energy = s.api.energy,
                 .weight = pdec * s.api.weight
         };
@@ -927,9 +938,10 @@ static struct mulder_state transport_event(struct fluxmeter * f,
 
 
 /* Compute first intersection with topographic layer(s) */
-int mulder_fluxmeter_intersect(
-    struct mulder_fluxmeter * fluxmeter, double * latitude,
-    double * longitude, double * height, double azimuth, double elevation)
+struct mulder_intersection mulder_fluxmeter_intersect(
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_coordinates position,
+    const struct mulder_direction direction)
 {
         /* Initialise the muon state */
         struct fluxmeter * f = (void *)fluxmeter;
@@ -942,10 +954,10 @@ int mulder_fluxmeter_intersect(
                 .fluxmeter = f
         };
 
-        turtle_ecef_from_geodetic(
-            *latitude, *longitude, *height, s.api.position);
-        turtle_ecef_from_horizontal(
-            *latitude, *longitude, azimuth, elevation, s.api.direction);
+        turtle_ecef_from_geodetic(position.latitude, position.longitude,
+            position.height, s.api.position);
+        turtle_ecef_from_horizontal(position.latitude, position.longitude,
+            direction.azimuth, direction.elevation, s.api.direction);
 
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
@@ -958,35 +970,43 @@ int mulder_fluxmeter_intersect(
         f->context->mode.direction = PUMAS_MODE_FORWARD;
         f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
         f->context->event = PUMAS_EVENT_MEDIUM;
-        f->use_external_layer = (*height >= f->ztop + FLT_EPSILON);
+        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
+
+        struct mulder_intersection intersection = {.layer = -1};
 
         enum pumas_event event;
         struct pumas_medium * media[2];
         if (pumas_context_transport(f->context, &s.api, &event, media)
             != PUMAS_RETURN_SUCCESS) {
-                return -1;
+                return intersection;
         }
-        if (event != PUMAS_EVENT_MEDIUM) return -1;
+        if (event != PUMAS_EVENT_MEDIUM) return intersection;
 
         /* Get coordinates at end location */
         turtle_ecef_to_geodetic(
-            s.api.position, latitude, longitude, height);
+            s.api.position,
+            &intersection.position.latitude,
+            &intersection.position.longitude,
+            &intersection.position.height);
 
         if (media[1] == NULL) {
-                return -1;
+                return intersection;
         } else if (media[1] == &f->atmosphere_medium) {
-                return f->api.size;
+                intersection.layer = f->api.size;
         } else {
                 ptrdiff_t i = media[1] - f->layers_media;
-                return (int)i;
+                intersection.layer = (int)i;
         }
+        return intersection;
 }
 
 
 /* Compute grammage (a.k.a. column depth) along a line of sight */
 double mulder_fluxmeter_grammage(
-    struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,
-    double height, double azimuth, double elevation, double * grammage)
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_coordinates position,
+    const struct mulder_direction direction,
+    double * grammage)
 {
         /* Initialise the muon state */
         struct fluxmeter * f = (void *)fluxmeter;
@@ -999,10 +1019,10 @@ double mulder_fluxmeter_grammage(
                 .fluxmeter = f
         };
 
-        turtle_ecef_from_geodetic(
-            latitude, longitude, height, s.api.position);
-        turtle_ecef_from_horizontal(
-            latitude, longitude, azimuth, elevation, s.api.direction);
+        turtle_ecef_from_geodetic(position.latitude, position.longitude,
+            position.height, s.api.position);
+        turtle_ecef_from_horizontal(position.latitude, position.longitude,
+            direction.azimuth, direction.elevation, s.api.direction);
 
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
@@ -1015,7 +1035,7 @@ double mulder_fluxmeter_grammage(
         f->context->mode.direction = PUMAS_MODE_FORWARD;
         f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
         f->context->event = PUMAS_EVENT_MEDIUM;
-        f->use_external_layer = (height >= f->ztop + FLT_EPSILON);
+        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
 
         if (grammage != NULL) {
                 memset(grammage, 0x0, (f->api.size + 1) * sizeof(*grammage));
@@ -1052,8 +1072,9 @@ double mulder_fluxmeter_grammage(
 
 
 /* Geometry layer index for the given location */
-int mulder_fluxmeter_whereami(struct mulder_fluxmeter * fluxmeter,
-    double latitude, double longitude, double height)
+int mulder_fluxmeter_whereami(
+    struct mulder_fluxmeter * fluxmeter,
+    const struct mulder_coordinates position)
 {
         struct fluxmeter * f = (void *)fluxmeter;
 
@@ -1061,12 +1082,13 @@ int mulder_fluxmeter_whereami(struct mulder_fluxmeter * fluxmeter,
         update_steppers(f);
 
         /* Get ECEF position */
-        double position[3];
-        turtle_ecef_from_geodetic(latitude, longitude, height, position);
+        double ecef[3];
+        turtle_ecef_from_geodetic(position.latitude, position.longitude,
+            position.height, ecef);
 
         /* Fetch location */
         int index[2];
-        turtle_stepper_step(f->layers_stepper, position, NULL, NULL,
+        turtle_stepper_step(f->layers_stepper, ecef, NULL, NULL,
             NULL, NULL, NULL, NULL, index);
 
         return (index[0] > 0) ? index[0] - 1 : -1;

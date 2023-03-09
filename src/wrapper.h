@@ -9,7 +9,7 @@ enum mulder_return {
 };
 
 /* Vectorized layer height */
-enum mulder_return mulder_layer_height_v(
+void mulder_layer_height_v(
     const struct mulder_layer * layer,
     int nx,
     int ny,
@@ -18,7 +18,7 @@ enum mulder_return mulder_layer_height_v(
     double * z);
 
 /* Vectorized layer gradient */
-enum mulder_return mulder_layer_gradient_v(
+void mulder_layer_gradient_v(
     const struct mulder_layer * layer,
     int n,
     const double * x,
@@ -26,21 +26,19 @@ enum mulder_return mulder_layer_gradient_v(
     double * gx,
     double * gy);
 
-/* Vectorized geodetic coordinates */
-enum mulder_return mulder_layer_geodetic_v(
+/* Vectorized geographic coordinates */
+void mulder_layer_coordinates_v(
     const struct mulder_layer * layer,
     int n,
     const double * x,
     const double * y,
-    double * latitude,
-    double * longitude);
+    double * coordinates);
 
-/* Vectorized map coordinates */
-enum mulder_return mulder_layer_coordinates_v(
+/* Vectorized map projection */
+void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int n,
-    const double * latitude,
-    const double * longitude,
+    const double * coordinates,
     double * x,
     double * y);
 
@@ -48,9 +46,7 @@ enum mulder_return mulder_layer_coordinates_v(
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int n,
-    const double * latitude,
-    const double * longitude,
-    const double * height,
+    const double * coordinates,
     double * field);
 
 /* Vectorized flux computation */

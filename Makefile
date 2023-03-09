@@ -140,8 +140,8 @@ examples: bin/test
 
 EXAMPLES_CFLAGS= $(CFLAGS) -Isrc -Llib $(RPATH)
 
-bin/%: examples/%.c | lib/$(LIB) bindir
-	$(CC) $(EXAMPLES_CFLAGS) -o $@ $^ -lmulder
+bin/%: examples/%.c src/mulder.h | lib/$(LIB) bindir
+	$(CC) $(EXAMPLES_CFLAGS) -o $@ $< -lmulder
 
 .PHONY: bindir
 bindir:

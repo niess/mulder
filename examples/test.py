@@ -14,14 +14,13 @@ layers = (
 # Get the geomagnetic field (optional)
 magnet = mulder.Geomagnet()
 
-# Get coordinates at center of top map
+# Get map coordinates at center of top layer
 x = 0.5 * (layers[0].xmin + layers[0].xmax)
 y = 0.5 * (layers[0].ymin + layers[0].ymax)
 
-# Get corresponding topography height (and offset it below ground)
-z = layers[0].height(x, y)
-latitude, longitude = layers[0].geodetic(x, y)
-z -= 30.
+# Get the corresponding geographic coordinates (and offset height below ground)
+coordinates = layers[0].coordinates(x, y)
+coordinates.height -= 30
 
 # Create a fluxmeter and compute the differential muon flux along some
 # direction of observation
@@ -30,7 +29,9 @@ meter.geomagnet = magnet
 
 azimuth, elevation = 0, 25
 energy = numpy.logspace(0, 4, 401)
-flux = meter.flux(latitude, longitude, z, azimuth, elevation, energy)
+flux = meter.flux(
+    coordinates.latitude, coordinates.longitude, coordinates.height,
+    azimuth, elevation, energy)
 reference = meter.reference.flux(elevation, energy)
 
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)

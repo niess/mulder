@@ -68,81 +68,80 @@ void mulder_error_clear(void)
 
 
 /* Vectorized topography height */
-enum mulder_return mulder_layer_height_v(
-    const struct mulder_layer * layer, int nx, int ny, const double * x,
-    const double * y, double * z)
+void mulder_layer_height_v(
+    const struct mulder_layer * layer,
+    int nx,
+    int ny,
+    const double * x,
+    const double * y,
+    double * z)
 {
-        last_error.rc = MULDER_SUCCESS;
         for (; ny > 0; ny--, y++) {
                 int i;
                 const double * xi;
                 for (i = 0, xi = x; i < nx; i++, xi++, z++) {
                         *z = mulder_layer_height(layer, *xi, *y);
-                        if (last_error.rc == MULDER_FAILURE) {
-                                return MULDER_FAILURE;
-                        }
                 }
         }
-        return MULDER_SUCCESS;
 }
 
 
 /* Vectorized topography gradient */
-enum mulder_return mulder_layer_gradient_v(
-    const struct mulder_layer * layer, int n, const double * x,
-    const double * y, double * gx, double * gy)
+void mulder_layer_gradient_v(
+    const struct mulder_layer * layer,
+    int n,
+    const double * x,
+    const double * y,
+    double * gx,
+    double * gy)
 {
-        last_error.rc = MULDER_SUCCESS;
         for (; n > 0; n--, x++, y++, gx++, gy++) {
                 mulder_layer_gradient(layer, *x, *y, gx, gy);
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
-                }
         }
-        return MULDER_SUCCESS;
 }
 
 
-/* Vectorized geodetic coordinates */
-enum mulder_return mulder_layer_geodetic_v(
-    const struct mulder_layer * layer, int n, const double * x,
-    const double * y, double * latitude, double * longitude)
+/* Vectorized geographic coordinates */
+void mulder_layer_coordinates_v(
+    const struct mulder_layer * layer,
+    int n,
+    const double * x,
+    const double * y,
+    double * coordinates)
 {
-        last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, x++, y++, latitude++, longitude++) {
-                mulder_layer_geodetic(layer, *x, *y, latitude, longitude);
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
-                }
+        for (; n > 0; n--, x++, y++, coordinates+= 3) {
+                struct mulder_coordinates tmp =
+                    mulder_layer_coordinates(layer, *x, *y);
+                memcpy(coordinates, &tmp, sizeof(tmp));
         }
-        return MULDER_SUCCESS;
 }
 
 
-/* Vectorized map coordinates */
-enum mulder_return mulder_layer_coordinates_v(
-    const struct mulder_layer * layer, int n, const double * latitude,
-    const double * longitude, double * x, double * y)
+/* Vectorized map projection */
+void mulder_layer_project_v(
+    const struct mulder_layer * layer,
+    int n,
+    const double * coordinates,
+    double * x,
+    double * y)
 {
-        last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, latitude++, longitude++, x++, y++) {
-                mulder_layer_coordinates(layer, *latitude, *longitude, x, y);
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
-                }
+        for (; n > 0; n--, coordinates+= 3, x++, y++) {
+                mulder_layer_project(layer, (const void *)coordinates, x, y);
         }
-        return MULDER_SUCCESS;
 }
 
 
 /* Vectorized geomagnetif field */
 void mulder_geomagnet_field_v(
-    struct mulder_geomagnet * geomagnet, int n, const double * latitude,
-    const double * longitude, const double * height, double * field)
+    struct mulder_geomagnet * geomagnet,
+    int n,
+    const double * coordinates,
+    double * field)
 {
-        for (; n > 0; n--, latitude++, longitude++, height++, field += 3) {
-                mulder_geomagnet_field(geomagnet, *latitude, *longitude,
-                    *height, field, field + 1, field  + 2);
+        for (; n > 0; n--, coordinates+= 3, field += 3) {
+                struct mulder_enu enu = mulder_geomagnet_field(
+                    geomagnet, (const void *)coordinates);
+                memcpy(field, &enu, sizeof(enu));
         }
 }
 
@@ -257,11 +256,9 @@ enum mulder_return mulder_fluxmeter_intersect_v(
                 if ((*layer < 0) || (*layer >= fluxmeter->size)) {
                         *x = *y = *z = 0.;
                 } else {
-                        mulder_layer_coordinates(
-                            fluxmeter->layers[*layer], la, lo, x, y);
-                }
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+                        struct mulder_coordinates tmp = {la, lo, 0.};
+                        mulder_layer_project(
+                            fluxmeter->layers[*layer], &tmp, x, y);
                 }
         }
         return MULDER_SUCCESS;

@@ -6,6 +6,7 @@ import weakref
 
 import numpy
 
+from .arrayclasses import arrayclass
 from .version import git_revision, version
 from .wrapper import ffi, lib
 
@@ -67,6 +68,41 @@ def _is_regular(a):
     dmin, dmax = min(d), max(d)
     amax = max(numpy.absolute(a))
     return dmax - dmin <= 1E-15 * amax
+
+
+# Decorated array types
+@arrayclass
+class Coordinates:
+    """Geographic coordinates (GPS like, using WGS84)"""
+
+    properties = (
+        ("latitude",  "Geographic latitude, in deg"),
+        ("longitude", "Geographic longitude, in deg"),
+        ("height",    "Geographic height, in m")
+    )
+
+
+@arrayclass
+class Direction:
+    """Observation direction, using Horizontal angular coordinates"""
+
+    properties = (
+        ("azimuth",   "Azimuth angle, in deg, "
+                      "(measured clockwise from geographic North)"),
+        ("elevation", "Elevation angle, in deg, "
+                      "(w.r.t. local horizontal)")
+    )
+
+
+@arrayclass
+class Enu:
+    """East, North, Upward (ENU) local coordinates"""
+
+    properties = (
+        ("east",   "Local east-ward coordinate"),
+        ("north",  "Local north-ward coordinate"),
+        ("upward", "Local upward coordinate")
+    )
 
 
 class Layer:
@@ -158,7 +194,7 @@ class Layer:
         if layer[0] == ffi.NULL:
             raise LibraryError()
 
-        weakref.finalize(self, lib.mulder_layer_destroy, layer)
+        weakref.finalize(self, lib.mulder_layer_destroy, layer) # XXX use gc?
 
         self._layer = layer
         self.density = density
@@ -169,10 +205,14 @@ class Layer:
         x, y, size = _asmatrix(x, y)
         z = numpy.empty(size)
 
-        rc = lib.mulder_layer_height_v(self._layer[0], x.size, y.size,
-                                       _todouble(x), _todouble(y), _todouble(z))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
+        lib.mulder_layer_height_v(
+            self._layer[0],
+            x.size,
+            y.size,
+            _todouble(x),
+            _todouble(y),
+            _todouble(z)
+        )
 
         return _frommatrix(x.size, y.size, z)
 
@@ -183,42 +223,49 @@ class Layer:
         gx = numpy.empty(size)
         gy = numpy.empty(size)
 
-        rc = lib.mulder_layer_gradient_v(self._layer[0], size, _todouble(x),
-                                         _todouble(y), _todouble(gx),
-                                         _todouble(gy))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
+        lib.mulder_layer_gradient_v(
+            self._layer[0],
+            size,
+            _todouble(x),
+            _todouble(y),
+            _todouble(gx),
+            _todouble(gy)
+        )
 
         return _fromarray2(gx, gy)
 
-    def geodetic(self, x, y):
-        """Geodetic coordinates from map ones"""
+    def coordinates(self, x, y) -> Coordinates:
+        """Geographic coordinates at map location"""
 
         x, y, size = _asarray2(x, y)
-        latitude = numpy.empty(size)
-        longitude = numpy.empty(size)
+        coordinates = Coordinates.empty(size if size > 1 else None)
 
-        rc = lib.mulder_layer_geodetic_v(self._layer[0], size, _todouble(x),
-                                        _todouble(y), _todouble(latitude),
-                                        _todouble(longitude))
-        if rc == lib.MULDER_FAILURE:
-            raise LibraryError()
+        lib.mulder_layer_coordinates_v(
+            self._layer[0],
+            size,
+            _todouble(x),
+            _todouble(y),
+            coordinates.cffi_ptr
+        )
 
-        return _fromarray2(latitude, longitude)
+        return coordinates
 
-    def coordinates(self, latitude, longitude):
-        """Map coordinates from geodetic ones"""
+    def project(self, coordinates: Coordinates):
+        """Project geographic coordinates onto map"""
 
-        latitude, longitude, size = _asarray2(latitude, longitude)
+        assert(isinstance(coordinates, Coordinates))
+
+        size = coordinates._size or 1 # XXX Check this everywhere
         x = numpy.empty(size)
         y = numpy.empty(size)
 
-        rc = lib.mulder_layer_coordinates_v(self._layer[0], size,
-                                           _todouble(latitude),
-                                           _todouble(longitude), _todouble(x),
-                                           _todouble(y))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
+        lib.mulder_layer_project_v(
+            self._layer[0],
+            size,
+            coordinates.cffi_ptr,
+            _todouble(x),
+            _todouble(y)
+        )
 
         return _fromarray2(x, y)
 
@@ -277,30 +324,26 @@ class Geomagnet:
         else:
             self._geomagnet = ffi.gc(geomagnet, lib.mulder_geomagnet_destroy)
 
-    def field(self, latitude, longitude, height):
+    def field(self, coordinates: Coordinates):
         """Geomagnetic field, in T
 
         The magnetic field components are returned in East-North-Upward (ENU)
         coordinates.
         """
 
-        latitude, longitude, height, size = _asarray3(
-            latitude, longitude, height)
-        field = numpy.empty((size, 3))
+        assert(isinstance(coordinates, Coordinates))
 
-        lib.mulder_geomagnet_field_v(self._geomagnet[0], size,
-            _todouble(latitude), _todouble(longitude), _todouble(height),
-            _todouble(field))
+        enu = Enu.empty(coordinates._size)
+        size = coordinates._size or 1
 
-        class EnuVector(NamedTuple):
-            east: numpy.ndarray
-            north: numpy.ndarray
-            upward: numpy.ndarray
+        lib.mulder_geomagnet_field_v(
+            self._geomagnet[0],
+            size,
+            coordinates.cffi_ptr,
+            enu.cffi_ptr,
+        )
 
-        if size == 1:
-            return EnuVector(field[0,0], field[0,1], field[0,2])
-        else:
-            return EnuVector(field[:,0], field[:,1], field[:,2])
+        return enu
 
 
 class Flux:

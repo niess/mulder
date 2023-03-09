@@ -25,21 +25,21 @@ int main(int argc, char * argv[])
             mulder_geomagnet_create("mulder/data/IGRF13.COF", 1, 1, 2020);
         meter->geomagnet = magnet;
 
-        /* Get geodetic coordinates at the middle of the map */
+        /* Get geographic coordinates at the middle of the map, and offset
+         * the height below the ground
+         */
         const double x = 0.5 * (layers[0]->xmin + layers[0]->xmax);
         const double y = 0.5 * (layers[0]->ymin + layers[0]->ymax);
 
-        double latitude, longitude, height;
-        height = mulder_layer_height(layers[0], x, y);
-        mulder_layer_geodetic(layers[0], x, y, &latitude, &longitude);
+        struct mulder_coordinates position =
+            mulder_layer_coordinates(layers[0], x, y);
+        position.height -= 30;
 
         /* Compute the muon flux along some observation direction */
+        struct mulder_direction direction = {.azimuth = 0., .elevation = 90.};
         const double kinetic_energy = 1E+01;
-        const double azimuth = 0.;
-        const double elevation = 90.;
-        struct mulder_flux flux = mulder_fluxmeter_flux(meter,
-            kinetic_energy, latitude, longitude, height - 30., azimuth,
-            elevation);
+        struct mulder_flux flux = mulder_fluxmeter_flux(
+            meter, position, direction, kinetic_energy);
 
         printf("flux = %.5E GeV^-1 m^-2 s^-1 sr^1 (%+.5f)\n",
             flux.value, flux.asymmetry);
