@@ -70,18 +70,15 @@ void mulder_error_clear(void)
 /* Vectorized topography height */
 void mulder_layer_height_v(
     const struct mulder_layer * layer,
-    int nx,
-    int ny,
-    const double * x,
-    const double * y,
-    double * z)
+    int n,
+    const double * position,
+    double * height)
 {
-        for (; ny > 0; ny--, y++) {
-                int i;
-                const double * xi;
-                for (i = 0, xi = x; i < nx; i++, xi++, z++) {
-                        *z = mulder_layer_height(layer, *xi, *y);
-                }
+        for (; n > 0; n--, position+= 2, height++) {
+                *height = mulder_layer_height(
+                    layer,
+                    *(struct mulder_projection *)position
+                );
         }
 }
 
@@ -90,13 +87,20 @@ void mulder_layer_height_v(
 void mulder_layer_gradient_v(
     const struct mulder_layer * layer,
     int n,
-    const double * x,
-    const double * y,
-    double * gx,
-    double * gy)
+    const double * position,
+    double * gradient)
 {
-        for (; n > 0; n--, x++, y++, gx++, gy++) {
-                mulder_layer_gradient(layer, *x, *y, gx, gy);
+        for (; n > 0; n--, position+= 2, gradient+= 2) {
+                struct mulder_projection tmp = mulder_layer_gradient(
+                    layer,
+                    *(struct mulder_projection *)position
+                );
+
+                memcpy(
+                    gradient,
+                    &tmp,
+                    sizeof tmp
+                );
         }
 }
 
@@ -105,14 +109,20 @@ void mulder_layer_gradient_v(
 void mulder_layer_coordinates_v(
     const struct mulder_layer * layer,
     int n,
-    const double * x,
-    const double * y,
-    double * coordinates)
+    const double * map,
+    double * geographic)
 {
-        for (; n > 0; n--, x++, y++, coordinates+= 3) {
-                struct mulder_coordinates tmp =
-                    mulder_layer_coordinates(layer, *x, *y);
-                memcpy(coordinates, &tmp, sizeof(tmp));
+        for (; n > 0; n--, map+= 2, geographic+= 3) {
+                struct mulder_coordinates tmp = mulder_layer_coordinates(
+                    layer,
+                    *(struct mulder_projection *)map
+                );
+
+                memcpy(
+                    geographic,
+                    &tmp,
+                    sizeof tmp
+                );
         }
 }
 
@@ -121,12 +131,20 @@ void mulder_layer_coordinates_v(
 void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int n,
-    const double * coordinates,
-    double * x,
-    double * y)
+    const double * geographic,
+    double * map)
 {
-        for (; n > 0; n--, coordinates+= 3, x++, y++) {
-                mulder_layer_project(layer, (const void *)coordinates, x, y);
+        for (; n > 0; n--, geographic+= 3, map+= 2) {
+                struct mulder_projection tmp = mulder_layer_project(
+                    layer,
+                    *(struct mulder_coordinates *)geographic
+                );
+
+                memcpy(
+                    map,
+                    &tmp,
+                    sizeof tmp
+                );
         }
 }
 
@@ -135,104 +153,140 @@ void mulder_layer_project_v(
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int n,
-    const double * coordinates,
+    const double * position,
     double * field)
 {
-        for (; n > 0; n--, coordinates+= 3, field += 3) {
-                struct mulder_enu enu = mulder_geomagnet_field(
-                    geomagnet, (const void *)coordinates);
-                memcpy(field, &enu, sizeof(enu));
+        for (; n > 0; n--, position+= 3, field+= 3) {
+                struct mulder_enu tmp = mulder_geomagnet_field(
+                    geomagnet,
+                    *(struct mulder_coordinates *)position
+                );
+
+                memcpy(
+                    field,
+                    &tmp,
+                    sizeof(tmp)
+                );
         }
 }
 
 
 /* Vectorized flux computation */
 enum mulder_return mulder_fluxmeter_flux_v(
-    struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,
-    double height, double azimuth, double elevation, int n,
-    const double * energy, double * result)
+    struct mulder_fluxmeter * fluxmeter,
+    const double * position,
+    const double * direction,
+    int n,
+    const double * energy,
+    double * flux)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, energy++, result+= 2) {
-                struct mulder_flux flux = mulder_fluxmeter_flux(fluxmeter,
-                    *energy, latitude, longitude, height, azimuth, elevation);
+        for (; n > 0; n--, energy++, flux+= 2) {
+                struct mulder_flux tmp = mulder_fluxmeter_flux(
+                    fluxmeter,
+                    *(struct mulder_coordinates *)position,
+                    *(struct mulder_direction *)direction,
+                    *energy
+                );
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
-                result[0] = flux.value;
-                result[1] = flux.asymmetry;
+
+                memcpy(
+                    flux,
+                    &tmp,
+                    sizeof tmp
+                );
         }
         return MULDER_SUCCESS;
 }
 
 
 /* Vectorized reference flux */
-void mulder_reference_flux_v(struct mulder_reference * reference,
-    double height, double elevation, int n, const double * energy,
-    double * result)
+void mulder_reference_flux_v(
+    struct mulder_reference * reference,
+    double height,
+    double elevation,
+    int n,
+    const double * energy,
+    double * flux)
 {
-        for (; n > 0; n--, energy++, result+= 2) {
-                struct mulder_flux flux = reference->flux(
-                    reference, height, elevation, *energy);
-                result[0] = flux.value;
-                result[1] = flux.asymmetry;
+        for (; n > 0; n--, energy++, flux+= 2) {
+                struct mulder_flux tmp = reference->flux(
+                    reference,
+                    height,
+                    elevation,
+                    *energy
+                );
+
+                memcpy(
+                    flux,
+                    &tmp,
+                    sizeof tmp
+                );
         }
 }
 
 
 /* Vectorized state flux */
-void mulder_state_flux_v(struct mulder_reference * reference,
-    int n, const int * pid, const double * data, double * result)
+void mulder_state_flux_v(
+    struct mulder_reference * reference,
+    int n,
+    const int * pid,
+    const double * data,
+    double * flux)
 {
-        for (; n > 0; n--, pid++, data+= 7, result+= 2) {
-                /* XXX use memcpy? */
-                struct mulder_state state = {
-                        .pid = *pid,
-                        .latitude = data[0],
-                        .longitude = data[1],
-                        .height = data[2],
-                        .azimuth = data[3],
-                        .elevation = data[4],
-                        .energy = data[5],
-                        .weight = data[6]
-                };
-                struct mulder_flux flux = mulder_state_flux(
-                    &state, reference);
-                result[0] = flux.value;
-                result[1] = flux.asymmetry;
+        for (; n > 0; n--, pid++, data+= 7, flux+= 2) {
+                struct mulder_state state = {.pid = *pid};
+                memcpy(
+                    &state.position,
+                    data,
+                    7 * sizeof(*data)
+                );
+
+                struct mulder_flux tmp = mulder_state_flux(
+                    state,
+                    reference
+                );
+
+                memcpy(
+                    flux,
+                    &tmp,
+                    sizeof tmp
+                );
         }
 }
 
 
 /* Vectorized transport */
 enum mulder_return mulder_fluxmeter_transport_v(
-    struct mulder_fluxmeter * fluxmeter, int n, const int * pid_in,
-    const double * data_in, int * pid_out, double * data_out)
+    struct mulder_fluxmeter * fluxmeter,
+    int n,
+    const int * pid_in,
+    const double * data_in,
+    int * pid_out,
+    double * data_out)
 {
         last_error.rc = MULDER_SUCCESS;
         for (; n > 0; n--, pid_in++, data_in+= 7, pid_out++, data_out+= 7) {
-                struct mulder_state s = {
-                        .pid = *pid_in,
-                        .latitude = data_in[0],
-                        .longitude = data_in[1],
-                        .height = data_in[2],
-                        .azimuth = data_in[3],
-                        .elevation = data_in[4],
-                        .energy = data_in[5],
-                        .weight = data_in[6]
-                };
-                s = mulder_fluxmeter_transport(fluxmeter, &s);
+                struct mulder_state tmp = {.pid = *pid_in};
+                memcpy(
+                    &tmp.position,
+                    data_in,
+                    7 * sizeof(*data_in)
+                );
+
+                tmp = mulder_fluxmeter_transport(fluxmeter, tmp);
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
-                *pid_out = s.pid;
-                data_out[0] = s.latitude;
-                data_out[1] = s.longitude;
-                data_out[2] = s.height;
-                data_out[3] = s.azimuth;
-                data_out[4] = s.elevation;
-                data_out[5] = s.energy;
-                data_out[6] = s.weight;
+
+                *pid_out = tmp.pid;
+                memcpy(
+                    data_out,
+                    &tmp.position,
+                    7 * sizeof(*data_out)
+                );
         }
         return MULDER_SUCCESS;
 }
@@ -240,25 +294,38 @@ enum mulder_return mulder_fluxmeter_transport_v(
 
 /* Vectorized intersections */
 enum mulder_return mulder_fluxmeter_intersect_v(
-    struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,
-    double height, int n, const double * azimuth, const double * elevation,
-    int * layer, double * x, double * y, double * z)
+    struct mulder_fluxmeter * fluxmeter,
+    const double * position,
+    int n,
+    const double * direction,
+    int * layer,
+    double * intersection)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, azimuth++, elevation++, layer++, x++, y++, z++) {
-                double la = latitude, lo = longitude;
-                *z = height;
-                *layer = mulder_fluxmeter_intersect(
-                    fluxmeter, &la, &lo, z, *azimuth, *elevation);
+        for (; n > 0; n--, direction+= 2, layer++, intersection+= 3) {
+                struct mulder_intersection tmp = mulder_fluxmeter_intersect(
+                    fluxmeter,
+                    *(struct mulder_coordinates *)position,
+                    *(struct mulder_direction *)direction
+                );
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
-                if ((*layer < 0) || (*layer >= fluxmeter->size)) {
-                        *x = *y = *z = 0.;
+
+                *layer = tmp.layer;
+
+                if ((tmp.layer < 0) || (tmp.layer >= fluxmeter->size)) {
+                        memset(
+                            intersection,
+                            0x0,
+                            sizeof tmp.position
+                        );
                 } else {
-                        struct mulder_coordinates tmp = {la, lo, 0.};
-                        mulder_layer_project(
-                            fluxmeter->layers[*layer], &tmp, x, y);
+                        memcpy(
+                            intersection,
+                            &tmp.position,
+                            sizeof tmp.position
+                        );
                 }
         }
         return MULDER_SUCCESS;
@@ -267,15 +334,21 @@ enum mulder_return mulder_fluxmeter_intersect_v(
 
 /* Vectorized grammage */
 enum mulder_return mulder_fluxmeter_grammage_v(
-    struct mulder_fluxmeter * fluxmeter, double latitude, double longitude,
-    double height, int n, const double * azimuth, const double * elevation,
+    struct mulder_fluxmeter * fluxmeter,
+    const double * position,
+    int n,
+    const double * direction,
     double * grammage)
 {
         last_error.rc = MULDER_SUCCESS;
         const int m = fluxmeter->size + 1;
-        for (; n > 0; n--, azimuth++, elevation++, grammage += m) {
-                mulder_fluxmeter_grammage(fluxmeter, latitude, longitude,
-                    height, *azimuth, *elevation, grammage);
+        for (; n > 0; n--, direction+= 2, grammage += m) {
+                mulder_fluxmeter_grammage(
+                    fluxmeter,
+                    *(struct mulder_coordinates *)position,
+                    *(struct mulder_direction *)direction,
+                    grammage
+                );
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
@@ -286,13 +359,17 @@ enum mulder_return mulder_fluxmeter_grammage_v(
 
 /* Vectorized locator */
 enum mulder_return mulder_fluxmeter_whereami_v(
-    struct mulder_fluxmeter * fluxmeter, int n, const double * latitude,
-    const double * longitude, const double * height, int * layer)
+    struct mulder_fluxmeter * fluxmeter,
+    int n,
+    const double * position,
+    int * layer)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; n > 0; n--, latitude++, longitude++, height++, layer++) {
+        for (; n > 0; n--, position+= 3, layer++) {
                 *layer = mulder_fluxmeter_whereami(
-                    fluxmeter, *latitude, *longitude, *height);
+                    fluxmeter,
+                    *(struct mulder_coordinates *)position
+                );
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
@@ -302,7 +379,10 @@ enum mulder_return mulder_fluxmeter_whereami_v(
 
 
 /* Vectorized pseudo-random numbers */
-void mulder_prng_uniform01_v(struct mulder_prng * prng, int n, double * values)
+void mulder_prng_uniform01_v(
+    struct mulder_prng * prng,
+    int n,
+    double * values)
 {
         for (; n > 0; n--, values++) {
                 *values = prng->uniform01(prng);
@@ -311,8 +391,14 @@ void mulder_prng_uniform01_v(struct mulder_prng * prng, int n, double * values)
 
 
 /* Create a TURTLE map from raw data */
-enum mulder_return mulder_map_create(const char * path, const char * projection,
-    int nx, int ny, double xmin, double xmax, double ymin, double ymax,
+enum mulder_return mulder_map_create(
+    const char * path,
+    const char * projection,
+    int nx, int ny,
+    double xmin,
+    double xmax,
+    double ymin,
+    double ymax,
     const double * z)
 {
         struct turtle_map_info info = {
@@ -356,22 +442,31 @@ enum mulder_return mulder_map_create(const char * path, const char * projection,
 
 /* Generate physics tables for Pumas */
 enum mulder_return mulder_generate_physics(
-    const char * path, const char * destination, const char * dump)
+    const char * path,
+    const char * destination,
+    const char * dump)
 {
         /* Pre-compute physics data */
         struct pumas_physics * physics;
-        if (pumas_physics_create(
-            &physics, PUMAS_PARTICLE_MUON, path, destination, NULL) !=
-            PUMAS_RETURN_SUCCESS) {
-                return MULDER_FAILURE;
+        {
+                enum pumas_return tmp = pumas_physics_create(
+                    &physics,
+                    PUMAS_PARTICLE_MUON,
+                    path,
+                    destination,
+                    NULL
+                );
+                if (tmp != PUMAS_RETURN_SUCCESS) {
+                        return MULDER_FAILURE;
+                }
         }
 
         /* Dump the result */
         enum mulder_return rc = MULDER_FAILURE;
         FILE * stream = fopen(dump, "wb");
         if (stream != NULL) {
-                if (pumas_physics_dump(physics, stream) ==
-                    PUMAS_RETURN_SUCCESS) {
+                enum pumas_return tmp = pumas_physics_dump(physics, stream);
+                if (tmp == PUMAS_RETURN_SUCCESS) {
                         rc = MULDER_SUCCESS;
                 }
                 fclose(stream);

@@ -45,14 +45,18 @@ void (*mulder_error)(const char * message) = &default_error;
 
 /* Pumas & Turtle error handlers */
 static void pumas_error(
-    enum pumas_return rc, pumas_function_t * caller, const char * message)
+    enum pumas_return rc,
+    pumas_function_t * caller,
+    const char * message)
 {
         mulder_error(message);
 }
 
 static pumas_handler_cb * pumas_default_error = NULL;
 
-static void turtle_error(enum turtle_return code, turtle_function_t * function,
+static void turtle_error(
+    enum turtle_return code,
+    turtle_function_t * function,
     const char * message)
 {
         mulder_error(message);
@@ -198,7 +202,8 @@ void mulder_layer_destroy(struct mulder_layer ** layer)
 
 
 double mulder_layer_height(
-    const struct mulder_layer * layer, double x, double y)
+    const struct mulder_layer * layer,
+    const struct mulder_projection position)
 {
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
@@ -206,61 +211,91 @@ double mulder_layer_height(
         } else {
                 double z;
                 int inside;
-                turtle_map_elevation(l->map, x, y, &z, &inside);
+                turtle_map_elevation(
+                    l->map,
+                    position.x,
+                    position.y,
+                    &z,
+                    &inside
+                );
                 return inside ? z + layer->offset : ZMIN;
         }
 }
 
 
-void mulder_layer_gradient(const struct mulder_layer * layer,
-    double x, double y, double * gx, double *gy)
+struct mulder_projection mulder_layer_gradient(
+    const struct mulder_layer * layer,
+    const struct mulder_projection position)
 {
+        struct mulder_projection gradient;
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
-                *gx = *gy = 0;
+                gradient.x = gradient.y = 0.;
         } else {
                 int inside;
-                turtle_map_gradient(l->map, x, y, gx, gy, &inside);
+                turtle_map_gradient(
+                    l->map,
+                    position.x,
+                    position.y,
+                    &gradient.x,
+                    &gradient.y,
+                    &inside
+                );
                 if (!inside) {
-                        *gx = *gy = 0.;
+                        gradient.x = gradient.y = 0.;
                 }
         }
+        return gradient;
 }
 
 
 struct mulder_coordinates mulder_layer_coordinates(
-    const struct mulder_layer * layer, double x, double y)
+    const struct mulder_layer * layer,
+    const struct mulder_projection position)
 {
         struct mulder_coordinates coordinates;
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
-                coordinates.longitude = x;
-                coordinates.latitude = y;
+                coordinates.longitude = position.x;
+                coordinates.latitude = position.y;
         } else {
                 const struct turtle_projection * p =
                     turtle_map_projection(l->map);
-                turtle_projection_unproject(p, x, y, &coordinates.latitude,
-                    &coordinates.longitude);
+                turtle_projection_unproject(
+                    p,
+                    position.x,
+                    position.y,
+                    &coordinates.latitude,
+                    &coordinates.longitude
+                );
         }
 
-        coordinates.height = mulder_layer_height(layer, x, y);
+        coordinates.height = mulder_layer_height(layer, position);
         return coordinates;
 }
 
 
-void mulder_layer_project(const struct mulder_layer * layer,
-    const struct mulder_coordinates * coordinates, double * x, double * y)
+struct mulder_projection mulder_layer_project(
+    const struct mulder_layer * layer,
+    const struct mulder_coordinates position)
 {
         struct layer * l = (void *)layer;
+        struct mulder_projection projection;
         if (l->map == NULL) {
-                *x = coordinates->longitude;
-                *y = coordinates->latitude;
+                projection.x = position.longitude;
+                projection.y = position.latitude;
         } else {
                 const struct turtle_projection * p =
                     turtle_map_projection(l->map);
-                turtle_projection_project(p, coordinates->latitude,
-                    coordinates->longitude, x, y);
+                turtle_projection_project(
+                    p,
+                    position.latitude,
+                    position.longitude,
+                    &projection.x,
+                    &projection.y
+                );
         }
+        return projection;
 }
 
 
@@ -272,8 +307,11 @@ struct geomagnet {
 };
 
 
-struct mulder_geomagnet * mulder_geomagnet_create(const char * model,
-    int day, int month, int year)
+struct mulder_geomagnet * mulder_geomagnet_create(
+    const char * model,
+    int day,
+    int month,
+    int year)
 {
         struct geomagnet * geomagnet = malloc(sizeof *geomagnet);
 
@@ -335,15 +373,20 @@ void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet)
 
 struct mulder_enu mulder_geomagnet_field(
     const struct mulder_geomagnet * geomagnet,
-    const struct mulder_coordinates * coordinates)
+    const struct mulder_coordinates position)
 {
         struct geomagnet * g = (void *)geomagnet;
         struct mulder_enu enu;
-        enum gull_return rc = gull_snapshot_field(g->snapshot,
-            coordinates->latitude, coordinates->longitude, coordinates->height,
-            (double *)&enu, &g->workspace);
+        enum gull_return rc = gull_snapshot_field(
+            g->snapshot,
+            position.latitude,
+            position.longitude,
+            position.height,
+            (double *)&enu,
+            &g->workspace
+        );
         if (rc != GULL_RETURN_SUCCESS) {
-                enu.north = enu.east = enu.upward;
+                enu.north = enu.east = enu.upward = 0.;
         }
         return enu;
 }
@@ -379,17 +422,32 @@ struct fluxmeter {
 };
 
 
-static double layers_locals(struct pumas_medium * medium,
-    struct pumas_state * state, struct pumas_locals * locals);
+/* Prototypes of local functions & data for the fluxmeter implementation */
+static double layers_locals(
+    struct pumas_medium * medium,
+    struct pumas_state * state,
+    struct pumas_locals * locals
+);
 
-static double atmosphere_locals(struct pumas_medium * medium,
-    struct pumas_state * state, struct pumas_locals * locals);
+static double atmosphere_locals(
+    struct pumas_medium * medium,
+    struct pumas_state * state,
+    struct pumas_locals * locals
+);
 
-static enum pumas_step layers_geometry(struct pumas_context * context,
-    struct pumas_state * state, struct pumas_medium ** medium, double * step);
+static enum pumas_step layers_geometry(
+    struct pumas_context * context,
+    struct pumas_state * state,
+    struct pumas_medium ** medium,
+    double * step
+);
 
-static enum pumas_step opensky_geometry(struct pumas_context * context,
-    struct pumas_state * state, struct pumas_medium ** medium, double * step);
+static enum pumas_step opensky_geometry(
+    struct pumas_context * context,
+    struct pumas_state * state,
+    struct pumas_medium ** medium,
+    double * step
+);
 
 static void update_steppers(struct fluxmeter * fluxmeter);
 
@@ -397,21 +455,28 @@ static double random_pumas(struct pumas_context * context);
 
 static unsigned long get_seed(struct mulder_prng * prng);
 
-static void set_seed(struct mulder_prng * prng, const unsigned long * seed);
+static void set_seed(
+    struct mulder_prng * prng,
+    const unsigned long * seed
+);
 
 static double uniform01(struct mulder_prng * prng);
 
 static struct mulder_reference default_reference;
 
 
-struct mulder_fluxmeter * mulder_fluxmeter_create(const char * physics,
-    int size, struct mulder_layer * layers[])
+/* Librray entry point for creating a fluxmeter */
+struct mulder_fluxmeter * mulder_fluxmeter_create(
+    const char * physics,
+    int size,
+    struct mulder_layer * layers[])
 {
         /* Allocate memory */
         struct fluxmeter * fluxmeter = malloc(
             sizeof(*fluxmeter) +
             size * sizeof(*fluxmeter->layers) +
-            (size + 1) * sizeof(*fluxmeter->layers_media));
+            (size + 1) * sizeof(*fluxmeter->layers_media)
+        );
 
         /* Initialise PUMAS related data */
         FILE * fid = fopen(physics, "r");
@@ -607,12 +672,19 @@ struct state {
 
 
 /* Muon flux computation */
-static struct state init_event(struct fluxmeter * fluxmeter,
-    enum mulder_pid pid, struct mulder_coordinates position,
-    struct mulder_direction direction, double energy);
+static struct state init_event(
+    struct fluxmeter * fluxmeter,
+    enum mulder_pid pid,
+    struct mulder_coordinates position,
+    struct mulder_direction direction,
+    double energy
+);
 
-static struct mulder_state transport_event(struct fluxmeter * fluxmeter,
-    struct mulder_coordinates position, struct state state);
+static struct mulder_state transport_event(
+    struct fluxmeter * fluxmeter,
+    struct mulder_coordinates position,
+    struct state state
+);
 
 struct mulder_flux mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
@@ -1008,21 +1080,31 @@ double mulder_fluxmeter_grammage(
     const struct mulder_direction direction,
     double * grammage)
 {
-        /* Initialise the muon state */
+        /* Initialise the muon state (XXX shared with intersect) */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = {
-                .api = {
-                        .charge = 1.,
-                        .energy = 1.,
-                        .weight = 1.
-                },
-                .fluxmeter = f
+            .api = {
+                .charge = 1.,
+                .energy = 1.,
+                .weight = 1.
+            },
+            .fluxmeter = f
         };
 
-        turtle_ecef_from_geodetic(position.latitude, position.longitude,
-            position.height, s.api.position);
-        turtle_ecef_from_horizontal(position.latitude, position.longitude,
-            direction.azimuth, direction.elevation, s.api.direction);
+        turtle_ecef_from_geodetic(
+            position.latitude,
+            position.longitude,
+            position.height,
+            s.api.position
+        );
+
+        turtle_ecef_from_horizontal(
+            position.latitude,
+            position.longitude,
+            direction.azimuth,
+            direction.elevation,
+            s.api.direction
+        );
 
         /* Update Turtle steppers (if the reference heights have changed) */
         update_steppers(f);
@@ -1038,15 +1120,24 @@ double mulder_fluxmeter_grammage(
         f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
 
         if (grammage != NULL) {
-                memset(grammage, 0x0, (f->api.size + 1) * sizeof(*grammage));
+                memset(
+                    grammage,
+                    0x0,
+                    (f->api.size + 1) * sizeof(*grammage)
+                );
         }
 
         double last_grammage = 0.;
         for (;;) {
                 enum pumas_event event;
                 struct pumas_medium * media[2];
-                if (pumas_context_transport(f->context, &s.api, &event, media)
-                    != PUMAS_RETURN_SUCCESS) {
+                enum pumas_return rc = pumas_context_transport(
+                    f->context,
+                    &s.api,
+                    &event,
+                    media
+                );
+                if (rc != PUMAS_RETURN_SUCCESS) {
                         return 0.;
                 }
 
@@ -1064,7 +1155,10 @@ double mulder_fluxmeter_grammage(
                         last_grammage = s.api.grammage;
                 }
 
-                if ((event != PUMAS_EVENT_MEDIUM) || (media[1] == NULL)) break;
+                if ((event != PUMAS_EVENT_MEDIUM) ||
+                    (media[1] == NULL)) {
+                        break;
+                }
         }
 
         return s.api.grammage;
@@ -1083,21 +1177,36 @@ int mulder_fluxmeter_whereami(
 
         /* Get ECEF position */
         double ecef[3];
-        turtle_ecef_from_geodetic(position.latitude, position.longitude,
-            position.height, ecef);
+        turtle_ecef_from_geodetic(
+            position.latitude,
+            position.longitude,
+            position.height,
+            ecef
+        );
 
         /* Fetch location */
         int index[2];
-        turtle_stepper_step(f->layers_stepper, ecef, NULL, NULL,
-            NULL, NULL, NULL, NULL, index);
+        turtle_stepper_step(
+            f->layers_stepper,
+            ecef,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            index
+        );
 
         return (index[0] > 0) ? index[0] - 1 : -1;
 }
 
 
 /* Callback for setting local properties of layers media */
-static double layers_locals(struct pumas_medium * medium,
-    struct pumas_state * state, struct pumas_locals * locals)
+static double layers_locals(
+    struct pumas_medium * medium,
+    struct pumas_state * state,
+    struct pumas_locals * locals)
 {
         struct state * s = (void *)state;
         struct fluxmeter * f = s->fluxmeter;
@@ -1105,6 +1214,7 @@ static double layers_locals(struct pumas_medium * medium,
         if (i >= 0) {
                 locals->density = f->layers[i]->density;
         } else {
+                /* XXX make subfunction */
                 const char format[] = "bad medium index (%d)";
                 char msg[sizeof(format) + 16];
                 sprintf(msg, format, (int)i);
@@ -1122,11 +1232,15 @@ static double us_standard_function(double height, double lambda, double b)
 
 static double us_standard_density(double height, double * lambda)
 {
-        const double hc[4] = { 4.E+03, 1.E+04, 4.E+04, 1.E+05 };
-        const double bi[4] = { 1222.6562E+00, 1144.9069E+00, 1305.5948E+00,
-                540.1778E+00 };
-        const double ci[4] = { 994186.38E+00, 878153.55E+00, 636143.04E+00,
-                772170.16E+00 };
+        const double hc[4] = {
+            4.E+03, 1.E+04, 4.E+04, 1.E+05
+        };
+        const double bi[4] = {
+            1222.6562E+00, 1144.9069E+00, 1305.5948E+00, 540.1778E+00
+        };
+        const double ci[4] = {
+            994186.38E+00, 878153.55E+00, 636143.04E+00, 772170.16E+00
+        };
 
         /* Compute the local density */
         int i;
@@ -1144,32 +1258,64 @@ static double us_standard_density(double height, double * lambda)
 
 
 /* Compute rotation matrix from ECEF to ENU */
-static void ecef_to_enu(double latitude, double longitude,
-    double declination, double inclination, double rotation[3][3])
+static void ecef_to_enu(
+    double latitude,
+    double longitude,
+    double declination,
+    double inclination,
+    double rotation[3][3])
 {
         turtle_ecef_from_horizontal(
-             latitude, longitude, 90 + declination, 0, &rotation[0][0]);
-        turtle_ecef_from_horizontal(latitude, longitude,
-            declination, -inclination, &rotation[1][0]);
-        turtle_ecef_from_horizontal(latitude, longitude,
-            0, 90 - inclination, &rotation[2][0]);
+             latitude,
+             longitude,
+             90. + declination,
+             0.,
+             &rotation[0][0]
+        );
+
+        turtle_ecef_from_horizontal(
+            latitude,
+            longitude,
+            declination,
+            -inclination,
+            &rotation[1][0]
+        );
+
+        turtle_ecef_from_horizontal(
+            latitude,
+            longitude,
+            0.,
+            90. - inclination,
+            &rotation[2][0]
+        );
 }
 
 
 /* Callback for setting local properties of the atmosphere*/
-static double atmosphere_locals(struct pumas_medium * medium,
-    struct pumas_state * state, struct pumas_locals * locals)
+static double atmosphere_locals(
+    struct pumas_medium * medium,
+    struct pumas_state * state,
+    struct pumas_locals * locals)
 {
         /* Get local density */
         double latitude, longitude, height;
         turtle_ecef_to_geodetic(
-            state->position, &latitude, &longitude, &height);
+            state->position,
+            &latitude,
+            &longitude,
+            &height
+        );
         double lambda;
         locals->density = us_standard_density(height, &lambda);
 
         double azimuth, elevation;
-        turtle_ecef_to_horizontal(latitude, longitude, state->direction,
-            &azimuth, &elevation);
+        turtle_ecef_to_horizontal(
+            latitude,
+            longitude,
+            state->direction,
+            &azimuth,
+            &elevation
+        );
         double c = fabs(sin(elevation * M_PI / 180));
         if (c < 0.1) c = 0.1;
         lambda /= c;
@@ -1192,12 +1338,24 @@ static double atmosphere_locals(struct pumas_medium * medium,
         if (d2 > lambda_g * lambda_g) {
                 /* Get the local magnetic field (in ENU frame) */
                 double enu[3];
-                gull_snapshot_field(f->current_geomagnet->snapshot, latitude,
-                    longitude, height, enu, &f->geomagnet_workspace);
+                gull_snapshot_field(
+                    f->current_geomagnet->snapshot,
+                    latitude,
+                    longitude,
+                    height,
+                    enu,
+                    &f->geomagnet_workspace
+                );
 
                 /* Transform to ECEF (using transposed/inverse matrix) */
                 double rotation[3][3];
-                ecef_to_enu(latitude, longitude, 0., 0., rotation);
+                ecef_to_enu(
+                    latitude,
+                    longitude,
+                    0.,
+                    0.,
+                    rotation
+                );
 
                 int i;
                 double ecef[3] = {0., 0., 0.};
@@ -1209,14 +1367,24 @@ static double atmosphere_locals(struct pumas_medium * medium,
                 }
 
                 /* Update the cache */
-                memcpy(f->geomagnet_field, ecef, sizeof f->geomagnet_field);
-                memcpy(f->geomagnet_position, state->position,
-                    sizeof f->geomagnet_position);
+                memcpy(
+                    f->geomagnet_field,
+                    ecef,
+                    sizeof f->geomagnet_field
+                );
+                memcpy(
+                    f->geomagnet_position,
+                    state->position,
+                    sizeof f->geomagnet_position
+                );
         }
 
         /* Fetch the cached geomagnetic field */
-        memcpy(locals->magnet, f->geomagnet_field,
-            sizeof locals->magnet);
+        memcpy(
+            locals->magnet,
+            f->geomagnet_field,
+            sizeof locals->magnet
+        );
 
         lambda_g /= f->context->accuracy;
         return (lambda < lambda_g) ? lambda : lambda_g;
@@ -1224,8 +1392,10 @@ static double atmosphere_locals(struct pumas_medium * medium,
 
 
 /* Pumas locator for the layered geometry */
-static enum pumas_step layers_geometry(struct pumas_context * context,
-    struct pumas_state * state, struct pumas_medium ** medium_ptr,
+static enum pumas_step layers_geometry(
+    struct pumas_context * context,
+    struct pumas_state * state,
+    struct pumas_medium ** medium_ptr,
     double * step_ptr)
 {
         struct state * s = (void *)state;
@@ -1233,8 +1403,17 @@ static enum pumas_step layers_geometry(struct pumas_context * context,
 
         double step;
         int index[2];
-        turtle_stepper_step(f->layers_stepper, state->position, NULL, NULL,
-            NULL, NULL, NULL, &step, index);
+        turtle_stepper_step(
+            f->layers_stepper,
+            state->position,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            &step,
+            index
+        );
 
         if (step_ptr != NULL) {
                 *step_ptr = (step <= FLT_EPSILON) ? FLT_EPSILON : step;
@@ -1258,8 +1437,10 @@ static enum pumas_step layers_geometry(struct pumas_context * context,
 
 
 /* Pumas locator for the opensky geometry */
-static enum pumas_step opensky_geometry(struct pumas_context * context,
-    struct pumas_state * state, struct pumas_medium ** medium_ptr,
+static enum pumas_step opensky_geometry(
+    struct pumas_context * context,
+    struct pumas_state * state,
+    struct pumas_medium ** medium_ptr,
     double * step_ptr)
 {
         struct state * s = (void *)state;
@@ -1267,8 +1448,17 @@ static enum pumas_step opensky_geometry(struct pumas_context * context,
 
         double step;
         int index[2];
-        turtle_stepper_step(f->opensky_stepper, state->position, NULL, NULL,
-            NULL, NULL, NULL, &step, index);
+        turtle_stepper_step(
+            f->opensky_stepper,
+            state->position,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            &step,
+            index
+        );
 
         if (step_ptr != NULL) {
                 *step_ptr = (step <= FLT_EPSILON) ? FLT_EPSILON : step;
@@ -1298,7 +1488,11 @@ static double flux_gaisser(double cos_theta, double kinetic_energy)
                 const double ec = 1.1 * Emu * cos_theta;
                 const double rpi = 1. + ec / 115.;
                 const double rK = 1. + ec / 850.;
-                return 1.4E+03 * pow(Emu, -2.7) * (1. / rpi + 0.054 / rK);
+                return
+                    1.4E+03 *
+                    pow(Emu, -2.7) *
+                    (1. / rpi + 0.054 / rK)
+                ;
         }
 }
 
@@ -1313,9 +1507,19 @@ static double cos_theta_star(double cos_theta)
         const double p[] = {
             0.102573, -0.068287, 0.958633, 0.0407253, 0.817285};
         const double cs2 =
-            (cos_theta * cos_theta + p[0] * p[0] + p[1] * pow(cos_theta, p[2]) +
-                p[3] * pow(cos_theta, p[4])) /
-            (1. + p[0] * p[0] + p[1] + p[3]);
+            (
+                cos_theta * cos_theta +
+                p[0] * p[0] +
+                p[1] * pow(cos_theta, p[2]) +
+                p[3] * pow(cos_theta, p[4]))
+            /
+            (
+                1. +
+                p[0] * p[0] +
+                p[1] +
+                p[3]
+            )
+        ;
         return cs2 > 0. ? sqrt(cs2) : 0.;
 }
 
@@ -1328,8 +1532,10 @@ static double flux_gccly(double cos_theta, double kinetic_energy)
 {
         const double Emu = kinetic_energy + MUON_MASS;
         const double cs = cos_theta_star(cos_theta);
-        return pow(1. + 3.64 / (Emu * pow(cs, 1.29)), -2.7) *
-            flux_gaisser(cs, kinetic_energy);
+        return
+            pow(1. + 3.64 / (Emu * pow(cs, 1.29)), -2.7) *
+            flux_gaisser(cs, kinetic_energy)
+        ;
 }
 
 
@@ -1352,8 +1558,11 @@ static double charge_fraction(enum mulder_pid pid)
 
 
 /* Default reference flux model, in GeV^-1 m^-2 s^-1 sr^-1 */
-static struct mulder_flux reference_flux(struct mulder_reference * reference,
-    double height, double elevation, double kinetic_energy)
+static struct mulder_flux reference_flux(
+    struct mulder_reference * reference,
+    double height,
+    double elevation,
+    double kinetic_energy)
 {
         struct mulder_flux result = {0.};
         if ((height >= reference->height_min) &&
@@ -1399,7 +1608,9 @@ struct reference_table {
 
 /* Intepolation of tabulated reference flux */
 static struct mulder_flux reference_table_flux(
-    struct mulder_reference * reference, double height, double elevation,
+    struct mulder_reference * reference,
+    double height,
+    double elevation,
     double kinetic_energy)
 {
         struct reference_table * table = (void *)reference;
@@ -1596,7 +1807,9 @@ static unsigned long get_seed(struct mulder_prng * prng)
 }
 
 
-static void set_seed(struct mulder_prng * prng, const unsigned long * seed)
+static void set_seed(
+    struct mulder_prng * prng,
+    const unsigned long * seed)
 {
         struct fluxmeter * f = (void *)prng - offsetof(struct fluxmeter, prng);
         struct pumas_context * context = f->context;

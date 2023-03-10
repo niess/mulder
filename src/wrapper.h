@@ -11,55 +11,52 @@ enum mulder_return {
 /* Vectorized layer height */
 void mulder_layer_height_v(
     const struct mulder_layer * layer,
-    int nx,
-    int ny,
-    const double * x,
-    const double * y,
-    double * z);
+    int n,
+    const double * position,
+    double * height
+);
 
 /* Vectorized layer gradient */
 void mulder_layer_gradient_v(
     const struct mulder_layer * layer,
     int n,
-    const double * x,
-    const double * y,
-    double * gx,
-    double * gy);
+    const double * position,
+    double * gradient
+);
 
 /* Vectorized geographic coordinates */
 void mulder_layer_coordinates_v(
     const struct mulder_layer * layer,
     int n,
-    const double * x,
-    const double * y,
-    double * coordinates);
+    const double * map_position,
+    double * geographic_position
+);
 
 /* Vectorized map projection */
 void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int n,
-    const double * coordinates,
-    double * x,
-    double * y);
+    const double * geographic_position,
+    double * map_position
+);
 
 /* Vectorized geomagnetic field */
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int n,
-    const double * coordinates,
-    double * field);
+    const double * position,
+    double * field
+);
 
 /* Vectorized flux computation */
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter,
-    double latitude,
-    double longitude,
-    double height,
-    double azimuth,
-    double elevation,
-    int n,
+    const double * position,
+    const double * direction,
+    int size,
     const double * energy,
-    double * result);
+    double * result
+);
 
 /* Vectorized reference flux */
 void mulder_reference_flux_v(
@@ -68,7 +65,8 @@ void mulder_reference_flux_v(
     double elevation,
     int n,
     const double * energy,
-    double * result);
+    double * flux
+);
 
 /* Vectorized state flux */
 void mulder_state_flux_v(
@@ -76,7 +74,8 @@ void mulder_state_flux_v(
     int n,
     const int * pid,
     const double * data,
-    double * result);
+    double * flux
+);
 
 /* Vectorized transport */
 enum mulder_return mulder_fluxmeter_transport_v(
@@ -85,47 +84,42 @@ enum mulder_return mulder_fluxmeter_transport_v(
     const int * pid_in,
     const double * data_in,
     int * pid_out,
-    double * data_out);
+    double * data_out
+);
 
 /* Vectorized intersections */
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter,
-    double latitude,
-    double longitude,
-    double height,
+    const double * position,
     int n,
-    const double * azimuth,
-    const double * elevation,
+    const double * direction,
     int * layer,
-    double * x,
-    double * y,
-    double * z);
+    double * intersection
+);
 
 /* Vectorized gramage */
 enum mulder_return mulder_fluxmeter_grammage_v(
     struct mulder_fluxmeter * fluxmeter,
-    double latitude,
-    double longitude,
-    double height,
+    const double * position,
     int n,
-    const double * azimuth,
-    const double * elevation,
-    double * grammage);
+    const double * direction,
+    double * grammage
+);
 
 /* Vectorized locator */
 enum mulder_return mulder_fluxmeter_whereami_v(
     struct mulder_fluxmeter * fluxmeter,
     int n,
-    const double * latitude,
-    const double * longitude,
-    const double * height,
-    int * layer);
+    const double * position,
+    int * layer
+);
 
 /* Vectorized pseudo-random numbers */
 void mulder_prng_uniform01_v(
     struct mulder_prng * prng,
     int n,
-    double * values);
+    double * values
+);
 
 /* Create a Turtle map from raw data */
 enum mulder_return mulder_map_create(
@@ -137,10 +131,12 @@ enum mulder_return mulder_map_create(
     double xmax,
     double ymin,
     double ymax,
-    const double * z);
+    const double * z
+);
 
 /* Generate physics tables for Pumas */
 enum mulder_return mulder_generate_physics(
     const char * path,
     const char * destination,
-    const char * dump);
+    const char * dump
+);
