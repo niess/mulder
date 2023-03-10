@@ -1,4 +1,4 @@
-"""Generic type exposing numpy.ndarrays as structured data
+"""Encapsulation of structured numpy.ndarrays
 """
 
 import numpy
@@ -8,14 +8,31 @@ from .wrapper import ffi, lib
 def arrayclass(cls):
     """Decorator for array classes, dynamically setting properties"""
 
-    def add_property(i, name, description):
+    def add_property(name, tp, description):
         """Adds a property with proper index scoping"""
 
-        def get_property(self):
-            return self._view[i]
+        if isinstance(tp, str):
+            def get_property(self):
+                return self._data[name]
 
-        def set_property(self, v):
-            self._view[i] = v
+            def set_property(self, v):
+                self._data[name] = v
+        else:
+            altname = f"_{name}"
+
+            def get_property(self):
+                try:
+                    return getattr(self, altname)
+                except AttributeError:
+                    view = tp.__new__(tp)
+                    view._data = self._data[name]
+                    view._size = self._size
+                    setattr(self, altname, view)
+                    return view
+
+            def set_property(self, v):
+                if isinstance(v, tp): v = v._data
+                self._data[name] = v
 
         setattr(
             cls,
@@ -23,14 +40,44 @@ def arrayclass(cls):
             property(get_property, set_property, None, description)
         )
 
-    for i, (name, description) in enumerate(cls.properties):
-        add_property(i, name, description)
+    dtype = []
+    for name, tp, description in cls.properties:
+        add_property(name, tp, description)
+        if not isinstance(tp, str):
+            tp = tp.dtype
+        dtype.append((name, tp))
 
-    return type(str(cls), (Array,), dict(cls.__dict__))
+    cls.dtype = numpy.dtype(dtype, align=True)
+
+    return type(cls.__name__, (Array,), dict(cls.__dict__))
+
+
+def broadcast(*args):
+    """Return broadcasted arrays"""
+
+    size = Array._get_size(*args)
+    if size is not None:
+        args = [arg.repeat(size) if arg.size != size else arg \
+                for arg in args]
+    return (*args, size)
 
 
 class Array:
-    """Base class wrapping a C-compliant numpy.ndarray"""
+    """Base class wrapping a structured numpy.ndarray"""
+
+    @classmethod
+    def empty(cls, size):
+        """Create an empty Array instance"""
+        obj = super().__new__(cls)
+        obj._init_array(numpy.empty, size)
+        return obj
+
+    @classmethod
+    def zeros(cls, size):
+        """Create a zeroed Array instance"""
+        obj = super().__new__(cls)
+        obj._init_array(numpy.empty, size)
+        return obj
 
     @property
     def size(self):
@@ -40,21 +87,7 @@ class Array:
     @property
     def cffi_ptr(self):
         """Raw cffi pointer"""
-        return ffi.cast("double *", self._data.ctypes.data)
-
-    @classmethod
-    def empty(cls, size=None):
-        """Create an empty Array instance"""
-        obj = super().__new__(cls)
-        obj._init_array(numpy.empty, size)
-        return obj
-
-    @classmethod
-    def zeros(cls, size=None):
-        """Create a zeroed Array instance"""
-        obj = super().__new__(cls)
-        obj._init_array(numpy.empty, size)
-        return obj
+        return ffi.cast(self.ctype, self._data.ctypes.data)
 
     def __init__(self, *args, **kwargs):
         if args:
@@ -76,7 +109,7 @@ class Array:
 
             # Initialise the array
             for i, arg in enumerate(args):
-                self._view[i] = arg
+                self._data[i] = arg
 
         elif kwargs:
             # Initialise from keyword arguments. First, let us compute the
@@ -105,9 +138,10 @@ class Array:
             try:
                 s = len(arg)
             except:
-                pass
+                continue
             else:
-                if size is None: size = s
+                if size is None:
+                    size = s
                 elif (s != size) and (s != 1):
                     raise ValueError("incompatible size(s)")
         return size
@@ -121,13 +155,8 @@ class Array:
     def __str__(self):
         return str(self._data)
 
-    def _init_array(self, method, size=None):
-        if size is None:
-            self._data = method(len(self.properties))
-            self._view = self._data
-        else:
-            self._data = method((size, len(self.properties)))
-            self._view = self._data.T
+    def _init_array(self, method, size):
+        self._data = method(size, dtype=self.dtype)
         self._size = size
 
     def copy(self):
@@ -149,15 +178,3 @@ class Array:
             obj = self.empty(size)
             obj._data[:] = numpy.repeat(self._data, repeats, axis=0)
             return obj
-
-    @classmethod
-    def broadcast(cls, instance, size, copy=False):
-        """Return a broadcasted instance"""
-        if instance is None:
-            return cls.zeros(size)
-        else:
-            assert(isinstance(instance, cls))
-            if instance._size == size:
-                return instance.copy() if copy else instance
-            else:
-                return instance.repeat(size)

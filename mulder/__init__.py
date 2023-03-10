@@ -6,7 +6,7 @@ import weakref
 
 import numpy
 
-from .arrayclasses import arrayclass
+from .arrayclasses import arrayclass, broadcast
 from .version import git_revision, version
 from .wrapper import ffi, lib
 
@@ -29,29 +29,9 @@ _asarray = lambda x: numpy.ascontiguousarray(x, dtype="f8")
 
 _fromarray = lambda x: float(x) if x.size == 1 else x
 
-def _asarray2(x, y):
-    x, y = [_asarray(a) for a in numpy.broadcast_arrays(x, y)]
-    return (x, y, x.size)
-
-def _asarray3(x, y, z):
-    x, y, z = [_asarray(a) for a in numpy.broadcast_arrays(x, y, z)]
-    return (x, y, z, x.size)
-
-def _fromarray2(x, y):
-    return (float(x[0]), float(y[0])) if x.size == 1 else (x, y)
-
-def _asmatrix(x, y):
-    x, y = _asarray(x), _asarray(y)
-    return (x, y, x.size * y.size)
-
-def _frommatrix(nx, ny, z):
-    if nx == 1:
-        return float(z[0]) if ny == 1 else z
-    elif ny == 1:
-        return z
-    else:
-        return numpy.reshape(z, (ny, nx))
-
+def _asarrays(*args):
+    args = [_asarray(a) for a in numpy.broadcast_arrays(*args)]
+    return (*args, args[0].size)
 
 # Type conversions between cffi and numpy
 _todouble = lambda x: ffi.cast("double *", x.ctypes.data)
@@ -75,10 +55,12 @@ def _is_regular(a):
 class Coordinates:
     """Geographic coordinates (GPS like, using WGS84)"""
 
+    ctype = "struct mulder_coordinates *"
+
     properties = (
-        ("latitude",  "Geographic latitude, in deg"),
-        ("longitude", "Geographic longitude, in deg"),
-        ("height",    "Geographic height, in m")
+        ("latitude",  "f8", "Geographic latitude, in deg"),
+        ("longitude", "f8", "Geographic longitude, in deg"),
+        ("height",    "f8", "Geographic height, in m")
     )
 
 
@@ -86,10 +68,12 @@ class Coordinates:
 class Enu:
     """East, North, Upward (ENU) local coordinates"""
 
+    ctype = "struct mulder_enu *"
+
     properties = (
-        ("east",   "Local east-ward coordinate"),
-        ("north",  "Local north-ward coordinate"),
-        ("upward", "Local upward coordinate")
+        ("east",   "f8", "Local east-ward coordinate"),
+        ("north",  "f8", "Local north-ward coordinate"),
+        ("upward", "f8", "Local upward coordinate")
     )
 
 
@@ -97,9 +81,11 @@ class Enu:
 class Projection:
     """Projected (map) local coordinates"""
 
+    ctype = "struct mulder_projection *"
+
     properties = (
-        ("x", "Local x-coordinate"),
-        ("y", "Local y-coordinate")
+        ("x", "f8", "Local x-coordinate"),
+        ("y", "f8", "Local y-coordinate")
     )
 
 
@@ -107,11 +93,11 @@ class Projection:
 class Direction:
     """Observation direction, using Horizontal angular coordinates"""
 
+    ctype = "struct mulder_direction *"
+
     properties = (
-        ("azimuth",   "Azimuth angle, in deg, "
-                      "(measured clockwise from geographic North)"),
-        ("elevation", "Elevation angle, in deg, "
-                      "(w.r.t. local horizontal)")
+        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)"),
+        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal)")
     )
 
 
@@ -119,10 +105,56 @@ class Direction:
 class Flux:
     """Container for muon flux data"""
 
+    ctype = "struct mulder_flux *"
+
     properties = (
-        ("value",     "The actual flux value, per GeV m^2 s sr"),
-        ("asymmetry", "The corresponding charge asymmetry")
+        ("value",     "f8", "The actual flux value, per GeV m^2 s sr"),
+        ("asymmetry", "f8", "The corresponding charge asymmetry")
     )
+
+
+@arrayclass
+class Intersection:
+    """Container for geometry intersection"""
+
+    ctype = "struct mulder_intersection *"
+
+    properties = (
+        ("layer",    "i4",        "Intersected layer index"),
+        ("position", Coordinates, "Intersection position")
+    )
+
+
+@arrayclass
+class State:
+    """Observation state(s)"""
+
+    ctype = "struct mulder_state *"
+
+    properties = (
+        ("pid",       "i4",        "Particle identifier (PDG scheme)"),
+        ("position",  Coordinates, "Observation position"),
+        ("direction", Direction,   "Observation direction"),
+        ("energy",    "f8",        "Kinetic energy, in GeV"),
+        ("weight",    "f8",        "Transport weight")
+    )
+
+    def flux(self, reference: "Reference") -> Flux:
+        """Sample a reference flux"""
+
+        assert(isinstance(reference, Reference))
+
+        size = self._size or 1
+        flux = Flux(self._size)
+
+        lib.mulder_state_flux_v(
+            reference._reference[0],
+            size,
+            self.cffi_ptr,
+            flux.cffi_ptr
+        )
+
+        return flux
 
 
 class Layer:
@@ -222,56 +254,56 @@ class Layer:
         self._layer = layer
         self.density = density
 
-    def height(self, position: Projection):
+    def height(self, projection: Projection):
         """Topography height (including offset)"""
 
-        assert(isinstance(position, Projection))
+        assert(isinstance(projection, Projection))
 
-        size = position._size or 1
+        size = projection._size or 1
         height = numpy.empty(size)
 
         lib.mulder_layer_height_v(
             self._layer[0],
             size,
-            position.cffi_ptr,
+            projection.cffi_ptr,
             _todouble(height)
         )
 
         return _fromarray(height)
 
-    def gradient(self, position: Projection) -> Projection:
+    def gradient(self, projection: Projection) -> Projection:
         """Topography gradient (w.r.t. map coordinates)"""
 
-        assert(isinstance(position, Projection))
+        assert(isinstance(projection, Projection))
 
-        size = position._size or 1
-        gradient = Projection.empty(position._size)
+        size = projection._size or 1
+        gradient = Projection.empty(projection._size)
 
         lib.mulder_layer_gradient_v(
             self._layer[0],
             size,
-            position.cffi_ptr,
+            projection.cffi_ptr,
             gradient.cffi_ptr
         )
 
         return gradient
 
-    def coordinates(self, position: Projection) -> Coordinates:
+    def coordinates(self, projection: Projection) -> Coordinates:
         """Geographic coordinates at map location"""
 
-        assert(isinstance(position, Projection))
+        assert(isinstance(projection, Projection))
 
-        size = position._size or 1
-        geographic = Coordinates.empty(position.size)
+        size = projection._size or 1
+        position = Coordinates.empty(projection.size)
 
         lib.mulder_layer_coordinates_v(
             self._layer[0],
             size,
-            position.cffi_ptr,
-            geographic.cffi_ptr
+            projection.cffi_ptr,
+            position.cffi_ptr
         )
 
-        return geographic
+        return position
 
     def project(self, position: Coordinates) -> Projection:
         """Project geographic coordinates onto map"""
@@ -284,7 +316,7 @@ class Layer:
         lib.mulder_layer_project_v(
             self._layer[0],
             size,
-            coordinates.cffi_ptr,
+            position.cffi_ptr,
             projection.cffi_ptr
         )
 
@@ -369,7 +401,7 @@ class Geomagnet:
         lib.mulder_geomagnet_field_v(
             self._geomagnet[0],
             size,
-            coordinates.cffi_ptr,
+            position.cffi_ptr,
             enu.cffi_ptr,
         )
 
@@ -438,15 +470,14 @@ class Reference:
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
 
-        energy = _asarray(energy)
-        size = energy.size
-        flux = Flux(size if size > 1 else None)
+        height, elevation, energy, size = _asarrays(height, elevation, energy)
+        flux = Flux.empty(size if size > 1 else None)
 
         lib.mulder_reference_flux_v(
             self._reference[0],
-            height,
-            elevation,
             size,
+            _todouble(height),
+            _todouble(elevation),
             _todouble(energy),
             flux.cffi_ptr
         )
@@ -503,90 +534,6 @@ class Prng:
             )
 
             return _fromarray(values)
-
-
-@arrayclass
-class State:
-    """Container for Monte Carlo state(s)"""
-
-    properties = (
-        ("energy", "Kinetic energy, in GeV"),
-        ("weight", "Transport weight")
-    )
-
-    @property
-    def pid(self):
-        """Particle(s) identifier(s)
-
-        The PDG numbering scheme is used.
-        """
-        return self._pid[0] if self._size is None else self._pid
-
-    @pid.setter
-    def pid(self, v):
-        self._pid[:] = v
-
-    @property
-    def position(self) -> Coordinates:
-        """Observation position"""
-        return self._position
-
-    @position.setter
-    def position(self, v: Coordinates):
-        assert(isinstance(v, Coordinates))
-        assert(v._size == self._size)
-        self._position = v
-
-    @property
-    def direction(self) -> Direction:
-        """Observation direction"""
-        return self._direction
-
-    @direction.setter
-    def direction(self, v: Coordinates):
-        assert(isinstance(v, Coordinates))
-        assert(v._size == self._size)
-        self._position = v
-
-    def __init__(self, pid=None, position=None, direction=None, energy=None,
-                 weight=None):
-
-        args = (pid, position, direction, energy, weight)
-        size = self._get_size(*args)
-        self._init_array(numpy.zeros, size)
-
-        self._position = Coordinates.broadcast(position, size, copy=True)
-        self._direction = Direction.broadcast(direction, size, copy=True)
-
-        self._pid = numpy.zeros(size or 1, dtype="i4")
-        if pid is not None:
-            self._pid[:] = pid
-
-        if energy is not None:
-            self.energy = energy
-
-        if weight is not None:
-            self.weight = weight
-
-    def flux(self, reference: Reference) -> Flux:
-        """Sample a reference flux"""
-
-        assert(isinstance(reference, Reference))
-
-        size = self._size or 1
-        flux = Flux(self._size)
-
-        lib.mulder_state_flux_v(
-            reference._reference[0],
-            size,
-            _toint(self._pid),
-            self._position.cffi_ptr,
-            self._direction.cffi_ptr,
-            self.cffi_ptr,
-            flux.cffi_ptr
-        )
-
-        return flux
 
 
 class Fluxmeter:
@@ -696,90 +643,101 @@ class Fluxmeter:
         self._reference = None
         self._prng = Prng(self)
 
-    def flux(self, latitude, longitude, height, azimuth, elevation, energy):
-        """Calculate the muon flux for the given observation settings"""
-
-        energy = _asarray(energy)
-        result = Flux(energy.size)
-
-        rc = lib.mulder_fluxmeter_flux_v(self._fluxmeter[0], latitude,
-            longitude, height, azimuth, elevation, energy.size,
-            _todouble(energy), _todouble(result._data))
-        if rc != lib.MULDER_SUCCESS:
-            raise LibraryError()
-
-        return result
-
-    def transport(self, state):
-        """Transport muon state(s) to the reference location"""
+    def flux(self, state: State) -> Flux:
+        """Calculate the muon flux for the given observation state"""
 
         assert(isinstance(state, State))
 
-        size = 1 if state._size is None else state._size
-        result = State(size)
-        rc = lib.mulder_fluxmeter_transport_v(self._fluxmeter[0], size,
-            _toint(state._pid), _todouble(state._data), _toint(result._pid),
-            _todouble(result._data))
+        size = state._size or 1
+        flux = Flux.empty(state._size)
+
+        rc = lib.mulder_fluxmeter_flux_v(
+            self._fluxmeter[0],
+            size,
+            state.cffi_ptr,
+            flux.cffi_ptr
+        )
+        if rc != lib.MULDER_SUCCESS:
+            raise LibraryError()
+
+        return flux
+
+    def transport(self, state: State) -> State:
+        """Transport observation state to the reference location"""
+
+        assert(isinstance(state, State))
+
+        size = state._size or 1
+        result = State.empty(state._size)
+
+        rc = lib.mulder_fluxmeter_transport_v(
+            self._fluxmeter[0],
+            size,
+            state.cffi_ptr,
+            result.cffi_ptr
+        )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
         return result
 
-    def intersect(self, latitude, longitude, height, azimuth, elevation):
+    def intersect(self, position: Coordinates,
+                        direction: Direction) -> Intersection:
         """Compute first intersection with topographic layer(s)"""
 
-        azimuth, elevation, size = _asarray2(azimuth, elevation)
-        i = numpy.empty(size, dtype="i4")
-        x = numpy.empty(size)
-        y = numpy.empty(size)
-        z = numpy.empty(size)
+        position, direction, size = broadcast(position, direction)
+        intersection = Intersection.empty(size)
 
-        rc = lib.mulder_fluxmeter_intersect_v(self._fluxmeter[0], latitude,
-            longitude, height, size, _todouble(azimuth), _todouble(elevation),
-            _toint(i), _todouble(x), _todouble(y), _todouble(z))
+        rc = lib.mulder_fluxmeter_intersect_v(
+            self._fluxmeter[0],
+            size or 1,
+            position.cffi_ptr,
+            direction.cffi_ptr,
+            intersection.cffi_ptr
+        )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
-        i = _fromarray(i)
-        x = _fromarray(x)
-        y = _fromarray(y)
-        z = _fromarray(z)
+        return intersection
 
-        return i, x, y, z
-
-    def grammage(self, latitude, longitude, height, azimuth, elevation):
+    def grammage(self, position: Coordinates,
+                       direction: Direction) -> numpy.ndarray:
         """Compute grammage(s) (a.k.a. column depth) along line(s) of sight"""
 
-        azimuth, elevation, size = _asarray2(azimuth, elevation)
+        position, direction, size = broadcast(position, direction)
         m = self.size + 1
-        grammage = numpy.empty(size * m)
+        if size is None:
+            grammage = numpy.empty(m)
+        else:
+            grammage = numpy.empty(size, m)
 
-        rc = lib.mulder_fluxmeter_grammage_v(self._fluxmeter[0], latitude,
-            longitude, height, size, _todouble(azimuth), _todouble(elevation),
-            _todouble(grammage))
+        rc = lib.mulder_fluxmeter_grammage_v(
+            self._fluxmeter[0],
+            position.cffi_ptr,
+            direction.cfii_ptr,
+            _todouble(grammage)
+        )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
-
-        grammage = _frommatrix(m, size, grammage)
 
         return grammage
 
-    def whereami(self, latitude, longitude, height):
+    def whereami(self, position: Coordinates) -> numpy.ndarray:
         """Get geometric layer indice(s) for given location(s)"""
 
-        latitude, longitude, height, size = _asarray3(
-            latitude, longitude, height)
+        size = position._size or 1
         i = numpy.empty(size, dtype="i4")
 
-        rc = lib.mulder_fluxmeter_whereami_v(self._fluxmeter[0], size,
-            _todouble(latitude), _todouble(longitude), _todouble(height),
-            _toint(i))
+        rc = lib.mulder_fluxmeter_whereami_v(
+            self._fluxmeter[0],
+            size,
+            position.cffi_ptr,
+            _toint(i)
+        )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
-        i = _fromarray(i)
-
-        return i
+        return _fromarray(i)
 
 
 def create_map(path, projection, x, y, data):
