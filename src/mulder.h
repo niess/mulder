@@ -201,7 +201,6 @@ struct mulder_fluxmeter {
 
     /* Mutable properties */
     enum mulder_mode mode;
-    enum mulder_pid selection;
     struct mulder_prng * prng;
     struct mulder_reference * reference;
     struct mulder_geomagnet * geomagnet;
@@ -216,16 +215,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);
 
 
-/* Muon flux computation */
-struct mulder_flux mulder_fluxmeter_flux(
-    struct mulder_fluxmeter * fluxmeter,
-    struct mulder_coordinates position,
-    struct mulder_direction direction,
-    double kinetic_energy
-);
-
-
-/* Monte Carlo interface */
+/* Observation state */
 struct mulder_state {
     /* Particle identifier */
     enum mulder_pid pid;
@@ -239,6 +229,15 @@ struct mulder_state {
     double weight;
 };
 
+
+/* Muon flux computation */
+struct mulder_flux mulder_fluxmeter_flux(
+    struct mulder_fluxmeter * fluxmeter,
+    struct mulder_state state
+);
+
+
+/* Monte Carlo interface */
 struct mulder_flux mulder_state_flux( /* sample reference flux */
     struct mulder_state state,
     struct mulder_reference * reference

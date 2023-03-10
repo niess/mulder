@@ -16,7 +16,7 @@ int main(int argc, char * argv[])
         const int n_layers = sizeof(layers) / sizeof(*layers);
 
         /* Create the fluxmeter */
-        struct mulder_fluxmeter * meter = mulder_fluxmeter_create(
+        struct mulder_fluxmeter * fluxmeter = mulder_fluxmeter_create(
             "mulder/data/materials.pumas",
             n_layers,
             layers
@@ -29,7 +29,7 @@ int main(int argc, char * argv[])
             1,   /* month */
             2020 /* year */
         );
-        meter->geomagnet = magnet;
+        fluxmeter->geomagnet = magnet;
 
         /* Get geographic coordinates at the middle of the map, and offset
          * the height below the ground
@@ -39,19 +39,22 @@ int main(int argc, char * argv[])
             .y = 0.5 * (layers[0]->ymin + layers[0]->ymax)
         };
 
-        struct mulder_coordinates position =
-            mulder_layer_coordinates(layers[0], map_position);
+        struct mulder_coordinates position = mulder_layer_coordinates(
+            layers[0],
+            map_position
+        );
         position.height -= 30;
 
-        /* Compute the muon flux along some observation direction */
-        struct mulder_direction direction = {.azimuth = 0., .elevation = 90.};
-        const double kinetic_energy = 1E+01;
-        struct mulder_flux flux = mulder_fluxmeter_flux(
-            meter,
-            position,
-            direction,
-            kinetic_energy
-        );
+        /* Define an observation state and compute the corresponding flux */
+        struct mulder_state state = {
+            .position = position,
+            .direction = {
+                .azimuth = 0.,
+                .elevation = 90.
+            },
+            .energy = 1E+01
+        };
+        struct mulder_flux flux = mulder_fluxmeter_flux(fluxmeter, state);
 
         printf("flux = %.5E GeV^-1 m^-2 s^-1 sr^1 (%+.5f)\n",
             flux.value, flux.asymmetry);
@@ -62,7 +65,7 @@ int main(int argc, char * argv[])
                 mulder_layer_destroy(layers + i);
         }
         mulder_geomagnet_destroy(&magnet);
-        mulder_fluxmeter_destroy(&meter);
+        mulder_fluxmeter_destroy(&fluxmeter);
 
         exit(EXIT_SUCCESS);
 }

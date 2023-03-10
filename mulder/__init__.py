@@ -83,6 +83,27 @@ class Coordinates:
 
 
 @arrayclass
+class Enu:
+    """East, North, Upward (ENU) local coordinates"""
+
+    properties = (
+        ("east",   "Local east-ward coordinate"),
+        ("north",  "Local north-ward coordinate"),
+        ("upward", "Local upward coordinate")
+    )
+
+
+@arrayclass
+class Projection:
+    """Projected (map) local coordinates"""
+
+    properties = (
+        ("x", "Local x-coordinate"),
+        ("y", "Local y-coordinate")
+    )
+
+
+@arrayclass
 class Direction:
     """Observation direction, using Horizontal angular coordinates"""
 
@@ -95,13 +116,12 @@ class Direction:
 
 
 @arrayclass
-class Enu:
-    """East, North, Upward (ENU) local coordinates"""
+class Flux:
+    """Container for muon flux data"""
 
     properties = (
-        ("east",   "Local east-ward coordinate"),
-        ("north",  "Local north-ward coordinate"),
-        ("upward", "Local upward coordinate")
+        ("value",     "The actual flux value, per GeV m^2 s sr"),
+        ("asymmetry", "The corresponding charge asymmetry")
     )
 
 
@@ -189,8 +209,11 @@ class Layer:
 
     def __init__(self, material, model=None, density=None, offset=None):
         layer = ffi.new("struct mulder_layer *[1]")
-        layer[0] = lib.mulder_layer_create(_tostr(material), _tostr(model),
-                                           0 if offset is None else offset)
+        layer[0] = lib.mulder_layer_create(
+            _tostr(material),
+            _tostr(model),
+            0 if offset is None else offset
+        )
         if layer[0] == ffi.NULL:
             raise LibraryError()
 
@@ -199,75 +222,73 @@ class Layer:
         self._layer = layer
         self.density = density
 
-    def height(self, x, y):
-        """Layer height (including offset)"""
+    def height(self, position: Projection):
+        """Topography height (including offset)"""
 
-        x, y, size = _asmatrix(x, y)
-        z = numpy.empty(size)
+        assert(isinstance(position, Projection))
+
+        size = position._size or 1
+        height = numpy.empty(size)
 
         lib.mulder_layer_height_v(
             self._layer[0],
-            x.size,
-            y.size,
-            _todouble(x),
-            _todouble(y),
-            _todouble(z)
+            size,
+            position.cffi_ptr,
+            _todouble(height)
         )
 
-        return _frommatrix(x.size, y.size, z)
+        return _fromarray(height)
 
-    def gradient(self, x, y):
-        """Layer gradient"""
+    def gradient(self, position: Projection) -> Projection:
+        """Topography gradient (w.r.t. map coordinates)"""
 
-        x, y, size = _asarray2(x, y)
-        gx = numpy.empty(size)
-        gy = numpy.empty(size)
+        assert(isinstance(position, Projection))
+
+        size = position._size or 1
+        gradient = Projection.empty(position._size)
 
         lib.mulder_layer_gradient_v(
             self._layer[0],
             size,
-            _todouble(x),
-            _todouble(y),
-            _todouble(gx),
-            _todouble(gy)
+            position.cffi_ptr,
+            gradient.cffi_ptr
         )
 
-        return _fromarray2(gx, gy)
+        return gradient
 
-    def coordinates(self, x, y) -> Coordinates:
+    def coordinates(self, position: Projection) -> Coordinates:
         """Geographic coordinates at map location"""
 
-        x, y, size = _asarray2(x, y)
-        coordinates = Coordinates.empty(size if size > 1 else None)
+        assert(isinstance(position, Projection))
+
+        size = position._size or 1
+        geographic = Coordinates.empty(position.size)
 
         lib.mulder_layer_coordinates_v(
             self._layer[0],
             size,
-            _todouble(x),
-            _todouble(y),
-            coordinates.cffi_ptr
+            position.cffi_ptr,
+            geographic.cffi_ptr
         )
 
-        return coordinates
+        return geographic
 
-    def project(self, coordinates: Coordinates):
+    def project(self, position: Coordinates) -> Projection:
         """Project geographic coordinates onto map"""
 
-        assert(isinstance(coordinates, Coordinates))
+        assert(isinstance(position, Coordinates))
 
-        size = coordinates._size or 1 # XXX Check this everywhere
-        x = numpy.empty(size)
-        y = numpy.empty(size)
+        size = position._size or 1
+        projection = Projection.empty(position._size)
 
         lib.mulder_layer_project_v(
             self._layer[0],
             size,
             coordinates.cffi_ptr,
-            _todouble(x),
-            _todouble(y)
+            projection.cffi_ptr
         )
 
-        return _fromarray2(x, y)
+        return projection
 
 
 class Geomagnet:
@@ -311,30 +332,39 @@ class Geomagnet:
 
 
     def __init__(self, model=None, day=None, month=None, year=None):
+        # Set default arguments
         if model is None: model = f"{PREFIX}/data/IGRF13.COF"
         if day is None: day = 1
         if month is None: month = 1
         if year is None: year = 2020
 
+        # Create the C object
         geomagnet = ffi.new("struct mulder_geomagnet *[1]")
-        geomagnet[0] = lib.mulder_geomagnet_create(_tostr(model), day, month,
-                                                   year)
+        geomagnet[0] = lib.mulder_geomagnet_create(
+            _tostr(model),
+            day,
+            month,
+            year
+        )
         if geomagnet[0] == ffi.NULL:
             raise LibraryError()
         else:
-            self._geomagnet = ffi.gc(geomagnet, lib.mulder_geomagnet_destroy)
+            self._geomagnet = ffi.gc(
+                geomagnet,
+                lib.mulder_geomagnet_destroy
+            )
 
-    def field(self, coordinates: Coordinates):
+    def field(self, position: Coordinates) -> Enu:
         """Geomagnetic field, in T
 
         The magnetic field components are returned in East-North-Upward (ENU)
         coordinates.
         """
 
-        assert(isinstance(coordinates, Coordinates))
+        assert(isinstance(position, Coordinates))
 
-        enu = Enu.empty(coordinates._size)
-        size = coordinates._size or 1
+        size = position._size or 1
+        enu = Enu.empty(position._size)
 
         lib.mulder_geomagnet_field_v(
             self._geomagnet[0],
@@ -344,42 +374,6 @@ class Geomagnet:
         )
 
         return enu
-
-
-class Flux:
-    """Container for flux data"""
-
-    @property
-    def asymmetry(self):
-        """Charge asymmetry"""
-        return self._view[1]
-
-    @asymmetry.setter
-    def value(self, v):
-        self._view[1] = v
-
-    @property
-    def size(self):
-        """Number of entries"""
-        return self._size
-
-    @property
-    def value(self):
-        """Flux value(s)"""
-        return self._view[0]
-
-    @value.setter
-    def value(self, v):
-        self._view[0] = v
-
-    def __init__(self, size=None):
-        if size is None:
-            self._data = numpy.empty(2)
-            self._view = self._data
-        else:
-            self._data = numpy.empty((size, 2))
-            self._view = self._data.T
-        self._size = size
 
 
 class Reference:
@@ -419,16 +413,24 @@ class Reference:
 
     def __init__(self, path=None):
         if path is None:
-            self._reference = ffi.new("struct mulder_reference *[1]",
-                (lib.mulder_reference_default(),))
+            # Map default flux
+            self._reference = ffi.new(
+                "struct mulder_reference *[1]",
+                (lib.mulder_reference_default(),)
+            )
         else:
             # Load a tabulated reference flux from a file
-            reference = ffi.gc(
-                ffi.new("struct mulder_reference *[1]", (ffi.NULL,)),
-                lib.mulder_reference_destroy_table
+            reference = ffi.new("struct mulder_reference *[1]")
+            reference[0] = lib.mulder_reference_load_table(
+                _tostr(path)
             )
-            reference[0] = lib.mulder_reference_load_table(_tostr(path))
-            self._reference = reference
+            if reference[0] == ffi.NULL:
+                raise LibraryError()
+            else:
+                self._reference = ffi.gc(
+                    reference,
+                    lib.mulder_reference_destroy_table
+                )
 
     def flux(self, elevation, energy, height=None):
         """Get reference flux model, defined at reference height(s)"""
@@ -437,14 +439,17 @@ class Reference:
             height = 0.5 * (self.height_min + self.height_max)
 
         energy = _asarray(energy)
-        flux = Flux(energy.size)
+        size = energy.size
+        flux = Flux(size if size > 1 else None)
 
-        if self._reference is None:
-            flux._data[:] = 0
-        else:
-            lib.mulder_reference_flux_v(self._reference[0], height,
-                elevation, energy.size, _todouble(energy),
-                _todouble(flux._data))
+        lib.mulder_reference_flux_v(
+            self._reference[0],
+            height,
+            elevation,
+            size,
+            _todouble(energy),
+            flux.cffi_ptr
+        )
 
         return flux
 
@@ -476,7 +481,7 @@ class Prng:
             prng = fluxmeter._fluxmeter[0].prng
             prng.set_seed(prng, value)
 
-    def __init__(self, fluxmeter):
+    def __init__(self, fluxmeter: "Fluxmeter"):
         assert(isinstance(fluxmeter, Fluxmeter))
         self._fluxmeter = weakref.ref(fluxmeter)
 
@@ -487,69 +492,27 @@ class Prng:
         if fluxmeter is None:
             raise RuntimeError("dead fluxmeter ref")
         else:
-            prng = fluxmeter._fluxmeter[0].prng
             if n is None: n = 1
-            values = numpy.empty(n, dtype="f8")
-            lib.mulder_prng_uniform01_v(prng, n, _todouble(values))
+            values = numpy.empty(n)
+
+            prng = fluxmeter._fluxmeter[0].prng
+            lib.mulder_prng_uniform01_v(
+                prng,
+                n,
+                _todouble(values)
+            )
+
             return _fromarray(values)
 
 
+@arrayclass
 class State:
     """Container for Monte Carlo state(s)"""
 
-    @property
-    def azimuth(self):
-        """Observation azimuth angle, in deg"""
-        return self._view[3]
-
-    @azimuth.setter
-    def azimuth(self, v):
-        self._view[3] = v
-
-    @property
-    def elevation(self):
-        """Observation elevation angle, in deg"""
-        return self._view[4]
-
-    @elevation.setter
-    def elevation(self, v):
-        self._view[4] = v
-
-    @property
-    def energy(self):
-        """Kinetic energy, in GeV"""
-        return self._view[5]
-
-    @energy.setter
-    def energy(self, v):
-        self._view[5] = v
-
-    @property
-    def height(self):
-        """Geographic height, in m"""
-        return self._view[2]
-
-    @height.setter
-    def height(self, v):
-        self._view[2] = v
-
-    @property
-    def latitude(self):
-        """Geographic latitude, in deg"""
-        return self._view[0]
-
-    @latitude.setter
-    def latitude(self, v):
-        self._view[0] = v
-
-    @property
-    def longitude(self):
-        """Geographic longitude, in deg"""
-        return self._view[1]
-
-    @longitude.setter
-    def longitude(self, v):
-        self._view[1] = v
+    properties = (
+        ("energy", "Kinetic energy, in GeV"),
+        ("weight", "Transport weight")
+    )
 
     @property
     def pid(self):
@@ -564,66 +527,66 @@ class State:
         self._pid[:] = v
 
     @property
-    def size(self):
-        """Number of state(s)"""
-        return self._size
+    def position(self) -> Coordinates:
+        """Observation position"""
+        return self._position
+
+    @position.setter
+    def position(self, v: Coordinates):
+        assert(isinstance(v, Coordinates))
+        assert(v._size == self._size)
+        self._position = v
 
     @property
-    def weight(self):
-        """Transport weight"""
-        return self._view[6]
+    def direction(self) -> Direction:
+        """Observation direction"""
+        return self._direction
 
-    @weight.setter
-    def weight(self, v):
-        self._view[6] = v
+    @direction.setter
+    def direction(self, v: Coordinates):
+        assert(isinstance(v, Coordinates))
+        assert(v._size == self._size)
+        self._position = v
 
-    def __init__(self, size=None):
-        if size is None:
-            self._pid = numpy.zeros(1, dtype="i4")
-            self._data = numpy.zeros(7)
-            self._view = self._data
-        else:
-            self._pid = numpy.zeros(size, dtype="i4")
-            self._data = numpy.zeros((size, 7))
-            self._view = self._data.T
-        self._size = size
+    def __init__(self, pid=None, position=None, direction=None, energy=None,
+                 weight=None):
 
-    def flux(self, reference):
+        args = (pid, position, direction, energy, weight)
+        size = self._get_size(*args)
+        self._init_array(numpy.zeros, size)
+
+        self._position = Coordinates.broadcast(position, size, copy=True)
+        self._direction = Direction.broadcast(direction, size, copy=True)
+
+        self._pid = numpy.zeros(size or 1, dtype="i4")
+        if pid is not None:
+            self._pid[:] = pid
+
+        if energy is not None:
+            self.energy = energy
+
+        if weight is not None:
+            self.weight = weight
+
+    def flux(self, reference: Reference) -> Flux:
         """Sample a reference flux"""
 
         assert(isinstance(reference, Reference))
 
-        result = Flux(self._size)
-        size = 1 if self._size is None else self._size
-        lib.mulder_state_flux_v(reference._reference[0], size,
-            _toint(self._pid), _todouble(self._data), _todouble(result._data))
+        size = self._size or 1
+        flux = Flux(self._size)
 
-        return result
+        lib.mulder_state_flux_v(
+            reference._reference[0],
+            size,
+            _toint(self._pid),
+            self._position.cffi_ptr,
+            self._direction.cffi_ptr,
+            self.cffi_ptr,
+            flux.cffi_ptr
+        )
 
-
-def state(**kwargs):
-    """Helper function for creating Monte Carlo state(s)"""
-
-    size = None
-    for v in kwargs.values():
-        try:
-            s = len(v)
-        except:
-            pass
-        else:
-            if size is None: size = s
-            elif (s != size) and (s != 1):
-                raise ValueError("incompatible size(s)")
-
-    s = State(size)
-
-    for k, v in kwargs.items():
-        try:
-            setattr(s, k, v)
-        except AttributeError:
-            raise ValueError(f"unknown property for mulder.State ({k})")
-
-    return s
+        return flux
 
 
 class Fluxmeter:

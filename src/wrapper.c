@@ -182,6 +182,7 @@ enum mulder_return mulder_fluxmeter_flux_v(
 {
         last_error.rc = MULDER_SUCCESS;
         for (; n > 0; n--, energy++, flux+= 2) {
+                /* XXX update
                 struct mulder_flux tmp = mulder_fluxmeter_flux(
                     fluxmeter,
                     *(struct mulder_coordinates *)position,
@@ -197,6 +198,7 @@ enum mulder_return mulder_fluxmeter_flux_v(
                     &tmp,
                     sizeof tmp
                 );
+                */
         }
         return MULDER_SUCCESS;
 }

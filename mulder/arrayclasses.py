@@ -69,16 +69,7 @@ class Array:
                     f"got {len(args)})")
 
             # Compute the array size
-            size = None
-            for arg in args:
-                try:
-                    s = len(arg)
-                except:
-                    pass
-                else:
-                    if size is None: size = s
-                    elif (s != size) and (s != 1):
-                        raise ValueError("incompatible size(s)")
+            size = self._get_size(*args)
 
             # Create the array
             self._init_array(numpy.zeros, size)
@@ -90,16 +81,7 @@ class Array:
         elif kwargs:
             # Initialise from keyword arguments. First, let us compute the
             # array size
-            size = None
-            for v in kwargs.values():
-                try:
-                    s = len(v)
-                except:
-                    pass
-                else:
-                    if size is None: size = s
-                    elif (s != size) and (s != 1):
-                        raise ValueError("incompatible size(s)")
+            size = self._get_size(*kwargs.values())
 
             # Create the array
             self._init_array(numpy.zeros, size)
@@ -115,6 +97,24 @@ class Array:
         else:
             raise NotImplementedError()
 
+    @staticmethod
+    def _get_size(*args):
+        """Compute (common) array size for given arguments"""
+        size = None
+        for arg in args:
+            try:
+                s = len(arg)
+            except:
+                pass
+            else:
+                if size is None: size = s
+                elif (s != size) and (s != 1):
+                    raise ValueError("incompatible size(s)")
+        return size
+
+    def __len__(self):
+        return self._size
+
     def __repr__(self):
         return repr(self._data)
 
@@ -129,3 +129,35 @@ class Array:
             self._data = method((size, len(self.properties)))
             self._view = self._data.T
         self._size = size
+
+    def copy(self):
+        """Return a copy"""
+        obj = self.empty(self._size)
+        obj._data[:] = self.data
+        return obj
+
+    def repeat(self, repeats):
+        """Return a repeated instance"""
+        if repeats <= 1:
+            return self.copy()
+        elif self._size is None:
+            obj = self.empty(repeats)
+            obj._data[:] = self._data
+            return obj
+        else:
+            size = self._size * repeats
+            obj = self.empty(size)
+            obj._data[:] = numpy.repeat(self._data, repeats, axis=0)
+            return obj
+
+    @classmethod
+    def broadcast(cls, instance, size, copy=False):
+        """Return a broadcasted instance"""
+        if instance is None:
+            return cls.zeros(size)
+        else:
+            assert(isinstance(instance, cls))
+            if instance._size == size:
+                return instance.copy() if copy else instance
+            else:
+                return instance.repeat(size)

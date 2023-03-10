@@ -545,7 +545,6 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 
         /* Initialise transport mode etc. */
         fluxmeter->api.mode = MULDER_CSDA;
-        fluxmeter->api.selection = MULDER_ANY;
 
         /* Initialise reference flux */
         fluxmeter->api.reference = &default_reference;
@@ -688,25 +687,28 @@ static struct mulder_state transport_event(
 
 struct mulder_flux mulder_fluxmeter_flux(
     struct mulder_fluxmeter * fluxmeter,
-    const struct mulder_coordinates position,
-    const struct mulder_direction direction,
-    double energy)
+    const struct mulder_state initial)
 {
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct mulder_flux result = {0.};
         struct state s = init_event(
-            f, MULDER_MUON, position, direction, energy);
+            f,
+            MULDER_MUON,
+            initial.position,
+            initial.direction,
+            initial.energy
+        );
         if (s.api.weight <= 0.) {
                 return result;
         }
 
         /* Sample the reference flux */
         struct mulder_reference * reference = f->api.reference;
-        if (f->api.selection == MULDER_ANY) {
+        if (initial.pid == MULDER_ANY) {
                 if (f->api.geomagnet == NULL) {
                         struct mulder_state state =
-                            transport_event(f, position, s);
+                            transport_event(f, initial.position, s);
                         if (state.weight <= 0.) {
                                 return result;
                         }
@@ -715,13 +717,13 @@ struct mulder_flux mulder_fluxmeter_flux(
                 } else {
                         s.api.charge = -1.;
                         struct mulder_state s0 =
-                            transport_event(f, position, s);
+                            transport_event(f, initial.position, s);
                         struct mulder_flux r0 = mulder_state_flux(
                             s0, reference);
 
                         s.api.charge = 1.;
                         struct mulder_state s1 =
-                            transport_event(f, position, s);
+                            transport_event(f, initial.position, s);
                         struct mulder_flux r1 = mulder_state_flux(
                             s1, reference);
 
@@ -736,10 +738,10 @@ struct mulder_flux mulder_fluxmeter_flux(
                         return result;
                 }
         } else {
-                s.api.charge = (fluxmeter->selection == MULDER_MUON) ?
+                s.api.charge = (initial.pid == MULDER_MUON) ?
                     -1. : 1.;
                 struct mulder_state state =
-                    transport_event(f, position, s);
+                    transport_event(f, initial.position, s);
                 if (state.weight <= 0.) {
                         return result;
                 }
