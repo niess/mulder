@@ -1,6 +1,7 @@
 """Encapsulation of structured numpy.ndarrays
 """
 
+from collections import namedtuple
 import numpy
 from .wrapper import ffi, lib
 
@@ -49,6 +50,13 @@ def arrayclass(cls):
 
     cls.dtype = numpy.dtype(dtype, align=True)
 
+    cls._parser = namedtuple( # For unpacking arguments
+        f"{cls.__name__}Parser",
+        [name for (name, _, _) in cls.properties],
+        defaults=len(cls.properties) * [None,],
+        module = cls.__module__
+    )
+
     return type(cls.__name__, (Array,), dict(cls.__dict__))
 
 
@@ -91,56 +99,29 @@ class Array:
         return strides[0] if strides else 0
 
     def __init__(self, *args, **kwargs):
-        if args:
-            # Initialise from an argument list. First let us check input
-            # consistency
-            if kwargs:
-                raise NotImplementedError()
 
-            if len(args) > len(self.properties):
-                raise ValueError(
-                    f"too many arguments (expected {self._depth}, "
-                    f"got {len(args)})")
-
-            # Compute the array size
-            size = self._get_size(*args)
-
-            # Create the array
-            self._init_array(numpy.zeros, size)
-
-            # Initialise the array
-            for i, arg in enumerate(args):
-                self._data[self.properties[i][0]] = arg
-
-        elif kwargs:
-            # Initialise from keyword arguments. First, let us compute the
-            # array size
-            size = self._get_size(*kwargs.values())
-
-            # Create the array
-            self._init_array(numpy.zeros, size)
-
-            # Initialise the array
-            for k, v in kwargs.items():
-                try:
-                    setattr(self, k, v)
-                except AttributeError:
-                    raise ValueError(
-                        f"unknown property for {self.__class__} ({k})")
-
-        else:
-            raise NotImplementedError()
+        args = self._parser(*args, **kwargs)
+        size = self._get_size(*args, properties=self.properties)
+        self._init_array(numpy.zeros, size)
+        for arg, field in zip(args, self._parser._fields):
+            if arg is not None:
+                setattr(self, field, arg)
 
     @staticmethod
-    def _get_size(*args):
+    def _get_size(*args, properties=None):
         """Compute (common) array size for given arguments"""
         size = None
-        for arg in args:
+        for i, arg in enumerate(args):
             try:
                 s = len(arg)
             except:
                 continue
             else:
+                if properties:
+                    tp = properties[i][1]
+                    if not isinstance(tp, str):
+                        if not hasattr(arg[0], "__len__"):
+                            continue
                 if size is None:
                     size = s
                 elif (s != size) and (s != 1):
