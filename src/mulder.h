@@ -15,11 +15,18 @@ extern "C" {
 extern void (*mulder_error)(const char * message);
 
 
-/* Geographic coordinates (GPS-like, using WGS84) */
-struct mulder_coordinates {
+/* Observation position, using geographic coordinates (GPS-like) */
+struct mulder_position {
     double latitude;  /* deg */
     double longitude; /* deg */
-    double height;    /* m */
+    double height;    /* m, w.r.t. WGS84 ellipsoid */
+};
+
+
+/* Observation direction, using Horizontal coordinates */
+struct mulder_direction {
+    double azimuth;   /* deg, w.r.t. geographic North */
+    double elevation; /* deg, w.r.t. the local horizontal */
 };
 
 
@@ -35,13 +42,6 @@ struct mulder_enu {
     double east;
     double north;
     double upward;
-};
-
-
-/* Observation direction, using Horizontal coordinates */
-struct mulder_direction {
-    double azimuth;   /* deg, w.r.t. geographic North */
-    double elevation; /* deg, w.r.t. the local horizontal */
 };
 
 
@@ -78,22 +78,22 @@ void mulder_layer_destroy(struct mulder_layer ** layer);
 
 double mulder_layer_height(
     const struct mulder_layer * layer,
-    struct mulder_projection position
+    struct mulder_projection projection
 );
 
 struct mulder_projection mulder_layer_gradient(
     const struct mulder_layer * layer,
-    struct mulder_projection position
+    struct mulder_projection projection
 );
 
-struct mulder_coordinates mulder_layer_coordinates(
+struct mulder_position mulder_layer_position(
     const struct mulder_layer * layer,
-    struct mulder_projection position
+    struct mulder_projection projection
 );
 
 struct mulder_projection mulder_layer_project(
     const struct mulder_layer * layer,
-    struct mulder_coordinates position
+    struct mulder_position position
 );
 
 
@@ -122,7 +122,7 @@ void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet);
 
 struct mulder_enu mulder_geomagnet_field(
     const struct mulder_geomagnet * geomagnet,
-    struct mulder_coordinates position
+    struct mulder_position position
 );
 
 
@@ -220,7 +220,7 @@ struct mulder_state {
     /* Particle identifier */
     enum mulder_pid pid;
     /* Location */
-    struct mulder_coordinates position;
+    struct mulder_position position;
     /* Observation direction */
     struct mulder_direction direction;
     /* Kinetic energy, in GeV */
@@ -252,25 +252,25 @@ struct mulder_state mulder_fluxmeter_transport( /* transport state */
 /* Geometry related utilities */
 struct mulder_intersection {
     int layer;
-    struct mulder_coordinates position;
+    struct mulder_position position;
 };
 
 struct mulder_intersection mulder_fluxmeter_intersect(
     struct mulder_fluxmeter * fluxmeter,
-    struct mulder_coordinates position,
+    struct mulder_position position,
     struct mulder_direction direction
 );
 
 double mulder_fluxmeter_grammage(
     struct mulder_fluxmeter * fluxmeter,
-    struct mulder_coordinates position,
+    struct mulder_position position,
     struct mulder_direction direction,
     double * grammage
 );
 
 int mulder_fluxmeter_whereami(
     struct mulder_fluxmeter * fluxmeter,
-    struct mulder_coordinates position
+    struct mulder_position position
 );
 
 

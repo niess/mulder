@@ -203,7 +203,7 @@ void mulder_layer_destroy(struct mulder_layer ** layer)
 
 double mulder_layer_height(
     const struct mulder_layer * layer,
-    const struct mulder_projection position)
+    const struct mulder_projection projection)
 {
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
@@ -213,8 +213,8 @@ double mulder_layer_height(
                 int inside;
                 turtle_map_elevation(
                     l->map,
-                    position.x,
-                    position.y,
+                    projection.x,
+                    projection.y,
                     &z,
                     &inside
                 );
@@ -225,7 +225,7 @@ double mulder_layer_height(
 
 struct mulder_projection mulder_layer_gradient(
     const struct mulder_layer * layer,
-    const struct mulder_projection position)
+    const struct mulder_projection projection)
 {
         struct mulder_projection gradient;
         struct layer * l = (void *)layer;
@@ -235,8 +235,8 @@ struct mulder_projection mulder_layer_gradient(
                 int inside;
                 turtle_map_gradient(
                     l->map,
-                    position.x,
-                    position.y,
+                    projection.x,
+                    projection.y,
                     &gradient.x,
                     &gradient.y,
                     &inside
@@ -249,35 +249,35 @@ struct mulder_projection mulder_layer_gradient(
 }
 
 
-struct mulder_coordinates mulder_layer_coordinates(
+struct mulder_position mulder_layer_position(
     const struct mulder_layer * layer,
-    const struct mulder_projection position)
+    const struct mulder_projection projection)
 {
-        struct mulder_coordinates coordinates;
+        struct mulder_position position;
         struct layer * l = (void *)layer;
         if (l->map == NULL) {
-                coordinates.longitude = position.x;
-                coordinates.latitude = position.y;
+                position.longitude = projection.x;
+                position.latitude = projection.y;
         } else {
                 const struct turtle_projection * p =
                     turtle_map_projection(l->map);
                 turtle_projection_unproject(
                     p,
-                    position.x,
-                    position.y,
-                    &coordinates.latitude,
-                    &coordinates.longitude
+                    projection.x,
+                    projection.y,
+                    &position.latitude,
+                    &position.longitude
                 );
         }
 
-        coordinates.height = mulder_layer_height(layer, position);
-        return coordinates;
+        position.height = mulder_layer_height(layer, projection);
+        return position;
 }
 
 
 struct mulder_projection mulder_layer_project(
     const struct mulder_layer * layer,
-    const struct mulder_coordinates position)
+    const struct mulder_position position)
 {
         struct layer * l = (void *)layer;
         struct mulder_projection projection;
@@ -373,7 +373,7 @@ void mulder_geomagnet_destroy(struct mulder_geomagnet ** geomagnet)
 
 struct mulder_enu mulder_geomagnet_field(
     const struct mulder_geomagnet * geomagnet,
-    const struct mulder_coordinates position)
+    const struct mulder_position position)
 {
         struct geomagnet * g = (void *)geomagnet;
         struct mulder_enu enu;
@@ -674,14 +674,14 @@ struct state {
 static struct state init_event(
     struct fluxmeter * fluxmeter,
     enum mulder_pid pid,
-    struct mulder_coordinates position,
+    struct mulder_position position,
     struct mulder_direction direction,
     double energy
 );
 
 static struct mulder_state transport_event(
     struct fluxmeter * fluxmeter,
-    struct mulder_coordinates position,
+    struct mulder_position position,
     struct state state
 );
 
@@ -791,7 +791,7 @@ struct mulder_state mulder_fluxmeter_transport(
 static struct state init_event(
     struct fluxmeter * f,
     enum mulder_pid pid,
-    const struct mulder_coordinates position,
+    const struct mulder_position position,
     const struct mulder_direction direction,
     double energy)
 {
@@ -852,7 +852,7 @@ static struct state init_event(
 
 static struct mulder_state transport_event(
     struct fluxmeter * f,
-    struct mulder_coordinates position,
+    struct mulder_position position,
     struct state s)
 {
         if (position.height < f->ztop - FLT_EPSILON) {
@@ -1014,7 +1014,7 @@ static struct mulder_state transport_event(
 /* Compute first intersection with topographic layer(s) */
 struct mulder_intersection mulder_fluxmeter_intersect(
     struct mulder_fluxmeter * fluxmeter,
-    const struct mulder_coordinates position,
+    const struct mulder_position position,
     const struct mulder_direction direction)
 {
         /* Initialise the muon state */
@@ -1078,7 +1078,7 @@ struct mulder_intersection mulder_fluxmeter_intersect(
 /* Compute grammage (a.k.a. column depth) along a line of sight */
 double mulder_fluxmeter_grammage(
     struct mulder_fluxmeter * fluxmeter,
-    const struct mulder_coordinates position,
+    const struct mulder_position position,
     const struct mulder_direction direction,
     double * grammage)
 {
@@ -1170,7 +1170,7 @@ double mulder_fluxmeter_grammage(
 /* Geometry layer index for the given location */
 int mulder_fluxmeter_whereami(
     struct mulder_fluxmeter * fluxmeter,
-    const struct mulder_coordinates position)
+    const struct mulder_position position)
 {
         struct fluxmeter * f = (void *)fluxmeter;
 

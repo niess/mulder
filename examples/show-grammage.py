@@ -4,24 +4,26 @@ import matplotlib.pyplot as plot
 from matplotlib.colors import LogNorm
 import numpy
 
-import mulder
+from mulder import Direction, Fluxmeter, Layer, Projection
 
 
 # Define the geometry
 layers = (
-    mulder.Layer("Rock", "data/mns_roche.png"),
-    mulder.Layer("Water", "data/mns_eau.png")
+    Layer("Rock", "data/mns_roche.png"),
+    Layer("Water", "data/mns_eau.png")
 )
 
 # Set the observation point
-x0 = 0.5 * (layers[0].xmin + layers[0].xmax) - 150
-y0 = 0.5 * (layers[0].ymin + layers[0].ymax) + 650
-latitude, longitude = layers[0].geodetic(x0, y0)
-height = layers[1].zmin - 500
-azimuth, elevation = 90, 90
+projection = Projection(
+    x = 0.5 * (layers[0].xmin + layers[0].xmax) - 150,
+    y = 0.5 * (layers[0].ymin + layers[0].ymax) + 650
+)
+position = layers[0].position(projection)
+position.height = layers[1].zmin - 500
+direction = Direction(azimuth = 90, elevation = 90)
 
 # Create a fluxmeter
-meter = mulder.Fluxmeter(*layers)
+fluxmeter = Fluxmeter(*layers)
 
 # Transform from pixel coordinates to angular ones
 nu, nv, f = 201, 201, 1
@@ -38,7 +40,7 @@ cp, sp = numpy.cos(phi), numpy.sin(phi)
 r = numpy.array((cp * st, sp * st, ct))
 
 deg = numpy.pi / 180
-theta, phi = (90 - elevation) * deg, (90 - azimuth) * deg
+theta, phi = (90 - direction.elevation) * deg, (90 - direction.azimuth) * deg
 ct, st = numpy.cos(theta), numpy.sin(theta)
 cp, sp = numpy.cos(phi), numpy.sin(phi)
 R = numpy.array((
@@ -53,7 +55,8 @@ azimuth = 90 - numpy.arctan2(ry, rx) * deg
 elevation = numpy.arctan2(rz, numpy.sqrt(rx**2 + ry**2)) * deg
 
 # Get grammage along line of sights
-grammages = meter.grammage(latitude, longitude, height, azimuth, elevation)
+direction = Direction(azimuth, elevation)
+grammages = fluxmeter.grammage(position, direction)
 grammages = [a.reshape((nv, nu)) for a in grammages.T]
 
 # Plot the result

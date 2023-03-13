@@ -31,17 +31,17 @@ int main(int argc, char * argv[])
         );
         fluxmeter->geomagnet = magnet;
 
-        /* Get geographic coordinates at the middle of the map, and offset
-         * the height below the ground
+        /* Get geographic position at the middle of the map, and offset the
+         * height below the ground
          */
-        struct mulder_projection map_position = {
+        struct mulder_projection projection = {
             .x = 0.5 * (layers[0]->xmin + layers[0]->xmax),
             .y = 0.5 * (layers[0]->ymin + layers[0]->ymax)
         };
 
-        struct mulder_coordinates position = mulder_layer_coordinates(
+        struct mulder_position position = mulder_layer_position(
             layers[0],
-            map_position
+            projection
         );
         position.height -= 30;
 

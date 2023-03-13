@@ -52,15 +52,27 @@ def _is_regular(a):
 
 # Decorated array types
 @arrayclass
-class Coordinates:
-    """Geographic coordinates (GPS like, using WGS84)"""
+class Position:
+    """Observation position, using geographic coordinates (GPS like)"""
 
-    ctype = "struct mulder_coordinates *"
+    ctype = "struct mulder_position *"
 
     properties = (
         ("latitude",  "f8", "Geographic latitude, in deg"),
         ("longitude", "f8", "Geographic longitude, in deg"),
-        ("height",    "f8", "Geographic height, in m")
+        ("height",    "f8", "Geographic height w.r.t. WGS84 ellipsoid, in m")
+    )
+
+
+@arrayclass
+class Direction:
+    """Observation direction, using Horizontal angular coordinates"""
+
+    ctype = "struct mulder_direction *"
+
+    properties = (
+        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)"),
+        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal)")
     )
 
 
@@ -90,18 +102,6 @@ class Projection:
 
 
 @arrayclass
-class Direction:
-    """Observation direction, using Horizontal angular coordinates"""
-
-    ctype = "struct mulder_direction *"
-
-    properties = (
-        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)"),
-        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal)")
-    )
-
-
-@arrayclass
 class Flux:
     """Container for muon flux data"""
 
@@ -121,7 +121,7 @@ class Intersection:
 
     properties = (
         ("layer",    "i4",        "Intersected layer index"),
-        ("position", Coordinates, "Intersection position")
+        ("position", Position, "Intersection position")
     )
 
 
@@ -133,7 +133,7 @@ class State:
 
     properties = (
         ("pid",       "i4",        "Particle identifier (PDG scheme)"),
-        ("position",  Coordinates, "Observation position"),
+        ("position",  Position, "Observation position"),
         ("direction", Direction,   "Observation direction"),
         ("energy",    "f8",        "Kinetic energy, in GeV"),
         ("weight",    "f8",        "Transport weight")
@@ -288,15 +288,15 @@ class Layer:
 
         return gradient
 
-    def coordinates(self, projection: Projection) -> Coordinates:
-        """Geographic coordinates at map location"""
+    def position(self, projection: Projection) -> Position:
+        """Get geographic position corresponding to map location"""
 
         assert(isinstance(projection, Projection))
 
         size = projection._size or 1
-        position = Coordinates.empty(projection.size)
+        position = Position.empty(projection.size)
 
-        lib.mulder_layer_coordinates_v(
+        lib.mulder_layer_position_v(
             self._layer[0],
             size,
             projection.cffi_ptr,
@@ -305,10 +305,10 @@ class Layer:
 
         return position
 
-    def project(self, position: Coordinates) -> Projection:
-        """Project geographic coordinates onto map"""
+    def project(self, position: Position) -> Projection:
+        """Project geographic position onto map"""
 
-        assert(isinstance(position, Coordinates))
+        assert(isinstance(position, Position))
 
         size = position._size or 1
         projection = Projection.empty(position._size)
@@ -386,14 +386,14 @@ class Geomagnet:
                 lib.mulder_geomagnet_destroy
             )
 
-    def field(self, position: Coordinates) -> Enu:
+    def field(self, position: Position) -> Enu:
         """Geomagnetic field, in T
 
         The magnetic field components are returned in East-North-Upward (ENU)
         coordinates.
         """
 
-        assert(isinstance(position, Coordinates))
+        assert(isinstance(position, Position))
 
         size = position._size or 1
         enu = Enu.empty(position._size)
@@ -681,7 +681,7 @@ class Fluxmeter:
 
         return result
 
-    def intersect(self, position: Coordinates,
+    def intersect(self, position: Position,
                         direction: Direction) -> Intersection:
         """Compute first intersection with topographic layer(s)"""
 
@@ -700,7 +700,7 @@ class Fluxmeter:
 
         return intersection
 
-    def grammage(self, position: Coordinates,
+    def grammage(self, position: Position,
                        direction: Direction) -> numpy.ndarray:
         """Compute grammage(s) (a.k.a. column depth) along line(s) of sight"""
 
@@ -709,12 +709,13 @@ class Fluxmeter:
         if size is None:
             grammage = numpy.empty(m)
         else:
-            grammage = numpy.empty(size, m)
+            grammage = numpy.empty((size, m))
 
         rc = lib.mulder_fluxmeter_grammage_v(
             self._fluxmeter[0],
+            size or 1,
             position.cffi_ptr,
-            direction.cfii_ptr,
+            direction.cffi_ptr,
             _todouble(grammage)
         )
         if rc != lib.MULDER_SUCCESS:
@@ -722,7 +723,7 @@ class Fluxmeter:
 
         return grammage
 
-    def whereami(self, position: Coordinates) -> numpy.ndarray:
+    def whereami(self, position: Position) -> numpy.ndarray:
         """Get geometric layer indice(s) for given location(s)"""
 
         size = position._size or 1

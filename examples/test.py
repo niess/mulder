@@ -20,8 +20,8 @@ projection = Projection(
     y = 0.5 * (layers[0].ymin + layers[0].ymax)
 )
 
-# Get the corresponding geographic coordinates (and offset height below ground)
-position = layers[0].coordinates(projection)
+# Get the corresponding geographic position (and offset height below ground)
+position = layers[0].position(projection)
 position.height -= 30
 
 # Create a fluxmeter and compute the differential muon flux for some

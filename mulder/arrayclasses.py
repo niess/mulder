@@ -109,7 +109,7 @@ class Array:
 
             # Initialise the array
             for i, arg in enumerate(args):
-                self._data[i] = arg
+                self._data[self.properties[i][0]] = arg
 
         elif kwargs:
             # Initialise from keyword arguments. First, let us compute the

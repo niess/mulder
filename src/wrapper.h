@@ -25,18 +25,18 @@ void mulder_layer_gradient_v(
 );
 
 /* Vectorized geographic coordinates */
-void mulder_layer_coordinates_v(
+void mulder_layer_position_v(
     const struct mulder_layer * layer,
     int size,
     const struct mulder_projection * projection,
-    struct mulder_coordinates * position
+    struct mulder_position * position
 );
 
 /* Vectorized map projection */
 void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int size,
-    const struct mulder_coordinates * position,
+    const struct mulder_position * position,
     struct mulder_projection * projection
 );
 
@@ -44,7 +44,7 @@ void mulder_layer_project_v(
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int size,
-    const struct mulder_coordinates * position,
+    const struct mulder_position * position,
     struct mulder_enu * field
 );
 
@@ -86,7 +86,7 @@ enum mulder_return mulder_fluxmeter_transport_v(
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
-    const struct mulder_coordinates * position,
+    const struct mulder_position * position,
     const struct mulder_direction * direction,
     struct mulder_intersection * intersection
 );
@@ -95,7 +95,7 @@ enum mulder_return mulder_fluxmeter_intersect_v(
 enum mulder_return mulder_fluxmeter_grammage_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
-    const struct mulder_coordinates * position,
+    const struct mulder_position * position,
     const struct mulder_direction * direction,
     double * grammage
 );
@@ -104,7 +104,7 @@ enum mulder_return mulder_fluxmeter_grammage_v(
 enum mulder_return mulder_fluxmeter_whereami_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
-    const struct mulder_coordinates * position,
+    const struct mulder_position * position,
     int * layer
 );
 
