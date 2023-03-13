@@ -6,7 +6,7 @@ import weakref
 
 import numpy
 
-from .arrayclasses import arrayclass, broadcast
+from .arrayclasses import arrayclass, commonsize
 from .version import git_revision, version
 from .wrapper import ffi, lib
 
@@ -24,15 +24,6 @@ class LibraryError(Exception):
             self.args = (ffi.string(msg).decode(),)
 
 
-# Numpy broadcasting
-_asarray = lambda x: numpy.ascontiguousarray(x, dtype="f8")
-
-_fromarray = lambda x: float(x) if x.size == 1 else x
-
-def _asarrays(*args):
-    args = [_asarray(a) for a in numpy.broadcast_arrays(*args)]
-    return (*args, args[0].size)
-
 # Type conversions between cffi and numpy
 _todouble = lambda x: ffi.cast("double *", x.ctypes.data)
 
@@ -40,14 +31,6 @@ _toint = lambda x: ffi.cast("int *", x.ctypes.data)
 
 _tostr = lambda x: ffi.NULL if x is None else \
                    ffi.new("const char[]", x.encode())
-
-
-def _is_regular(a):
-    """Check if a 1d array has a regular stepping"""
-    d = numpy.diff(a)
-    dmin, dmax = min(d), max(d)
-    amax = max(numpy.absolute(a))
-    return dmax - dmin <= 1E-15 * amax
 
 
 # Decorated array types
@@ -150,6 +133,7 @@ class State:
         lib.mulder_state_flux_v(
             reference._reference[0],
             size,
+            self.stride,
             self.cffi_ptr,
             flux.cffi_ptr
         )
@@ -265,11 +249,12 @@ class Layer:
         lib.mulder_layer_height_v(
             self._layer[0],
             size,
+            projection.stride,
             projection.cffi_ptr,
             _todouble(height)
         )
 
-        return _fromarray(height)
+        return height if size > 1 else height[0]
 
     def gradient(self, projection: Projection) -> Projection:
         """Topography gradient (w.r.t. map coordinates)"""
@@ -282,6 +267,7 @@ class Layer:
         lib.mulder_layer_gradient_v(
             self._layer[0],
             size,
+            projection.stride,
             projection.cffi_ptr,
             gradient.cffi_ptr
         )
@@ -299,6 +285,7 @@ class Layer:
         lib.mulder_layer_position_v(
             self._layer[0],
             size,
+            projection.stride,
             projection.cffi_ptr,
             position.cffi_ptr
         )
@@ -316,6 +303,7 @@ class Layer:
         lib.mulder_layer_project_v(
             self._layer[0],
             size,
+            position.stride,
             position.cffi_ptr,
             projection.cffi_ptr
         )
@@ -401,6 +389,7 @@ class Geomagnet:
         lib.mulder_geomagnet_field_v(
             self._geomagnet[0],
             size,
+            position.stride,
             position.cffi_ptr,
             enu.cffi_ptr,
         )
@@ -470,12 +459,17 @@ class Reference:
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
 
-        height, elevation, energy, size = _asarrays(height, elevation, energy)
+        args = [numpy.asarray(a) for a in (height, elevation, energy)]
+        size = commonsize(*args)
+        strides = [a.strides[-1] if a.strides else 0 for a in args]
+        height, elevation, energy = args
+
         flux = Flux.empty(size if size > 1 else None)
 
         lib.mulder_reference_flux_v(
             self._reference[0],
             size,
+            strides,
             _todouble(height),
             _todouble(elevation),
             _todouble(energy),
@@ -533,7 +527,7 @@ class Prng:
                 _todouble(values)
             )
 
-            return _fromarray(values)
+            return values if n > 1 else values[0]
 
 
 class Fluxmeter:
@@ -633,7 +627,10 @@ class Fluxmeter:
 
         fluxmeter = ffi.new("struct mulder_fluxmeter *[1]")
         fluxmeter[0] = lib.mulder_fluxmeter_create(
-            _tostr(physics), len(layers), [l._layer[0] for l in layers])
+            _tostr(physics),
+            len(layers),
+            [l._layer[0] for l in layers]
+        )
         if fluxmeter[0] == ffi.NULL:
             raise LibraryError()
 
@@ -654,6 +651,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_flux_v(
             self._fluxmeter[0],
             size,
+            state.stride,
             state.cffi_ptr,
             flux.cffi_ptr
         )
@@ -673,6 +671,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_transport_v(
             self._fluxmeter[0],
             size,
+            state.stride,
             state.cffi_ptr,
             result.cffi_ptr
         )
@@ -685,12 +684,16 @@ class Fluxmeter:
                         direction: Direction) -> Intersection:
         """Compute first intersection with topographic layer(s)"""
 
-        position, direction, size = broadcast(position, direction)
+        assert(isinstance(position, Position))
+        assert(isinstance(direction, Direction))
+
+        size = commonsize(position, direction)
         intersection = Intersection.empty(size)
 
         rc = lib.mulder_fluxmeter_intersect_v(
             self._fluxmeter[0],
             size or 1,
+            (position.stride, direction.stride),
             position.cffi_ptr,
             direction.cffi_ptr,
             intersection.cffi_ptr
@@ -704,7 +707,10 @@ class Fluxmeter:
                        direction: Direction) -> numpy.ndarray:
         """Compute grammage(s) (a.k.a. column depth) along line(s) of sight"""
 
-        position, direction, size = broadcast(position, direction)
+        assert(isinstance(position, Position))
+        assert(isinstance(direction, Direction))
+
+        size = commonsize(position, direction)
         m = self.size + 1
         if size is None:
             grammage = numpy.empty(m)
@@ -714,6 +720,7 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_grammage_v(
             self._fluxmeter[0],
             size or 1,
+            (position.stride, direction.stride),
             position.cffi_ptr,
             direction.cffi_ptr,
             _todouble(grammage)
@@ -726,19 +733,22 @@ class Fluxmeter:
     def whereami(self, position: Position) -> numpy.ndarray:
         """Get geometric layer indice(s) for given location(s)"""
 
+        assert(isinstance(position, Position))
+
         size = position._size or 1
         i = numpy.empty(size, dtype="i4")
 
         rc = lib.mulder_fluxmeter_whereami_v(
             self._fluxmeter[0],
             size,
+            position.stride,
             position.cffi_ptr,
             _toint(i)
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
 
-        return _fromarray(i)
+        return i if size > 1 else i[0]
 
 
 def create_map(path, projection, x, y, data):
@@ -749,14 +759,23 @@ def create_map(path, projection, x, y, data):
     assert(len(y) > 1)
     assert(_is_regular(y))
 
-    data = _asarray(data)
+    data = ascontiguousarray(data, "d8")
 
     assert(data.ndim == 2)
     assert(data.shape[0] == len(y))
     assert(data.shape[1] == len(x))
 
-    rc = lib.mulder_map_create(_tostr(path), _tostr(projection), len(x),
-        len(y), x[0], x[-1], y[0], y[-1], _todouble(data))
+    rc = lib.mulder_map_create(
+        _tostr(path),
+        _tostr(projection),
+        len(x),
+        len(y),
+        x[0],
+        x[-1],
+        y[0],
+        y[-1],
+        _todouble(data)
+    )
     if rc != lib.MULDER_SUCCESS:
         raise LibraryError()
 
@@ -764,22 +783,28 @@ def create_map(path, projection, x, y, data):
 def create_reference_table(path, height, cos_theta, energy, data):
     """Create a reference flux table from a numpy array"""
 
+    def is_regular(a):
+        """Check if a 1d array has a regular stepping"""
+        d = numpy.diff(a)
+        dmin, dmax = min(d), max(d)
+        amax = max(numpy.absolute(a))
+        return dmax - dmin <= 1E-15 * amax
+
     # Check inputs
     assert(len(cos_theta) > 1)
-    assert(_is_regular(cos_theta))
+    assert(is_regular(cos_theta))
     assert(len(energy) > 1)
-    assert(_is_regular(numpy.log(energy)))
+    assert(is_regular(numpy.log(energy)))
 
-    data = numpy.ascontiguousarray(data, dtype="f4")
+    data = numpy.ascontiguousarray(data, dtype="<f4")
 
     if isinstance(height, Number):
         assert(data.ndim == 3)
         assert(data.shape[0] == len(cos_theta))
         assert(data.shape[1] == len(energy))
         assert(data.shape[2] == 2)
-        height = _asarray(height)
     else:
-        assert(_is_regular(height))
+        assert(is_regular(height))
         assert(data.ndim == 4)
         assert(data.shape[0] == len(height))
         assert(data.shape[1] == len(cos_theta))
@@ -788,16 +813,30 @@ def create_reference_table(path, height, cos_theta, energy, data):
 
     # Generate binary table file
     with open(path, "wb") as f:
-        dims = numpy.array((len(energy), len(cos_theta), len(height)),
-                           dtype="i8")
+        dims = numpy.array(
+            (
+                len(energy),
+                len(cos_theta),
+                len(height)
+            ),
+            dtype="i8"
+        )
         dims.astype("<i8").tofile(f)
 
-        lims = numpy.array((energy[0], energy[-1], cos_theta[0],
-                            cos_theta[-1], altitude[0], altitude[-1]),
-                           dtype="f8")
+        lims = numpy.array(
+            (
+                energy[0],
+                energy[-1],
+                cos_theta[0],
+                cos_theta[-1],
+                height[0],
+                height[-1]
+            ),
+            dtype="f8"
+        )
         lims.astype("<f8").tofile(f)
 
-        data.flatten().astype("<f4").tofile(f)
+        data.flatten().tofile(f)
 
 
 def generate_physics(path, destination=None):

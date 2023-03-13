@@ -52,14 +52,9 @@ def arrayclass(cls):
     return type(cls.__name__, (Array,), dict(cls.__dict__))
 
 
-def broadcast(*args):
-    """Return broadcasted arrays"""
-
-    size = Array._get_size(*args)
-    if size is not None:
-        args = [arg.repeat(size) if arg.size != size else arg \
-                for arg in args]
-    return (*args, size)
+def commonsize(*args):
+    """Return the common size of a set of arrays"""
+    return Array._get_size(*args)
 
 
 class Array:
@@ -88,6 +83,12 @@ class Array:
     def cffi_ptr(self):
         """Raw cffi pointer"""
         return ffi.cast(self.ctype, self._data.ctypes.data)
+
+    @property
+    def stride(self):
+        """Numpy stride"""
+        strides = self._data.strides
+        return strides[0] if strides else 0
 
     def __init__(self, *args, **kwargs):
         if args:
@@ -148,6 +149,20 @@ class Array:
 
     def __len__(self):
         return self._size
+
+    def __getitem__(self, i):
+        data = self._data[i]
+        try:
+            size = len(data)
+        except TypeError:
+            size = None
+        else:
+            if size == 1: size = None
+
+        obj = self.__new__(self.__class__)
+        obj._size = size
+        obj._data = data
+        return obj
 
     def __repr__(self):
         return repr(self._data)

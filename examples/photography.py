@@ -3,24 +3,26 @@ from copy import copy
 import matplotlib.pyplot as plot
 import numpy
 
-import mulder
+from mulder import Direction, Fluxmeter, Layer, Projection
 
 
 # Define the geometry
 layers = (
-    mulder.Layer("Rock", "data/mns_roche.png"),
-    mulder.Layer("Water", "data/mns_eau.png")
+    Layer("Rock", "data/mns_roche.png"),
+    Layer("Water", "data/mns_eau.png")
 )
 
 # Set the observation point
-x0 = 0.5 * (layers[0].xmin + layers[0].xmax)
-y0 = 0.5 * (layers[0].ymin + layers[0].ymax)
-latitude, longitude = layers[0].geodetic(x0, y0)
-height = layers[0].zmax + 1250
+projection0 = Projection(
+    x = 0.5 * (layers[0].xmin + layers[0].xmax),
+    y = 0.5 * (layers[0].ymin + layers[0].ymax)
+)
+position0 = layers[0].position(projection0)
+position0.height = layers[0].zmax + 1250
 azimuth, elevation = 90, -90
 
 # Create a fluxmeter
-meter = mulder.Fluxmeter(*layers)
+fluxmeter = Fluxmeter(*layers)
 
 # Transform from pixel coordinates to angular ones
 nu, nv, f = 201, 201, 1
@@ -52,22 +54,29 @@ azimuth = 90 - numpy.arctan2(ry, rx) * deg
 elevation = numpy.arctan2(rz, numpy.sqrt(rx**2 + ry**2)) * deg
 
 # Intersect rays with the geometry
-i, x, y, z = meter.intersect(latitude, longitude, height, azimuth, elevation)
+intersection = fluxmeter.intersect(position0, Direction(azimuth, elevation))
+i = intersection.layer
+projection = layers[0].project(intersection.position)
 
 # Compute target scattering factor
 source = (-1, 1, 1)
+z = numpy.zeros(i.size)
 nx, ny = numpy.zeros(i.size), numpy.zeros(i.size)
 sel = i == 0
 for j, layer in enumerate(layers):
     sel = (i == j)
-    nx[sel], ny[sel] = layer.gradient(x[sel], y[sel])
+    prj = projection[sel]
+    gradient = layer.gradient(prj)
+    nx[sel] = gradient.x
+    ny[sel] = gradient.y
+    z[sel] = layer.height(prj)
 
 nz = 1 / numpy.sqrt(1 + nx**2 + ny**2)
 nx *= nz
 ny *= nz
-ux = x - x0
-uy = y - y0
-uz = z - height
+ux = projection.x - projection0.x
+uy = projection.y - projection0.y
+uz = z - position0.height
 nrm = 1 / numpy.sqrt(ux**2 + uy**2 + uz**2)
 ux *= nrm
 uy *= nrm

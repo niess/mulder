@@ -71,14 +71,16 @@ void mulder_error_clear(void)
 void mulder_layer_height_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     double * height)
 {
-        for (; size > 0; size--, projection++, height++) {
+        for (; size > 0; size--, height++) {
                 *height = mulder_layer_height(
                     layer,
                     *projection
                 );
+                projection = (void *)projection + stride;
         }
 }
 
@@ -87,14 +89,16 @@ void mulder_layer_height_v(
 void mulder_layer_gradient_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     struct mulder_projection * gradient)
 {
-        for (; size > 0; size--, projection++, gradient++) {
+        for (; size > 0; size--, gradient++) {
                 *gradient = mulder_layer_gradient(
                     layer,
                     *projection
                 );
+                projection = (void *)projection + stride;
         }
 }
 
@@ -103,14 +107,16 @@ void mulder_layer_gradient_v(
 void mulder_layer_position_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     struct mulder_position * position)
 {
-        for (; size > 0; size--, projection++, position++) {
+        for (; size > 0; size--, position++) {
                 *position = mulder_layer_position(
                     layer,
                     *projection
                 );
+                projection = (void *)projection + stride;
         }
 }
 
@@ -119,14 +125,16 @@ void mulder_layer_position_v(
 void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_position * position,
     struct mulder_projection * projection)
 {
-        for (; size > 0; size--, position++, projection++) {
+        for (; size > 0; size--, projection++) {
                 *projection = mulder_layer_project(
                     layer,
                     *position
                 );
+                position = (void *)position + stride;
         }
 }
 
@@ -135,14 +143,16 @@ void mulder_layer_project_v(
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int size,
+    int stride,
     const struct mulder_position * position,
     struct mulder_enu * field)
 {
-        for (; size > 0; size--, position++, field++) {
+        for (; size > 0; size--, field++) {
                 *field = mulder_geomagnet_field(
                     geomagnet,
                     *position
                 );
+                position = (void *)position + stride;
         }
 }
 
@@ -151,11 +161,12 @@ void mulder_geomagnet_field_v(
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_state * state,
     struct mulder_flux * flux)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; size > 0; size--, state++, flux++) {
+        for (; size > 0; size--, flux++) {
                 *flux = mulder_fluxmeter_flux(
                     fluxmeter,
                     *state
@@ -163,6 +174,7 @@ enum mulder_return mulder_fluxmeter_flux_v(
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                state = (void *)state + stride;
         }
         return MULDER_SUCCESS;
 }
@@ -172,18 +184,22 @@ enum mulder_return mulder_fluxmeter_flux_v(
 void mulder_reference_flux_v(
     struct mulder_reference * reference,
     int size,
+    int strides[3],
     const double * height,
     const double * elevation,
     const double * energy,
     struct mulder_flux * flux)
 {
-        for (; size > 0; size--, height++, elevation++, energy++, flux++) {
+        for (; size > 0; size--, flux++) {
                 *flux = reference->flux(
                     reference,
                     *height,
                     *elevation,
                     *energy
                 );
+                height = (void *)height + strides[0];
+                elevation = (void *)elevation + strides[1];
+                energy = (void *)energy + strides[2];
         }
 }
 
@@ -192,14 +208,16 @@ void mulder_reference_flux_v(
 void mulder_state_flux_v(
     struct mulder_reference * reference,
     int size,
+    int stride,
     const struct mulder_state * state,
     struct mulder_flux * flux)
 {
-        for (; size > 0; size--, state++, flux++) {
+        for (; size > 0; size--, flux++) {
                 *flux = mulder_state_flux(
                     *state,
                     reference
                 );
+                state = (void *)state + stride;
         }
 }
 
@@ -208,11 +226,12 @@ void mulder_state_flux_v(
 enum mulder_return mulder_fluxmeter_transport_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_state * in,
     struct mulder_state * out)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; size > 0; size--, in++, out++) {
+        for (; size > 0; size--, out++) {
                 *out = mulder_fluxmeter_transport(
                     fluxmeter,
                     *in
@@ -220,6 +239,7 @@ enum mulder_return mulder_fluxmeter_transport_v(
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                in = (void *)in + stride;
         }
         return MULDER_SUCCESS;
 }
@@ -229,12 +249,13 @@ enum mulder_return mulder_fluxmeter_transport_v(
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int strides[2],
     const struct mulder_position * position,
     const struct mulder_direction * direction,
     struct mulder_intersection * intersection)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; size > 0; size--, position++, direction++, intersection++) {
+        for (; size > 0; size--, intersection++) {
                 *intersection = mulder_fluxmeter_intersect(
                     fluxmeter,
                     *position,
@@ -243,6 +264,8 @@ enum mulder_return mulder_fluxmeter_intersect_v(
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                position = (void *)position + strides[0];
+                direction = (void *)direction + strides[1];
         }
         return MULDER_SUCCESS;
 }
@@ -252,13 +275,14 @@ enum mulder_return mulder_fluxmeter_intersect_v(
 enum mulder_return mulder_fluxmeter_grammage_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int strides[2],
     const struct mulder_position * position,
     const struct mulder_direction * direction,
     double * grammage)
 {
         last_error.rc = MULDER_SUCCESS;
         const int m = fluxmeter->size + 1;
-        for (; size > 0; size--, position++, direction++, grammage+= m) {
+        for (; size > 0; size--, grammage+= m) {
                 mulder_fluxmeter_grammage(
                     fluxmeter,
                     *position,
@@ -268,6 +292,8 @@ enum mulder_return mulder_fluxmeter_grammage_v(
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                position = (void *)position + strides[0];
+                direction = (void *)direction + strides[1];
         }
         return MULDER_SUCCESS;
 }
@@ -277,11 +303,12 @@ enum mulder_return mulder_fluxmeter_grammage_v(
 enum mulder_return mulder_fluxmeter_whereami_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_position * position,
     int * layer)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; size > 0; size--, position++, layer++) {
+        for (; size > 0; size--, layer++) {
                 *layer = mulder_fluxmeter_whereami(
                     fluxmeter,
                     *position
@@ -289,6 +316,7 @@ enum mulder_return mulder_fluxmeter_whereami_v(
                 if (last_error.rc == MULDER_FAILURE) {
                         return MULDER_FAILURE;
                 }
+                position = (void *)position + stride;
         }
         return MULDER_SUCCESS;
 }

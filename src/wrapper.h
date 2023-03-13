@@ -12,6 +12,7 @@ enum mulder_return {
 void mulder_layer_height_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     double * height
 );
@@ -20,6 +21,7 @@ void mulder_layer_height_v(
 void mulder_layer_gradient_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     struct mulder_projection * gradient
 );
@@ -28,6 +30,7 @@ void mulder_layer_gradient_v(
 void mulder_layer_position_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_projection * projection,
     struct mulder_position * position
 );
@@ -36,6 +39,7 @@ void mulder_layer_position_v(
 void mulder_layer_project_v(
     const struct mulder_layer * layer,
     int size,
+    int stride,
     const struct mulder_position * position,
     struct mulder_projection * projection
 );
@@ -44,6 +48,7 @@ void mulder_layer_project_v(
 void mulder_geomagnet_field_v(
     struct mulder_geomagnet * geomagnet,
     int size,
+    int stride,
     const struct mulder_position * position,
     struct mulder_enu * field
 );
@@ -52,6 +57,7 @@ void mulder_geomagnet_field_v(
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_state * state,
     struct mulder_flux * flux
 );
@@ -60,6 +66,7 @@ enum mulder_return mulder_fluxmeter_flux_v(
 void mulder_reference_flux_v(
     struct mulder_reference * reference,
     int size,
+    int strides[3],
     const double * height,
     const double * elevation,
     const double * energy,
@@ -70,6 +77,7 @@ void mulder_reference_flux_v(
 void mulder_state_flux_v(
     struct mulder_reference * reference,
     int size,
+    int stride,
     const struct mulder_state * state,
     struct mulder_flux * flux
 );
@@ -78,6 +86,7 @@ void mulder_state_flux_v(
 enum mulder_return mulder_fluxmeter_transport_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_state * in,
     struct mulder_state * out
 );
@@ -86,6 +95,7 @@ enum mulder_return mulder_fluxmeter_transport_v(
 enum mulder_return mulder_fluxmeter_intersect_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int strides[2],
     const struct mulder_position * position,
     const struct mulder_direction * direction,
     struct mulder_intersection * intersection
@@ -95,6 +105,7 @@ enum mulder_return mulder_fluxmeter_intersect_v(
 enum mulder_return mulder_fluxmeter_grammage_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int strides[2],
     const struct mulder_position * position,
     const struct mulder_direction * direction,
     double * grammage
@@ -104,6 +115,7 @@ enum mulder_return mulder_fluxmeter_grammage_v(
 enum mulder_return mulder_fluxmeter_whereami_v(
     struct mulder_fluxmeter * fluxmeter,
     int size,
+    int stride,
     const struct mulder_position * position,
     int * layer
 );
