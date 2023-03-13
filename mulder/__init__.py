@@ -238,10 +238,10 @@ class Layer:
                 lib.mulder_layer_destroy
             )
 
-    def height(self, projection: Projection):
+    def height(self, *args, **kwargs) -> numpy.ndarray:
         """Topography height (including offset)"""
 
-        assert(isinstance(projection, Projection))
+        projection = Projection.parse(*args, **kwargs)
 
         size = projection._size or 1
         height = numpy.empty(size)
@@ -256,10 +256,10 @@ class Layer:
 
         return height if size > 1 else height[0]
 
-    def gradient(self, projection: Projection) -> Projection:
+    def gradient(self, *args, **kwargs) -> Projection:
         """Topography gradient (w.r.t. map coordinates)"""
 
-        assert(isinstance(projection, Projection))
+        projection = Projection.parse(*args, **kwargs)
 
         size = projection._size or 1
         gradient = Projection.empty(projection._size)
@@ -274,10 +274,10 @@ class Layer:
 
         return gradient
 
-    def position(self, projection: Projection) -> Position:
+    def position(self, *args, **kwargs) -> Position:
         """Get geographic position corresponding to map location"""
 
-        assert(isinstance(projection, Projection))
+        projection = Projection.parse(*args, **kwargs)
 
         size = projection._size or 1
         position = Position.empty(projection.size)
@@ -292,10 +292,10 @@ class Layer:
 
         return position
 
-    def project(self, position: Position) -> Projection:
+    def project(self, *args, **kwargs) -> Projection:
         """Project geographic position onto map"""
 
-        assert(isinstance(position, Position))
+        position = Position.parse(*args, **kwargs)
 
         size = position._size or 1
         projection = Projection.empty(position._size)
@@ -374,14 +374,14 @@ class Geomagnet:
                 lib.mulder_geomagnet_destroy
             )
 
-    def field(self, position: Position) -> Enu:
+    def field(self, *args, **kwargs) -> Enu:
         """Geomagnetic field, in T
 
         The magnetic field components are returned in East-North-Upward (ENU)
         coordinates.
         """
 
-        assert(isinstance(position, Position))
+        position = Position.parse(*args, **kwargs)
 
         size = position._size or 1
         enu = Enu.empty(position._size)
@@ -643,10 +643,10 @@ class Fluxmeter:
         self._reference = None
         self._prng = Prng(self)
 
-    def flux(self, state: State) -> Flux:
+    def flux(self, *args, **kwargs) -> Flux:
         """Calculate the muon flux for the given observation state"""
 
-        assert(isinstance(state, State))
+        state = State.parse(*args, **kwargs)
 
         size = state._size or 1
         flux = Flux.empty(state._size)
@@ -663,10 +663,10 @@ class Fluxmeter:
 
         return flux
 
-    def transport(self, state: State) -> State:
+    def transport(self, *args, **kwargs) -> State:
         """Transport observation state to the reference location"""
 
-        assert(isinstance(state, State))
+        state = State.parse(*args, **kwargs)
 
         size = state._size or 1
         result = State.empty(state._size)
@@ -686,6 +686,8 @@ class Fluxmeter:
     def intersect(self, position: Position,
                         direction: Direction) -> Intersection:
         """Compute first intersection with topographic layer(s)"""
+
+        # XXX HER I AM
 
         assert(isinstance(position, Position))
         assert(isinstance(direction, Direction))

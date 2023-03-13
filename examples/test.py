@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plot
 import numpy
 
-from mulder import Direction, Fluxmeter, Geomagnet, Layer, Projection, State
+from mulder import Fluxmeter, Geomagnet, Layer, Projection, State
 
 
 # Define the geometry
@@ -15,13 +15,11 @@ layers = (
 magnet = Geomagnet()
 
 # Get projected (map) coordinates at center of top layer
-projection = Projection(
-    x = 0.5 * (layers[0].xmin + layers[0].xmax),
-    y = 0.5 * (layers[0].ymin + layers[0].ymax)
-)
+x0 = 0.5 * (layers[0].xmin + layers[0].xmax)
+y0 = 0.5 * (layers[0].ymin + layers[0].ymax)
 
 # Get the corresponding geographic position (and offset height below ground)
-position = layers[0].position(projection)
+position = layers[0].position(x0, y0)
 position.height -= 30
 
 # Create a fluxmeter and compute the differential muon flux for some
@@ -31,7 +29,7 @@ fluxmeter.geomagnet = magnet
 
 state = State(
     position = position,
-    direction = Direction(azimuth=0, elevation=25),
+    direction = (0, 25),
     energy = numpy.logspace(0, 4, 401)
 )
 

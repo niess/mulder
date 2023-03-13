@@ -82,6 +82,20 @@ class Array:
         obj._init_array(numpy.empty, size)
         return obj
 
+    @classmethod
+    def parse(cls, *args, **kwargs):
+        """Create or forward an instance"""
+
+        if args and isinstance(args[0], cls):
+            if len(args) == 1 and not kwargs:
+                return obj
+        elif args or kwargs:
+            try:
+                return cls(*args, **kwargs)
+            except:
+                pass
+        raise ValueError(f"bad arguments for {cls.__name__}")
+
     @property
     def size(self):
         """Number of entries"""
