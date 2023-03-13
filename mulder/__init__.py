@@ -232,11 +232,11 @@ class Layer:
         )
         if layer[0] == ffi.NULL:
             raise LibraryError()
-
-        weakref.finalize(self, lib.mulder_layer_destroy, layer) # XXX use gc?
-
-        self._layer = layer
-        self.density = density
+        else:
+            self._layer = ffi.gc(
+                layer,
+                lib.mulder_layer_destroy
+            )
 
     def height(self, projection: Projection):
         """Topography height (including offset)"""
@@ -633,9 +633,12 @@ class Fluxmeter:
         )
         if fluxmeter[0] == ffi.NULL:
             raise LibraryError()
+        else:
+            self._fluxmeter = ffi.gc(
+                fluxmeter,
+                lib.mulder_fluxmeter_destroy
+            )
 
-        weakref.finalize(self, lib.mulder_fluxmeter_destroy, fluxmeter)
-        self._fluxmeter = fluxmeter
         self._geomagnet = None
         self._reference = None
         self._prng = Prng(self)
