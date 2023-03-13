@@ -4,7 +4,7 @@ import matplotlib.pyplot as plot
 from matplotlib.colors import LogNorm
 import numpy
 
-from mulder import Direction, Fluxmeter, Layer, Projection
+from mulder import Direction, Fluxmeter, Layer
 
 
 # Define the geometry
@@ -14,13 +14,11 @@ layers = (
 )
 
 # Set the observation point
-projection = Projection(
-    x = 0.5 * (layers[0].xmin + layers[0].xmax) - 150,
-    y = 0.5 * (layers[0].ymin + layers[0].ymax) + 650
-)
-position = layers[0].position(projection)
+x0 = 0.5 * (layers[0].xmin + layers[0].xmax) - 150
+y0 = 0.5 * (layers[0].ymin + layers[0].ymax) + 650
+position = layers[0].position(x0, y0)
 position.height = layers[1].zmin - 500
-direction = Direction(azimuth = 90, elevation = 90)
+azimuth, elevation = 90, 90
 
 # Create a fluxmeter
 fluxmeter = Fluxmeter(*layers)
@@ -40,7 +38,7 @@ cp, sp = numpy.cos(phi), numpy.sin(phi)
 r = numpy.array((cp * st, sp * st, ct))
 
 deg = numpy.pi / 180
-theta, phi = (90 - direction.elevation) * deg, (90 - direction.azimuth) * deg
+theta, phi = (90 - elevation) * deg, (90 - azimuth) * deg
 ct, st = numpy.cos(theta), numpy.sin(theta)
 cp, sp = numpy.cos(phi), numpy.sin(phi)
 R = numpy.array((

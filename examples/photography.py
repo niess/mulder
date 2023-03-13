@@ -13,11 +13,9 @@ layers = (
 )
 
 # Set the observation point
-projection0 = Projection(
-    x = 0.5 * (layers[0].xmin + layers[0].xmax),
-    y = 0.5 * (layers[0].ymin + layers[0].ymax)
-)
-position0 = layers[0].position(projection0)
+x0 = 0.5 * (layers[0].xmin + layers[0].xmax)
+y0 = 0.5 * (layers[0].ymin + layers[0].ymax)
+position0 = layers[0].position(x0, y0)
 position0.height = layers[0].zmax + 1250
 azimuth, elevation = 90, -90
 
@@ -74,8 +72,8 @@ for j, layer in enumerate(layers):
 nz = 1 / numpy.sqrt(1 + nx**2 + ny**2)
 nx *= nz
 ny *= nz
-ux = projection.x - projection0.x
-uy = projection.y - projection0.y
+ux = projection.x - x0
+uy = projection.y - y0
 uz = z - position0.height
 nrm = 1 / numpy.sqrt(ux**2 + uy**2 + uz**2)
 ux *= nrm

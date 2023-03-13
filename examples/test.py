@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plot
 import numpy
 
-from mulder import Fluxmeter, Geomagnet, Layer, Projection, State
+from mulder import Fluxmeter, Geomagnet, Layer, State
 
 
 # Define the geometry
@@ -29,7 +29,8 @@ fluxmeter.geomagnet = magnet
 
 state = State(
     position = position,
-    direction = (0, 25),
+    azimuth = 0,
+    elevation = 25,
     energy = numpy.logspace(0, 4, 401)
 )
 
@@ -37,7 +38,7 @@ flux = fluxmeter.flux(state)
 
 # Compute the reference flux for similar observation conditions (for comparison)
 reference = fluxmeter.reference.flux(
-    state.direction.elevation,
+    state.elevation,
     state.energy
 )
 

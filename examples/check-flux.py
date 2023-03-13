@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plot
 import numpy
 
-from mulder import Direction, Fluxmeter, Layer, Position, Reference, State
+from mulder import Fluxmeter, Layer, Reference, State
 
 
 # Define the geometry
@@ -17,15 +17,9 @@ fluxmeter = Fluxmeter(layer)
 fluxmeter.reference = reference
 
 state = State(
-    position = Position(
-        latitude = 45,
-        longitude = 3,
-        height = layer.offset + 0.5
-    ),
-    direction = Direction(
-        azimuth = 0,
-        elevation = 60
-    ),
+    height = layer.offset + 0.5,
+    azimuth = 0,
+    elevation = 60,
     energy = numpy.logspace(-1, 4, 51)
 )
 
@@ -35,14 +29,12 @@ reference.height_max = 0 # Disable heights > 0. This is in order to force
 flux = fluxmeter.flux(state)
 
 reference.height_max = hmax # Restore ref. max height.
-reference0 = reference.flux(
-    state.direction.elevation, state.energy, height=0)
-reference1 = reference.flux(
-    state.direction.elevation, state.energy, height=state.position.height)
+reference0 = reference.flux(state.elevation, state.energy, height=0)
+reference1 = reference.flux(state.elevation, state.energy, height=state.height)
 
 # Get (default) reference flux, for comparison
 default = Reference()
-default = default.flux(state.direction.elevation, state.energy, height=0)
+default = default.flux(state.elevation, state.energy, height=0)
 
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = state.energy**2.7 * 1E-04

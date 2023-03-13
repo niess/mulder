@@ -11,12 +11,12 @@ from .version import git_revision, version
 from .wrapper import ffi, lib
 
 
-"""Package / C-library installation prefix"""
+"""Package / C-library installation prefix."""
 PREFIX=str(Path(__file__).parent.resolve())
 
 
 class LibraryError(Exception):
-    """Mulder C-library error"""
+    """Mulder C-library error."""
 
     def __init__(self):
         msg = lib.mulder_error_get()
@@ -36,94 +36,94 @@ _tostr = lambda x: ffi.NULL if x is None else \
 # Decorated array types
 @arrayclass
 class Position:
-    """Observation position, using geographic coordinates (GPS like)"""
+    """Observation position, using geographic coordinates (GPS like)."""
 
     ctype = "struct mulder_position *"
 
     properties = (
-        ("latitude",  "f8", "Geographic latitude, in deg"),
-        ("longitude", "f8", "Geographic longitude, in deg"),
-        ("height",    "f8", "Geographic height w.r.t. WGS84 ellipsoid, in m")
+        ("latitude",  "f8", "Geographic latitude, in deg."),
+        ("longitude", "f8", "Geographic longitude, in deg."),
+        ("height",    "f8", "Geographic height w.r.t. WGS84 ellipsoid, in m.")
     )
 
 
 @arrayclass
 class Direction:
-    """Observation direction, using Horizontal angular coordinates"""
+    """Observation direction, using Horizontal angular coordinates."""
 
     ctype = "struct mulder_direction *"
 
     properties = (
-        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)"),
-        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal)")
+        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)."),
+        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal).")
     )
 
 
 @arrayclass
 class Enu:
-    """East, North, Upward (ENU) local coordinates"""
+    """East, North, Upward (ENU) local coordinates."""
 
     ctype = "struct mulder_enu *"
 
     properties = (
-        ("east",   "f8", "Local east-ward coordinate"),
-        ("north",  "f8", "Local north-ward coordinate"),
-        ("upward", "f8", "Local upward coordinate")
+        ("east",   "f8", "Local east-ward coordinate."),
+        ("north",  "f8", "Local north-ward coordinate."),
+        ("upward", "f8", "Local upward coordinate.")
     )
 
 
 @arrayclass
 class Projection:
-    """Projected (map) local coordinates"""
+    """Projected (map) local coordinates."""
 
     ctype = "struct mulder_projection *"
 
     properties = (
-        ("x", "f8", "Local x-coordinate"),
-        ("y", "f8", "Local y-coordinate")
+        ("x", "f8", "Local x-coordinate."),
+        ("y", "f8", "Local y-coordinate.")
     )
 
 
 @arrayclass
 class Flux:
-    """Container for muon flux data"""
+    """Container for muon flux data."""
 
     ctype = "struct mulder_flux *"
 
     properties = (
-        ("value",     "f8", "The actual flux value, per GeV m^2 s sr"),
-        ("asymmetry", "f8", "The corresponding charge asymmetry")
+        ("value",     "f8", "The actual flux value, per GeV m^2 s sr."),
+        ("asymmetry", "f8", "The corresponding charge asymmetry.")
     )
 
 
 @arrayclass
 class Intersection:
-    """Container for geometry intersection"""
+    """Container for geometry intersection."""
 
     ctype = "struct mulder_intersection *"
 
     properties = (
-        ("layer",    "i4",        "Intersected layer index"),
-        ("position", Position, "Intersection position")
+        ("layer",    "i4",     "Intersected layer index."),
+        ("position", Position, "Intersection position.")
     )
 
 
 @arrayclass
 class State:
-    """Observation state(s)"""
+    """Observation state(s)."""
 
     ctype = "struct mulder_state *"
 
     properties = (
-        ("pid",       "i4",        "Particle identifier (PDG scheme)"),
-        ("position",  Position, "Observation position"),
-        ("direction", Direction,   "Observation direction"),
-        ("energy",    "f8",        "Kinetic energy, in GeV"),
-        ("weight",    "f8",        "Transport weight")
+        ("pid",       "i4",        "Particle identifier (PDG scheme)."),
+        ("position",  Position,    "Observation position."),
+        ("direction", Direction,   "Observation direction."),
+        ("energy",    "f8",        "Kinetic energy, in GeV."),
+        ("weight",    "f8",        "Transport weight.")
     )
 
     def flux(self, reference: "Reference") -> Flux:
-        """Sample a reference flux"""
+        """Sample a reference flux."""
 
         assert(isinstance(reference, Reference))
 
@@ -142,22 +142,22 @@ class State:
 
 
 class Layer:
-    """Topographic layer"""
+    """Topographic layer."""
 
     @property
     def material(self):
-        """Constituant material"""
+        """Constituant material."""
         return ffi.string(self._layer[0].material).decode()
 
     @property
     def model(self):
-        """Topographic model"""
+        """Topographic model."""
         v =  self._layer[0].model
         return None if v == ffi.NULL else ffi.string(v).decode()
 
     @property
     def density(self):
-        """Material density"""
+        """Material density."""
         v = float(self._layer[0].density)
         return None if v == 0 else v
 
@@ -167,60 +167,60 @@ class Layer:
 
     @property
     def offset(self):
-        """Elevation offset"""
+        """Elevation offset."""
         v = float(self._layer[0].offset)
         return None if v == 0 else v
 
     @property
     def encoding(self):
-        """Map encoding format"""
+        """Map encoding format."""
         v =  self._layer[0].encoding
         return None if v == ffi.NULL else ffi.string(v).decode()
 
     @property
     def projection(self):
-        """Map cartographic projection"""
+        """Map cartographic projection."""
         v =  self._layer[0].projection
         return None if v == ffi.NULL else ffi.string(v).decode()
 
     @property
     def nx(self):
-        """Map size along x-axis"""
+        """Map size along x-axis."""
         return int(self._layer[0].nx)
 
     @property
     def ny(self):
-        """Map size along y-axis"""
+        """Map size along y-axis."""
         return int(self._layer[0].ny)
 
     @property
     def xmin(self):
-        """Map minimum value along x-axis"""
+        """Map minimum value along x-axis."""
         return float(self._layer[0].xmin)
 
     @property
     def xmax(self):
-        """Map maximum value along x-axis"""
+        """Map maximum value along x-axis."""
         return float(self._layer[0].xmax)
 
     @property
     def ymin(self):
-        """Map minimum value along y-axis"""
+        """Map minimum value along y-axis."""
         return float(self._layer[0].ymin)
 
     @property
     def ymax(self):
-        """Map maximum value along y-axis"""
+        """Map maximum value along y-axis."""
         return float(self._layer[0].ymax)
 
     @property
     def zmin(self):
-        """Map minimum value along z-axis"""
+        """Map minimum value along z-axis."""
         return float(self._layer[0].zmin)
 
     @property
     def zmax(self):
-        """Map maximum value along z-axis"""
+        """Map maximum value along z-axis."""
         return float(self._layer[0].zmax)
 
     def __init__(self, material, model=None, density=None, offset=None):
@@ -239,7 +239,7 @@ class Layer:
             )
 
     def height(self, *args, **kwargs) -> numpy.ndarray:
-        """Topography height (including offset)"""
+        """Topography height (including offset)."""
 
         projection = Projection.parse(*args, **kwargs)
 
@@ -257,7 +257,7 @@ class Layer:
         return height if size > 1 else height[0]
 
     def gradient(self, *args, **kwargs) -> Projection:
-        """Topography gradient (w.r.t. map coordinates)"""
+        """Topography gradient (w.r.t. map coordinates)."""
 
         projection = Projection.parse(*args, **kwargs)
 
@@ -275,7 +275,7 @@ class Layer:
         return gradient
 
     def position(self, *args, **kwargs) -> Position:
-        """Get geographic position corresponding to map location"""
+        """Get geographic position corresponding to map location."""
 
         projection = Projection.parse(*args, **kwargs)
 
@@ -293,7 +293,7 @@ class Layer:
         return position
 
     def project(self, *args, **kwargs) -> Projection:
-        """Project geographic position onto map"""
+        """Project geographic position onto map."""
 
         position = Position.parse(*args, **kwargs)
 
@@ -312,42 +312,42 @@ class Layer:
 
 
 class Geomagnet:
-    """Earth magnetic field"""
+    """Earth magnetic field."""
 
     @property
     def model(self):
-        """Geomagnetic model"""
+        """Geomagnetic model."""
         v =  self._geomagnet[0].model
         return None if v == ffi.NULL else ffi.string(v).decode()
 
     @property
     def day(self):
-        """Calendar day"""
+        """Calendar day."""
         return int(self._geomagnet[0].day)
 
     @property
     def month(self):
-        """Calendar month"""
+        """Calendar month."""
         return int(self._geomagnet[0].month)
 
     @property
     def year(self):
-        """Calendar year"""
+        """Calendar year."""
         return int(self._geomagnet[0].year)
 
     @property
     def order(self):
-        """Model harmonics order"""
+        """Model harmonics order."""
         return int(self._geomagnet[0].order)
 
     @property
     def height_min(self):
-        """Maximum model height, in m"""
+        """Maximum model height, in m."""
         return float(self._geomagnet[0].height_min)
 
     @property
     def height_max(self):
-        """Minimum model height, in m"""
+        """Minimum model height, in m."""
         return float(self._geomagnet[0].height_max)
 
 
@@ -375,7 +375,7 @@ class Geomagnet:
             )
 
     def field(self, *args, **kwargs) -> Enu:
-        """Geomagnetic field, in T
+        """Geomagnetic field, in T.
 
         The magnetic field components are returned in East-North-Upward (ENU)
         coordinates.
@@ -398,7 +398,7 @@ class Geomagnet:
 
 
 class Reference:
-    """Reference (opensky) muon flux"""
+    """Reference (opensky) muon flux."""
 
     @property
     def energy_min(self):
@@ -454,7 +454,7 @@ class Reference:
                 )
 
     def flux(self, elevation, energy, height=None):
-        """Get reference flux model, defined at reference height(s)"""
+        """Get reference flux model, defined at reference height(s)."""
 
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
@@ -480,7 +480,7 @@ class Reference:
 
 
 class Prng:
-    """Pseudo random numbers generator"""
+    """Pseudo random numbers generator."""
 
     @property
     def fluxmeter(self):
@@ -511,7 +511,7 @@ class Prng:
         self._fluxmeter = weakref.ref(fluxmeter)
 
     def __call__(self, n=None):
-        """Get numbers pseudo-uniformly distributed overs (0, 1)"""
+        """Get numbers pseudo-uniformly distributed overs (0, 1)."""
 
         fluxmeter = self._fluxmeter()
         if fluxmeter is None:
@@ -531,11 +531,11 @@ class Prng:
 
 
 class Fluxmeter:
-    """Muon flux calculator"""
+    """Muon flux calculator."""
 
     @property
     def geomagnet(self):
-        """Earth magnetic field"""
+        """Earth magnetic field."""
         return self._geomagnet
 
     @geomagnet.setter
@@ -551,7 +551,7 @@ class Fluxmeter:
 
     @property
     def mode(self):
-        """Muons transport mode"""
+        """Muons transport mode."""
         mode = self._fluxmeter[0].mode
         if mode == lib.MULDER_CSDA:
             return "csda"
@@ -571,7 +571,7 @@ class Fluxmeter:
 
     @property
     def selection(self):
-        """Particle(s) selection"""
+        """Particle(s) selection."""
         sel = self._fluxmeter[0].selection
         if sel == lib.MULDER_ALL:
             return "all"
@@ -595,17 +595,17 @@ class Fluxmeter:
 
     @property
     def physics(self):
-        """Physics tabulations (stopping power etc.)"""
+        """Physics tabulations (stopping power etc.)."""
         return ffi.string(self._fluxmeter[0].physics).decode()
 
     @property
     def prng(self):
-        """Pseudo random numbers generator"""
+        """Pseudo random numbers generator."""
         return self._prng
 
     @property
     def reference(self):
-        """Reference (opensky) flux model"""
+        """Reference (opensky) flux model."""
         if self._reference is None:
             self._reference = Reference()
             self._reference._reference = ffi.new(
@@ -644,7 +644,7 @@ class Fluxmeter:
         self._prng = Prng(self)
 
     def flux(self, *args, **kwargs) -> Flux:
-        """Calculate the muon flux for the given observation state"""
+        """Calculate the muon flux for the given observation state."""
 
         state = State.parse(*args, **kwargs)
 
@@ -664,7 +664,7 @@ class Fluxmeter:
         return flux
 
     def transport(self, *args, **kwargs) -> State:
-        """Transport observation state to the reference location"""
+        """Transport observation state to the reference location."""
 
         state = State.parse(*args, **kwargs)
 
@@ -685,9 +685,7 @@ class Fluxmeter:
 
     def intersect(self, position: Position,
                         direction: Direction) -> Intersection:
-        """Compute first intersection with topographic layer(s)"""
-
-        # XXX HER I AM
+        """Compute first intersection with topographic layer(s)."""
 
         assert(isinstance(position, Position))
         assert(isinstance(direction, Direction))
@@ -710,7 +708,7 @@ class Fluxmeter:
 
     def grammage(self, position: Position,
                        direction: Direction) -> numpy.ndarray:
-        """Compute grammage(s) (a.k.a. column depth) along line(s) of sight"""
+        """Compute grammage(s) (a.k.a. column depth) along line(s) of sight."""
 
         assert(isinstance(position, Position))
         assert(isinstance(direction, Direction))
@@ -736,7 +734,7 @@ class Fluxmeter:
         return grammage
 
     def whereami(self, position: Position) -> numpy.ndarray:
-        """Get geometric layer indice(s) for given location(s)"""
+        """Get geometric layer indice(s) for given location(s)."""
 
         assert(isinstance(position, Position))
 
@@ -757,7 +755,7 @@ class Fluxmeter:
 
 
 def create_map(path, projection, x, y, data):
-    """Create a Turtle map from a numpy array"""
+    """Create a Turtle map from a numpy array."""
 
     assert(len(x) > 1)
     assert(_is_regular(x))
@@ -786,10 +784,10 @@ def create_map(path, projection, x, y, data):
 
 
 def create_reference_table(path, height, cos_theta, energy, data):
-    """Create a reference flux table from a numpy array"""
+    """Create a reference flux table from a numpy array."""
 
     def is_regular(a):
-        """Check if a 1d array has a regular stepping"""
+        """Check if a 1d array has a regular stepping."""
         d = numpy.diff(a)
         dmin, dmax = min(d), max(d)
         amax = max(numpy.absolute(a))
@@ -845,7 +843,7 @@ def create_reference_table(path, height, cos_theta, energy, data):
 
 
 def generate_physics(path, destination=None):
-    """Generate physics tables for Pumas"""
+    """Generate physics tables for Pumas."""
 
     pathdir = str(Path(path).parent)
     if destination is None:
