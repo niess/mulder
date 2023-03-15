@@ -1065,6 +1065,11 @@ static struct mulder_state transport_event(
 
 
 /* Compute first intersection with topographic layer(s) */
+static struct state init_tracking(
+    struct fluxmeter * f,
+    struct mulder_position position,
+    struct mulder_direction direction);
+
 struct mulder_intersection mulder_fluxmeter_intersect(
     struct mulder_fluxmeter * fluxmeter,
     const struct mulder_position position,
@@ -1072,33 +1077,9 @@ struct mulder_intersection mulder_fluxmeter_intersect(
 {
         /* Initialise the muon state */
         struct fluxmeter * f = (void *)fluxmeter;
-        struct state s = {
-                .api = {
-                        .charge = 1.,
-                        .energy = 1.,
-                        .weight = 1.
-                },
-                .fluxmeter = f
-        };
+        struct state s = init_tracking(f, position, direction);
 
-        turtle_ecef_from_geodetic(position.latitude, position.longitude,
-            position.height, s.api.position);
-        turtle_ecef_from_horizontal(position.latitude, position.longitude,
-            direction.azimuth, direction.elevation, s.api.direction);
-
-        /* Update Turtle steppers (if the reference heights have changed) */
-        update_steppers(f);
-
-        /* Disable geomagnetic field */
-        f->use_geomagnet = 0;
-
-        /* Transport with Pumas */
-        f->context->medium = &layers_geometry;
-        f->context->mode.direction = PUMAS_MODE_FORWARD;
-        f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
-        f->context->event = PUMAS_EVENT_MEDIUM;
-        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
-
+        /* Tracking with Pumas */
         struct mulder_intersection intersection = {.layer = -1};
 
         enum pumas_event event;
@@ -1136,45 +1117,11 @@ double mulder_fluxmeter_grammage(
     const struct mulder_direction direction,
     double * grammage)
 {
-        /* Initialise the muon state (XXX shared with intersect) */
+        /* Initialise the muon state */
         struct fluxmeter * f = (void *)fluxmeter;
-        struct state s = {
-            .api = {
-                .charge = 1.,
-                .energy = 1.,
-                .weight = 1.
-            },
-            .fluxmeter = f
-        };
-
-        turtle_ecef_from_geodetic(
-            position.latitude,
-            position.longitude,
-            position.height,
-            s.api.position
-        );
-
-        turtle_ecef_from_horizontal(
-            position.latitude,
-            position.longitude,
-            direction.azimuth,
-            direction.elevation,
-            s.api.direction
-        );
-
-        /* Update Turtle steppers (if the reference heights have changed) */
-        update_steppers(f);
-
-        /* Disable geomagnetic field */
-        f->use_geomagnet = 0;
+        struct state s = init_tracking(f, position, direction);
 
         /* Transport with Pumas */
-        f->context->medium = &layers_geometry;
-        f->context->mode.direction = PUMAS_MODE_FORWARD;
-        f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
-        f->context->event = PUMAS_EVENT_MEDIUM;
-        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
-
         if (grammage != NULL) {
                 memset(
                     grammage,
@@ -1218,6 +1165,53 @@ double mulder_fluxmeter_grammage(
         }
 
         return s.api.grammage;
+}
+
+
+/* Initialise fluxmeter for geometry tracking */
+static struct state init_tracking(
+    struct fluxmeter * f,
+    struct mulder_position position,
+    struct mulder_direction direction)
+{
+        struct state s = {
+            .api = {
+                .charge = 1.,
+                .energy = 1.,
+                .weight = 1.
+            },
+            .fluxmeter = f
+        };
+
+        turtle_ecef_from_geodetic(
+            position.latitude,
+            position.longitude,
+            position.height,
+            s.api.position
+        );
+
+        turtle_ecef_from_horizontal(
+            position.latitude,
+            position.longitude,
+            direction.azimuth,
+            direction.elevation,
+            s.api.direction
+        );
+
+        /* Update Turtle steppers (if the reference heights have changed) */
+        update_steppers(f);
+
+        /* Disable geomagnetic field */
+        f->use_geomagnet = 0;
+
+        /* Transport with Pumas */
+        f->context->medium = &layers_geometry;
+        f->context->mode.direction = PUMAS_MODE_FORWARD;
+        f->context->mode.energy_loss = PUMAS_MODE_DISABLED;
+        f->context->event = PUMAS_EVENT_MEDIUM;
+        f->use_external_layer = (position.height >= f->ztop + FLT_EPSILON);
+
+        return s;
 }
 
 
