@@ -1,6 +1,6 @@
 # Compiler flags
 CC=     gcc
-CFLAGS= -O3 -g -Wall
+CFLAGS= -O3 -g -Wall -std=c99
 
 # OS dependent flags
 UNAME_S := $(shell uname -s)

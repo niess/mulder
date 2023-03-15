@@ -23,6 +23,7 @@ ${PYTHON} -m pip install -U pip
 ${PYTHON} -m pip install cffi --prefer-binary
 ${PYTHON} -m pip install numpy --prefer-binary
 ${PYTHON} -m pip install pcpp
+git config --global --add safe.directory /pwd
 cd /pwd
 make distclean
 make wheel PYTHON=${PYTHON}
