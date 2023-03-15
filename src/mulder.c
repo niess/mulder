@@ -43,6 +43,16 @@ static void default_error(const char * message)
 void (*mulder_error)(const char * message) = &default_error;
 
 
+/* Formated error */
+#define MULDER_ERROR(FORMAT, EXTRA_SIZE, ...)                                  \
+{                                                                              \
+        const char format[] = FORMAT ;                                         \
+        char msg[sizeof(format) + EXTRA_SIZE];                                 \
+        sprintf(msg, format, __VA_ARGS__);                                     \
+        mulder_error(msg);                                                     \
+}
+
+
 /* Pumas & Turtle error handlers */
 static void pumas_error(
     enum pumas_return rc,
@@ -323,11 +333,7 @@ struct mulder_geomagnet * mulder_geomagnet_create(
                 if (rc == GULL_RETURN_MEMORY_ERROR) {
                         mulder_error("could not allocate memory");
                 } else if (rc == GULL_RETURN_PATH_ERROR) {
-                        const char format[] = "could not open %s";
-                        const int size = strlen(model) + sizeof(format);
-                        char msg[size];
-                        sprintf(msg, format, model);
-                        mulder_error(msg);
+                        MULDER_ERROR("could not open %s", strlen(model), model);
                 } else if (rc == GULL_RETURN_MISSING_DATA) {
                         mulder_error("no data for the given date");
                 }
@@ -514,9 +520,11 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
         FILE * fid = fopen(physics, "r");
         if (fid == NULL) {
                 free(fluxmeter);
-                char tmp[strlen(physics) + 32];
-                sprintf(tmp, "could not open physics (%s)", physics);
-                mulder_error(tmp);
+                MULDER_ERROR(
+                    "could not open physics (%s)",
+                    strlen(physics),
+                    physics
+                );
                 return NULL;
         }
         pumas_error_catch(1);
@@ -801,17 +809,38 @@ struct mulder_state mulder_fluxmeter_transport(
     struct mulder_fluxmeter * fluxmeter,
     const struct mulder_state state)
 {
+        /* Check pid */
+        enum mulder_pid pid = state.pid;
+        if ((pid == MULDER_ANY) &&
+            (fluxmeter->mode == MULDER_CSDA)) {
+                if (fluxmeter->geometry->geomagnet != NULL) {
+                        MULDER_ERROR("bad pid (%d)", 16, (int)state.pid);
+                        struct mulder_state tmp = {0.};
+                        return tmp;
+                } else {
+                        pid = MULDER_MUON;
+                }
+        }
+
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = init_event(
-            f, state.pid, state.position, state.direction, state.energy);
+            f, pid, state.position, state.direction, state.energy);
         if (s.api.weight <= 0.) {
                 struct mulder_state tmp = {0.};
                 return tmp;
         }
 
         /* Transport state */
-        return transport_event(f, state.position, s);
+        struct mulder_state result = transport_event(f, state.position, s);
+
+        /* Restore pid, if needed */
+        if ((state.pid == MULDER_ANY) &&
+            (fluxmeter->mode == MULDER_CSDA)) {
+                result.pid = MULDER_ANY;
+        }
+
+        return result;
 }
 
 
@@ -825,11 +854,7 @@ static struct state init_event(
 {
         struct state s = {.api = {.weight = 0.}};
         if (energy <= 0.) {
-                const char format[] = "bad kinetic energy (%g)";
-                const int size = sizeof(format) + 32;
-                char msg[size];
-                sprintf(msg, format, energy);
-                mulder_error(msg);
+                MULDER_ERROR("bad kinetic energy (%g)", 32, energy);
                 return s;
         }
 
@@ -1245,11 +1270,7 @@ static double layers_locals(
         if (i >= 0) {
                 locals->density = f->api.geometry->layers[i]->density;
         } else {
-                /* XXX make subfunction */
-                const char format[] = "bad medium index (%d)";
-                char msg[sizeof(format) + 16];
-                sprintf(msg, format, (int)i);
-                mulder_error(msg);
+                MULDER_ERROR("bad medium index (%d)", 16, (int)i);
         }
         return 0.;
 }
@@ -1752,11 +1773,7 @@ struct mulder_reference * mulder_reference_load_table(const char * path)
 {
         FILE * fid = fopen(path, "rb");
         if (fid == NULL) {
-                char format[] = "could not open %s";
-                const int n = strlen(path) + sizeof format;
-                char msg[n];
-                sprintf(msg, path);
-                mulder_error(msg);
+                MULDER_ERROR("could not open %s", strlen(path), path);
                 return NULL;
         }
 
@@ -1799,11 +1816,7 @@ struct mulder_reference * mulder_reference_load_table(const char * path)
 error:
         fclose(fid);
         free(table);
-        char format[] = "bad format (%s)";
-        const int n = strlen(path) + sizeof format;
-        char msg[n];
-        sprintf(msg, path);
-        mulder_error(msg);
+        MULDER_ERROR("bad format (%s)", strlen(path), path);
         return NULL;
 }
 
