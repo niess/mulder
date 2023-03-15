@@ -392,17 +392,49 @@ struct mulder_enu mulder_geomagnet_field(
 }
 
 
+/* Geometry create & destroy */
+struct mulder_geometry * mulder_geometry_create(
+    int size,
+    struct mulder_layer * layers[]
+)
+{
+        struct mulder_geometry * geometry = malloc(
+            (sizeof *geometry) + size * (sizeof *layers));
+        if (geometry == NULL) {
+                mulder_error("could not allocate geometry");
+                return NULL;
+        }
+
+        init_int((int *)&geometry->size, size);
+        int i;
+        for (i = 0; i < size; i++) {
+                init_ptr((void **)&geometry->layers[i], layers[i]);
+        }
+
+        return geometry;
+}
+
+
+void mulder_geometry_destroy(struct mulder_geometry ** geometry)
+{
+        if ((geometry == NULL) || (*geometry == NULL)) {
+                return;
+        } else {
+                free(*geometry);
+                *geometry = NULL;
+        }
+}
+
+
 /* Internal data layout of a fluxmeter */
 struct fluxmeter {
         struct mulder_fluxmeter api;
         struct mulder_prng prng;
-        /* Pumas related data */
+        /* Pumas related objects */
         struct pumas_physics * physics;
         struct pumas_context * context;
         double (*context_random)(struct pumas_context * context);
-        struct pumas_medium * layers_media;
-        struct pumas_medium atmosphere_medium;
-        /* Steooers related data */
+        /* Steppers related data */
         struct turtle_stepper * layers_stepper;
         struct turtle_stepper * opensky_stepper;
         double zmax;
@@ -417,8 +449,9 @@ struct fluxmeter {
         double geomagnet_field[3];
         double geomagnet_position[3];
         int use_geomagnet;
-        /* Layers and extra storage */
-        struct mulder_layer * layers[];
+        /* Layers data */
+        struct pumas_medium atmosphere_medium;
+        struct pumas_medium layers_media[];
 };
 
 
@@ -468,14 +501,13 @@ static struct mulder_reference default_reference;
 /* Librray entry point for creating a fluxmeter */
 struct mulder_fluxmeter * mulder_fluxmeter_create(
     const char * physics,
-    int size,
-    struct mulder_layer * layers[])
+    struct mulder_geometry * geometry)
 {
         /* Allocate memory */
+        const int size = geometry->size;
         struct fluxmeter * fluxmeter = malloc(
-            sizeof(*fluxmeter) +
-            size * sizeof(*fluxmeter->layers) +
-            (size + 1) * sizeof(*fluxmeter->layers_media)
+            (sizeof *fluxmeter) +
+            (size + 1) * (sizeof *fluxmeter->layers_media)
         );
 
         /* Initialise PUMAS related data */
@@ -505,9 +537,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
         fluxmeter->context->mode.scattering = PUMAS_MODE_DISABLED;
         fluxmeter->context->mode.decay = PUMAS_MODE_DISABLED;
 
-        fluxmeter->layers_media = (void *)fluxmeter->layers +
-            size * sizeof(*fluxmeter->layers);
-
+        struct mulder_layer * const * layers = geometry->layers;
         int i;
         fluxmeter->zmax = -DBL_MAX;
         for (i = 0; i < size; i++) {
@@ -539,9 +569,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 
         /* Initialise non-mutable settings */
         init_string((void **)&fluxmeter->api.physics, physics);
-        init_int((int *)&fluxmeter->api.size, size);
-        init_ptr((void **)&fluxmeter->api.layers, fluxmeter->layers);
-        memcpy(fluxmeter->layers, layers, size * sizeof *fluxmeter->layers);
+        init_ptr((void **)&fluxmeter->api.geometry, geometry);
 
         /* Initialise transport mode etc. */
         fluxmeter->api.mode = MULDER_CSDA;
@@ -565,7 +593,6 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
         fluxmeter->prng.uniform01 = &uniform01;
 
         /* Initialise geomagnet */
-        fluxmeter->api.geomagnet = NULL;
         fluxmeter->current_geomagnet = NULL;
         fluxmeter->geomagnet_workspace = NULL;
         memset(fluxmeter->geomagnet_field, 0x0,
@@ -624,11 +651,12 @@ static void update_steppers(struct fluxmeter * fluxmeter)
         turtle_stepper_create(&fluxmeter->layers_stepper);
         turtle_stepper_add_flat(fluxmeter->layers_stepper, ZMIN);
 
+        struct mulder_geometry * geometry = fluxmeter->api.geometry;
         int i;
-        for (i = 0; i < fluxmeter->api.size; i++) {
+        for (i = 0; i < geometry->size; i++) {
                 turtle_stepper_add_layer(fluxmeter->layers_stepper);
-                struct layer * l = (void *)fluxmeter->layers[i];
-                if (fluxmeter->layers[i]->model == NULL) {
+                struct layer * l = (void *)geometry->layers[i];
+                if (l->api.model == NULL) {
                         turtle_stepper_add_flat(
                             fluxmeter->layers_stepper, l->api.offset);
                 } else {
@@ -706,7 +734,7 @@ struct mulder_flux mulder_fluxmeter_flux(
         /* Sample the reference flux */
         struct mulder_reference * reference = f->api.reference;
         if (initial.pid == MULDER_ANY) {
-                if (f->api.geomagnet == NULL) {
+                if (f->api.geometry->geomagnet == NULL) {
                         struct mulder_state state =
                             transport_event(f, initial.position, s);
                         if (state.weight <= 0.) {
@@ -809,13 +837,13 @@ static struct state init_event(
         update_steppers(f);
 
         /* Update geomagnet (if needed) */
-        if (f->api.geomagnet != (void *)f->current_geomagnet) {
+        if (f->api.geometry->geomagnet != (void *)f->current_geomagnet) {
                 free(f->geomagnet_workspace);
                 f->geomagnet_workspace = NULL;
                 memset(f->geomagnet_field, 0x0, sizeof f->geomagnet_field);
                 memset(f->geomagnet_position, 0x0,
                     sizeof f->geomagnet_position);
-                f->current_geomagnet = (void *)f->api.geomagnet;
+                f->current_geomagnet = (void *)f->api.geometry->geomagnet;
         }
         f->use_geomagnet = (f->current_geomagnet != NULL);
 
@@ -1063,10 +1091,11 @@ struct mulder_intersection mulder_fluxmeter_intersect(
             &intersection.position.longitude,
             &intersection.position.height);
 
+        struct mulder_geometry * geometry = f->api.geometry;
         if (media[1] == NULL) {
                 return intersection;
         } else if (media[1] == &f->atmosphere_medium) {
-                intersection.layer = f->api.size;
+                intersection.layer = geometry->size;
         } else {
                 ptrdiff_t i = media[1] - f->layers_media;
                 intersection.layer = (int)i;
@@ -1125,7 +1154,7 @@ double mulder_fluxmeter_grammage(
                 memset(
                     grammage,
                     0x0,
-                    (f->api.size + 1) * sizeof(*grammage)
+                    (f->api.geometry->size + 1) * sizeof(*grammage)
                 );
         }
 
@@ -1148,7 +1177,7 @@ double mulder_fluxmeter_grammage(
                         if (media[0] == NULL) {
                                 break;
                         } else if (media[0] == &f->atmosphere_medium) {
-                                i = f->api.size;
+                                i = f->api.geometry->size;
                         } else {
                                 ptrdiff_t tmp = media[0] - f->layers_media;
                                 i = (int)tmp;
@@ -1214,7 +1243,7 @@ static double layers_locals(
         struct fluxmeter * f = s->fluxmeter;
         ptrdiff_t i = medium - f->layers_media;
         if (i >= 0) {
-                locals->density = f->layers[i]->density;
+                locals->density = f->api.geometry->layers[i]->density;
         } else {
                 /* XXX make subfunction */
                 const char format[] = "bad medium index (%d)";
@@ -1422,12 +1451,12 @@ static enum pumas_step layers_geometry(
         }
 
         if (medium_ptr != NULL) {
-                if ((index[0] >= 1) && (index[0] <= f->api.size)) {
+                if ((index[0] >= 1) && (index[0] <= f->api.geometry->size)) {
                         *medium_ptr = f->layers_media + (index[0] - 1);
-                } else if (index[0] == f->api.size + 1) {
+                } else if (index[0] == f->api.geometry->size + 1) {
                         *medium_ptr = &f->atmosphere_medium;
                 } else if ((f->use_external_layer) &&
-                           (index[0] == f->api.size + 2)) {
+                           (index[0] == f->api.geometry->size + 2)) {
                         *medium_ptr = &f->atmosphere_medium;
                 } else {
                         *medium_ptr = NULL;

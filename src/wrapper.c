@@ -281,7 +281,7 @@ enum mulder_return mulder_fluxmeter_grammage_v(
     double * grammage)
 {
         last_error.rc = MULDER_SUCCESS;
-        const int m = fluxmeter->size + 1;
+        const int m = fluxmeter->geometry->size + 1;
         for (; size > 0; size--, grammage+= m) {
                 mulder_fluxmeter_grammage(
                     fluxmeter,

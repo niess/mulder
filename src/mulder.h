@@ -126,7 +126,25 @@ struct mulder_enu mulder_geomagnet_field(
 );
 
 
-/* Particles identifiers (PDG nubering scheme) */
+/* Stratified Earth geometry */
+struct mulder_geometry {
+    /* Mutable properties */
+    struct mulder_geomagnet * geomagnet;
+
+    /* Initial settings (non mutable) */
+    const int size;
+    struct mulder_layer * const layers[];
+};
+
+struct mulder_geometry * mulder_geometry_create(
+    int size,
+    struct mulder_layer * layers[]
+);
+
+void mulder_geometry_destroy(struct mulder_geometry ** geometry);
+
+
+/* Particles identifiers (PDG numbering scheme) */
 enum mulder_pid {
     MULDER_ANY = 0,
     MULDER_MUON = 13,
@@ -196,20 +214,17 @@ enum mulder_mode {
 struct mulder_fluxmeter {
     /* Initial settings (non mutable) */
     const char * const physics;
-    const int size;
-    const struct mulder_layer ** layers;
+    struct mulder_geometry * const geometry;
 
     /* Mutable properties */
     enum mulder_mode mode;
     struct mulder_prng * prng;
     struct mulder_reference * reference;
-    struct mulder_geomagnet * geomagnet;
 };
 
 struct mulder_fluxmeter * mulder_fluxmeter_create(
     const char * physics,
-    int size,
-    struct mulder_layer * layers[]
+    struct mulder_geometry * geometry
 );
 
 void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter);

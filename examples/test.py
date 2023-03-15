@@ -2,30 +2,28 @@
 import matplotlib.pyplot as plot
 import numpy
 
-from mulder import Fluxmeter, Geomagnet, Layer, State
+from mulder import Fluxmeter, Geometry, State
 
 
-# Define the geometry
-layers = (
-    Layer("Rock", "data/mns_roche.png"),
-    Layer("Water", "data/mns_eau.png")
+# Define a stratified Earth geometry
+geometry = Geometry(
+    ("Rock", "data/mns_roche.png"),
+    ("Water", "data/mns_eau.png"),
+    geomagnet = True
 )
 
-# Get the geomagnetic field (optional)
-magnet = Geomagnet()
-
 # Get projected (map) coordinates at center of top layer
-x0 = 0.5 * (layers[0].xmin + layers[0].xmax)
-y0 = 0.5 * (layers[0].ymin + layers[0].ymax)
+layer = geometry.layers[0]
+x0 = 0.5 * (layer.xmin + layer.xmax)
+y0 = 0.5 * (layer.ymin + layer.ymax)
 
 # Get the corresponding geographic position (and offset height below ground)
-position = layers[0].position(x0, y0)
+position = layer.position(x0, y0)
 position.height -= 30
 
 # Create a fluxmeter and compute the differential muon flux for some
 # observation state
-fluxmeter = Fluxmeter(*layers)
-fluxmeter.geomagnet = magnet
+fluxmeter = Fluxmeter(geometry)
 
 state = State(
     position = position,

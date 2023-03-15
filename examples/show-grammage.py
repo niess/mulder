@@ -4,24 +4,25 @@ import matplotlib.pyplot as plot
 from matplotlib.colors import LogNorm
 import numpy
 
-from mulder import Direction, Fluxmeter, Layer
+from mulder import Direction, Fluxmeter, Geometry
 
 
-# Define the geometry
-layers = (
-    Layer("Rock", "data/mns_roche.png"),
-    Layer("Water", "data/mns_eau.png")
+# Define a stratified Earth geometry
+geometry = Geometry(
+    ("Rock", "data/mns_roche.png"),
+    ("Water", "data/mns_eau.png")
 )
 
 # Set the observation point
-x0 = 0.5 * (layers[0].xmin + layers[0].xmax) - 150
-y0 = 0.5 * (layers[0].ymin + layers[0].ymax) + 650
-position = layers[0].position(x0, y0)
-position.height = layers[1].zmin - 500
+layer = geometry.layers[1]
+x0 = 0.5 * (layer.xmin + layer.xmax) - 150
+y0 = 0.5 * (layer.ymin + layer.ymax) + 650
+position = layer.position(x0, y0)
+position.height = layer.zmin - 500
 azimuth, elevation = 90, 90
 
 # Create a fluxmeter
-fluxmeter = Fluxmeter(*layers)
+fluxmeter = Fluxmeter(geometry)
 
 # Transform from pixel coordinates to angular ones
 nu, nv, f = 201, 201, 1

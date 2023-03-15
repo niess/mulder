@@ -2,18 +2,19 @@
 import matplotlib.pyplot as plot
 import numpy
 
-from mulder import Fluxmeter, Layer, Reference, State
+from mulder import Fluxmeter, Geometry, Layer, Reference, State
 
 
-# Define the geometry
+# Define a stratified Earth geometry
 layer = Layer("Rock", offset=3E+03)
+geometry = Geometry(layer)
 
 # Load the reference flux
 reference = Reference(
     "deps/atmospheric-muon-flux/data/simulated/flux-mceq-yfm-gsf-usstd.table")
 
 # Create a fluxmeter and compute the muon spectrum for some observation state
-fluxmeter = Fluxmeter(layer)
+fluxmeter = Fluxmeter(geometry)
 fluxmeter.reference = reference
 
 state = State(

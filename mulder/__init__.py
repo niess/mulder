@@ -397,6 +397,55 @@ class Geomagnet:
         return enu
 
 
+class Geometry:
+    """Stratified Earth geometry."""
+
+    @property
+    def geomagnet(self):
+        """Earth magnetic field."""
+        return self._geomagnet
+
+    @geomagnet.setter
+    def geomagnet(self, v):
+        if v is True: v = Geomagnet()
+        if not v:
+            self._geomagnet = None
+            self._geometry[0].geomagnet = ffi.NULL
+        elif isinstance(v, Geomagnet):
+            self._geometry[0].geomagnet = v._geomagnet[0]
+            self._geomagnet = v
+        else:
+            raise TypeError("bad type (expected a mulder.Geomagnet)")
+
+    @property
+    def layers(self):
+        """Topographic layers."""
+        return self._layers
+
+    def __init__(self, *layers, geomagnet=None):
+        layers = [layer if isinstance(layer, Layer) else Layer(*layer) \
+                  for layer in layers]
+
+        geometry = ffi.new("struct mulder_geometry *[1]")
+        geometry[0] = lib.mulder_geometry_create(
+            len(layers),
+            [layer._layer[0] for layer in layers]
+        )
+        if geometry[0] == ffi.NULL:
+            raise LibraryError()
+        else:
+            self._geometry = ffi.gc(
+                geometry,
+                lib.mulder_geometry_destroy
+            )
+
+        self._layers = tuple(layers)
+        self._geomagnet = None
+
+        if geomagnet:
+            self.geomagnet = geomagnet
+
+
 class Reference:
     """Reference (opensky) muon flux."""
 
@@ -534,20 +583,9 @@ class Fluxmeter:
     """Muon flux calculator."""
 
     @property
-    def geomagnet(self):
-        """Earth magnetic field."""
-        return self._geomagnet
-
-    @geomagnet.setter
-    def geomagnet(self, v):
-        if v is None:
-            self._geomagnet = None
-            self._fluxmeter[0].geomagnet = ffi.NULL
-        elif isinstance(v, Geomagnet):
-            self._fluxmeter[0].geomagnet = v._geomagnet[0]
-            self._geomagnet = v
-        else:
-            raise TypeError("bad type (expected a mulder.Geomagnet)")
+    def geometry(self):
+        """Stratified Earth geometry."""
+        return self._geometry
 
     @property
     def mode(self):
@@ -568,30 +606,6 @@ class Fluxmeter:
             raise ValueError(f"bad mode ({v})")
         else:
             self._fluxmeter[0].mode = mode
-
-    @property
-    def selection(self):
-        """Particle(s) selection."""
-        sel = self._fluxmeter[0].selection
-        if sel == lib.MULDER_ALL:
-            return "all"
-        elif sel == lib.MULDER_MUON:
-            return "muon"
-        else:
-            return "antimuon"
-
-    @selection.setter
-    def selection(self, v):
-        try:
-            sel = getattr(lib, f"MULDER_{v.upper()}")
-        except AttributeError:
-            raise ValueError(f"bad selection ({v})")
-        else:
-            self._fluxmeter[0].selection = sel
-
-    @property
-    def size(self):
-        return int(self._fluxmeter[0].size)
 
     @property
     def physics(self):
@@ -620,7 +634,9 @@ class Fluxmeter:
             self._fluxmeter[0].reference = v._reference[0]
             self._reference = v
 
-    def __init__(self, *layers, physics=None):
+    def __init__(self, geometry: Geometry, physics=None):
+
+        assert(isinstance(geometry, Geometry))
 
         if physics is None:
             physics = f"{PREFIX}/data/materials.pumas"
@@ -628,8 +644,7 @@ class Fluxmeter:
         fluxmeter = ffi.new("struct mulder_fluxmeter *[1]")
         fluxmeter[0] = lib.mulder_fluxmeter_create(
             _tostr(physics),
-            len(layers),
-            [l._layer[0] for l in layers]
+            geometry._geometry[0]
         )
         if fluxmeter[0] == ffi.NULL:
             raise LibraryError()
@@ -639,7 +654,7 @@ class Fluxmeter:
                 lib.mulder_fluxmeter_destroy
             )
 
-        self._geomagnet = None
+        self._geometry = geometry
         self._reference = None
         self._prng = Prng(self)
 
@@ -714,7 +729,7 @@ class Fluxmeter:
         assert(isinstance(direction, Direction))
 
         size = commonsize(position, direction)
-        m = self.size + 1
+        m = len(self.geometry.layers) + 1
         if size is None:
             grammage = numpy.empty(m)
         else:
