@@ -782,6 +782,14 @@ class Fluxmeter:
         return i if size > 1 else i[0]
 
 
+def _is_regular(a):
+    """Check if a 1d array has a regular stepping."""
+    d = numpy.diff(a)
+    dmin, dmax = min(d), max(d)
+    amax = max(numpy.absolute(a))
+    return dmax - dmin <= 1E-15 * amax
+
+
 def create_map(path, projection, x, y, data):
     """Create a Turtle map from a numpy array."""
 
@@ -790,7 +798,7 @@ def create_map(path, projection, x, y, data):
     assert(len(y) > 1)
     assert(_is_regular(y))
 
-    data = ascontiguousarray(data, "d8")
+    data = numpy.ascontiguousarray(data, "f8")
 
     assert(data.ndim == 2)
     assert(data.shape[0] == len(y))
@@ -814,18 +822,11 @@ def create_map(path, projection, x, y, data):
 def create_reference_table(path, height, cos_theta, energy, data):
     """Create a reference flux table from a numpy array."""
 
-    def is_regular(a):
-        """Check if a 1d array has a regular stepping."""
-        d = numpy.diff(a)
-        dmin, dmax = min(d), max(d)
-        amax = max(numpy.absolute(a))
-        return dmax - dmin <= 1E-15 * amax
-
     # Check inputs
     assert(len(cos_theta) > 1)
-    assert(is_regular(cos_theta))
+    assert(_is_regular(cos_theta))
     assert(len(energy) > 1)
-    assert(is_regular(numpy.log(energy)))
+    assert(_is_regular(numpy.log(energy)))
 
     data = numpy.ascontiguousarray(data, dtype="<f4")
 
@@ -835,7 +836,7 @@ def create_reference_table(path, height, cos_theta, energy, data):
         assert(data.shape[1] == len(energy))
         assert(data.shape[2] == 2)
     else:
-        assert(is_regular(height))
+        assert(_is_regular(height))
         assert(data.ndim == 4)
         assert(data.shape[0] == len(height))
         assert(data.shape[1] == len(cos_theta))

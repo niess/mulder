@@ -174,6 +174,10 @@ class Array:
                     raise ValueError("incompatible size(s)")
         return size
 
+    def __iter__(self):
+        """Iterate over properties (i.e. column wise)."""
+        return (self._data[key] for (key, _, _) in self.properties)
+
     def __len__(self):
         """Get the number of array entries."""
         return self._size

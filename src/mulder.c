@@ -271,12 +271,16 @@ struct mulder_position mulder_layer_position(
 {
         struct mulder_position position;
         struct layer * l = (void *)layer;
+        const struct turtle_projection * p;
         if (l->map == NULL) {
+                p = NULL;
+        } else {
+                p = turtle_map_projection(l->map);
+        }
+        if (p == NULL) {
                 position.longitude = projection.x;
                 position.latitude = projection.y;
         } else {
-                const struct turtle_projection * p =
-                    turtle_map_projection(l->map);
                 turtle_projection_unproject(
                     p,
                     projection.x,
@@ -297,12 +301,16 @@ struct mulder_projection mulder_layer_project(
 {
         struct layer * l = (void *)layer;
         struct mulder_projection projection;
+        const struct turtle_projection * p;
         if (l->map == NULL) {
+                p = NULL;
+        } else {
+                p = turtle_map_projection(l->map);
+        }
+        if (p == NULL) {
                 projection.x = position.longitude;
                 projection.y = position.latitude;
         } else {
-                const struct turtle_projection * p =
-                    turtle_map_projection(l->map);
                 turtle_projection_project(
                     p,
                     position.latitude,

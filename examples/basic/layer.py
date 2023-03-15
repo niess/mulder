@@ -1,59 +1,93 @@
 #! /usr/bin/env python3
-"""This example illustrates the usage of Layer objects, representing a
-Stratified Earth Geometry (SEG).
+"""This example illustrates the usage of Layer objects.
 
-Please, see the geometry.py example for information on SEGs.
+Layers are the building bricks of a Stratified Earth Geometry (SEG). See the
+geometry.py example for information on SEGs.
+
+This example uses Global Multi-Resolution Topography (GMRT) data obtained from
+https://www.gmrt.org/. For example, using the GridServer Web Service, the
+following url
+
+http://www.gmrt.org/services/GridServer?north=38.85&west=15.15&east=15.30&south=38.75&format=esriascii
+
+should download a map of the Stromboli island, in ESRI ASCII format, that is
+stored under data/GMRT.asc.
 """
 
 import matplotlib.pyplot as plot
+from mulder import Layer, create_map
 
-from mulder import Layer
 
-
-# Create a layer of rocks, with a specific density of 2 g/m^3 (note that Mulder
-# uses SI units).
+# The example below should create a layer made of *Rock*, with a bulk *density*
+# of 2 g/cm^3. Note that Mulder actually uses SI units, thus kg/m^3. Note also
+# that specifying a bulk density is optional. If no value is provided, then the
+# material intrinsic density is assumed.
 #
 # The *model* argument refers to topography data describing the layer's top
-# interface. If no model is specified, a flat topography is assumed.
+# interface. If no *model* is specified, then a flat topography is assumed.
+# Optionaly, an *offset* could be added as well (which we do not here).
 layer = Layer(
     material = "Rock",
     density = 2.0E+03, # kg / m^3
-    model = "data/GMRT.asc"
+    model = "data/GMRT.asc",
 )
 
-# Let us print some metadata related to the topography model.
+# Let us print some metadata related to the topography model, for illustrative
+# purpose.
 print(f"""\
 Map metadata:
+- model:      {layer.model}
 - projection: {layer.projection}
 - nx:         {layer.nx}
 - ny:         {layer.ny}
 - xmin:       {layer.xmin}
 - xmax:       {layer.xmax}
 - ymin:       {layer.ymin}
-- ymax:       {layer.ymax}\
+- ymax:       {layer.ymax}
 """)
 
-# Mulder uses geographic (GPS-like) coordinates in order to locate some
-# position. Let us get the goegraphic coordinates corresponding to the center
-# of the map.
-#
-# Note that the returned *height* coordinates corresponds to the topography
-# height at center's position.
+# Mulder uses geographic (GPS-like) coordinates in order to locate a position.
+# Let us get the geographic coordinates at the map center.
 x = 0.5 * (layer.xmin + layer.xmax)
 y = 0.5 * (layer.ymin + layer.ymax)
-center = layer.position(x, y)
+latitude, longitude, height = layer.position(x, y)
 
+# The returned *height* coordinates corresponds to the topography height at the
+# given center position. Let us print the result below.
 print(f"""\
 Center coordinates:
-- latitude:   {center.latitude} deg
-- longitude:  {center.longitude} deg
-- height:     {center.height} m\
+- latitude:   {latitude} deg
+- longitude:  {longitude} deg
+- height:     {height} m
 """)
 
-# The topography data
+# Conversely, map (projected) coordinates are obtained as
+projection = layer.project(latitude, longitude, height)
+assert(abs(x - projection.x) < 1E-07)
+assert(abs(y - projection.y) < 1E-07)
+
+# Note that for this example the projection is trivial, since the map uses
+# geographic (longitude, latitude) coordinates.
+
+# The topography data can be retrieved as numpy arrays using the asarrays
+# method.
 x, y, z = layer.asarrays()
+
+# Note that the returned arrays are a copy of the layer internal data. That is,
+# modifying *z* does not alter the instanciated layer object. Yet, a new
+# topography file could be created from the (potentially modified) arrays, as
+create_map("data/GMRT.png", layer.projection, x, y, z)
+# which could then be loaded back as another Layer object. Note that Mulder uses
+# its own .png format in order to store the new map.
+
+# Finally, let us plot the topography data.
+plot.style.use("examples/examples.mplstyle")
 
 plot.figure()
 plot.pcolormesh(x, y, z, cmap="terrain")
 plot.colorbar()
+plot.xlabel("longitude (deg)")
+plot.ylabel("latitude (deg)")
+plot.title("height (m)")
+
 plot.show()
