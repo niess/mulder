@@ -41,6 +41,7 @@ LIB_DEPS = src/gull.o \
            src/turtle_ecef.o \
            src/turtle_error.o \
            src/turtle_io.o \
+           src/turtle_io_asc.o \
            src/turtle_io_geotiff16.o \
            src/turtle_io_grd.o \
            src/turtle_io_png16.o \
@@ -77,7 +78,7 @@ src/pumas.o: $(PUMAS_DIR)/src/pumas.c $(PUMAS_DIR)/include/pumas.h
 	$(CC) $(LIB_CFLAGS) -o $@ -c $<
 
 TURTLE_CFLAGS= $(LIB_CFLAGS) \
-               -DTURTLE_NO_ASC -DTURTLE_NO_HGT \
+               -DTURTLE_NO_HGT \
                -I$(TURTLE_DIR)/src
 
 src/turtle_%.o: $(TURTLE_DIR)/src/turtle/%.c $(TURTLE_DIR)/src/turtle/%.h

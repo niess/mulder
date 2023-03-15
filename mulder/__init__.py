@@ -238,23 +238,18 @@ class Layer:
                 lib.mulder_layer_destroy
             )
 
-    def height(self, *args, **kwargs) -> numpy.ndarray:
-        """Topography height (including offset)."""
+    def asarrays(self):
+        """Return topography data as numpy arrays"""
 
-        projection = Projection.parse(*args, **kwargs)
-
-        size = projection._size or 1
-        height = numpy.empty(size)
-
-        lib.mulder_layer_height_v(
-            self._layer[0],
-            size,
-            projection.stride,
-            projection.cffi_ptr,
-            _todouble(height)
-        )
-
-        return height if size > 1 else height[0]
+        if self.model is None:
+            return None
+        else:
+            x = numpy.linspace(self.xmin, self.xmax, self.nx)
+            y = numpy.linspace(self.ymin, self.ymax, self.ny)
+            X, Y = [a.flatten() for a in numpy.meshgrid(x, y)]
+            z = self.height(X, Y)
+            z = z.reshape((self.ny, self.nx))
+            return x, y, z
 
     def gradient(self, *args, **kwargs) -> Projection:
         """Topography gradient (w.r.t. map coordinates)."""
@@ -273,6 +268,24 @@ class Layer:
         )
 
         return gradient
+
+    def height(self, *args, **kwargs) -> numpy.ndarray:
+        """Topography height (including offset)."""
+
+        projection = Projection.parse(*args, **kwargs)
+
+        size = projection._size or 1
+        height = numpy.empty(size)
+
+        lib.mulder_layer_height_v(
+            self._layer[0],
+            size,
+            projection.stride,
+            projection.cffi_ptr,
+            _todouble(height)
+        )
+
+        return height if size > 1 else height[0]
 
     def position(self, *args, **kwargs) -> Position:
         """Get geographic position corresponding to map location."""

@@ -175,7 +175,12 @@ struct mulder_layer * mulder_layer_create(
                 turtle_map_meta(layer->map, &info, &projection);
 
                 init_string((void **)&layer->api.encoding, info.encoding);
-                init_string((void **)&layer->api.projection, projection);
+                if (projection != NULL) {
+                        init_string(
+                            (void **)&layer->api.projection, projection);
+                } else {
+                        init_ptr((void **)&layer->api.projection, NULL);
+                }
                 init_int((int *)&layer->api.nx, info.nx);
                 init_int((int *)&layer->api.ny, info.ny);
                 init_double((double *)&layer->api.xmin, info.x[0]);
