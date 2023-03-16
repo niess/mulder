@@ -65,10 +65,10 @@ def arrayclass(cls):
     for name, tp, description in cls.properties:
         add_property(name, tp, description)
         if not isinstance(tp, str):
-            tp = tp.dtype
+            tp = tp._dtype
         dtype.append((name, tp))
 
-    cls.dtype = numpy.dtype(dtype, align=True)
+    cls._dtype = numpy.dtype(dtype, align=True)
 
     argnames = [name for (name, _, _) in cls.properties]
     for (_, tp, _) in cls.properties:
@@ -127,13 +127,24 @@ class Array:
         return self._size
 
     @property
-    def cffi_ptr(self):
-        """Raw cffi pointer."""
+    def cffi_pointer(self):
+        """cffi pointer."""
         return ffi.cast(self.ctype, self._data.ctypes.data)
 
+    @classmethod
     @property
-    def stride(self):
-        """Numpy stride."""
+    def numpy_dtype(cls):
+        """Numpy data type."""
+        return cls._dtype
+
+    @property
+    def numpy_array(self):
+        """Numpy structured array."""
+        return self._data
+
+    @property
+    def numpy_stride(self):
+        """Numpy array stride."""
         strides = self._data.strides
         return strides[0] if strides else 0
 
@@ -174,6 +185,10 @@ class Array:
                     raise ValueError("incompatible size(s)")
         return size
 
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__) and \
+               numpy.array_equal(self._data, other._data)
+
     def __iter__(self):
         """Iterate over properties (i.e. column wise)."""
         return (self._data[key] for (key, _, _) in self.properties)
@@ -204,13 +219,13 @@ class Array:
         return str(self._data)
 
     def _init_array(self, method, size):
-        self._data = method(size, dtype=self.dtype)
+        self._data = method(size, dtype=self._dtype)
         self._size = size
 
     def copy(self):
         """Return a copy of self."""
         obj = self.empty(self._size)
-        obj._data[:] = self.data
+        obj._data[:] = self._data
         return obj
 
     def repeat(self, repeats):

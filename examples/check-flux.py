@@ -40,7 +40,7 @@ default = default.flux(state.elevation, state.energy, height=0)
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = state.energy**2.7 * 1E-04
 
-plot.style.use("examples/paper.mplstyle")
+plot.style.use("examples/examples.mplstyle")
 
 plot.figure()
 plot.plot(state.energy, flux.value * norm, "ko", label="CSDA evolution")

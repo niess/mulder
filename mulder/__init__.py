@@ -133,9 +133,9 @@ class State:
         lib.mulder_state_flux_v(
             reference._reference[0],
             size,
-            self.stride,
-            self.cffi_ptr,
-            flux.cffi_ptr
+            self.numpy_stride,
+            self.cffi_pointer,
+            flux.cffi_pointer
         )
 
         return flux
@@ -223,7 +223,9 @@ class Layer:
         """Map maximum value along z-axis."""
         return float(self._layer[0].zmax)
 
-    def __init__(self, material, model=None, density=None, offset=None):
+    def __init__(self, material=None, model=None, density=None, offset=None):
+        if material is None: material = "Rock"
+
         layer = ffi.new("struct mulder_layer *[1]")
         layer[0] = lib.mulder_layer_create(
             _tostr(material),
@@ -262,9 +264,9 @@ class Layer:
         lib.mulder_layer_gradient_v(
             self._layer[0],
             size,
-            projection.stride,
-            projection.cffi_ptr,
-            gradient.cffi_ptr
+            projection.numpy_stride,
+            projection.cffi_pointer,
+            gradient.cffi_pointer
         )
 
         return gradient
@@ -280,8 +282,8 @@ class Layer:
         lib.mulder_layer_height_v(
             self._layer[0],
             size,
-            projection.stride,
-            projection.cffi_ptr,
+            projection.numpy_stride,
+            projection.cffi_pointer,
             _todouble(height)
         )
 
@@ -298,9 +300,9 @@ class Layer:
         lib.mulder_layer_position_v(
             self._layer[0],
             size,
-            projection.stride,
-            projection.cffi_ptr,
-            position.cffi_ptr
+            projection.numpy_stride,
+            projection.cffi_pointer,
+            position.cffi_pointer
         )
 
         return position
@@ -316,9 +318,9 @@ class Layer:
         lib.mulder_layer_project_v(
             self._layer[0],
             size,
-            position.stride,
-            position.cffi_ptr,
-            projection.cffi_ptr
+            position.numpy_stride,
+            position.cffi_pointer,
+            projection.cffi_pointer
         )
 
         return projection
@@ -402,9 +404,9 @@ class Geomagnet:
         lib.mulder_geomagnet_field_v(
             self._geomagnet[0],
             size,
-            position.stride,
-            position.cffi_ptr,
-            enu.cffi_ptr,
+            position.numpy_stride,
+            position.cffi_pointer,
+            enu.cffi_pointer,
         )
 
         return enu
@@ -535,7 +537,7 @@ class Reference:
             _todouble(height),
             _todouble(elevation),
             _todouble(energy),
-            flux.cffi_ptr
+            flux.cffi_pointer
         )
 
         return flux
@@ -682,9 +684,9 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_flux_v(
             self._fluxmeter[0],
             size,
-            state.stride,
-            state.cffi_ptr,
-            flux.cffi_ptr
+            state.numpy_stride,
+            state.cffi_pointer,
+            flux.cffi_pointer
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
@@ -702,9 +704,9 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_transport_v(
             self._fluxmeter[0],
             size,
-            state.stride,
-            state.cffi_ptr,
-            result.cffi_ptr
+            state.numpy_stride,
+            state.cffi_pointer,
+            result.cffi_pointer
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
@@ -724,10 +726,10 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_intersect_v(
             self._fluxmeter[0],
             size or 1,
-            (position.stride, direction.stride),
-            position.cffi_ptr,
-            direction.cffi_ptr,
-            intersection.cffi_ptr
+            (position.numpy_stride, direction.numpy_stride),
+            position.cffi_pointer,
+            direction.cffi_pointer,
+            intersection.cffi_pointer
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
@@ -751,9 +753,9 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_grammage_v(
             self._fluxmeter[0],
             size or 1,
-            (position.stride, direction.stride),
-            position.cffi_ptr,
-            direction.cffi_ptr,
+            (position.numpy_stride, direction.numpy_stride),
+            position.cffi_pointer,
+            direction.cffi_pointer,
             _todouble(grammage)
         )
         if rc != lib.MULDER_SUCCESS:
@@ -772,8 +774,8 @@ class Fluxmeter:
         rc = lib.mulder_fluxmeter_whereami_v(
             self._fluxmeter[0],
             size,
-            position.stride,
-            position.cffi_ptr,
+            position.numpy_stride,
+            position.cffi_pointer,
             _toint(i)
         )
         if rc != lib.MULDER_SUCCESS:

@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-"""This example illustrates the usage of Layer objects.
+"""This example illustrates the usage of mulder.Layer objects.
 
 Layers are the building bricks of a Stratified Earth Geometry (SEG). See the
 geometry.py example for information on SEGs.
@@ -20,6 +20,7 @@ from mulder.matplotlib import LightSource
 import numpy
 
 
+# =============================================================================
 # The example below should create a layer made of *Rock*, with a bulk *density*
 # of 2 g/cm^3. Note that Mulder actually uses SI units, thus kg/m^3. Note also
 # that specifying a bulk density is optional. If no value is provided, then the
@@ -50,6 +51,8 @@ Map metadata:
 - ymax:       {layer.ymax}
 """)
 
+
+# =============================================================================
 # Mulder uses geographic (GPS-like) coordinates in order to locate a position.
 # Let us get the geographic coordinates at the map center.
 
@@ -76,6 +79,8 @@ assert(abs(y - projection.y) < 1E-07)
 # Note that for this example the projection is trivial, since the map uses
 # geographic (longitude, latitude) coordinates.
 
+
+# =============================================================================
 # The topography data can be retrieved as numpy arrays using the asarrays
 # method.
 
@@ -90,15 +95,18 @@ create_map("data/GMRT.png", layer.projection, x, y, z)
 # which could then be loaded back as another Layer object. Note that Mulder uses
 # its own .png format in order to store the new map.
 
+
+# =============================================================================
 # In the following, let us illustrate some additional properties of Layers by
-# drawing the topography content. First, let us interpolate data over a thiner
-# grid, defined as
+# drawing the topography content. First, let us interpolate data over a refined
+# grid, as
 
-scaling = 10 # Upsampling factor.
-x = numpy.linspace(layer.xmin, layer.xmax, scaling * (layer.nx - 1) + 1)
-y = numpy.linspace(layer.ymin, layer.ymax, scaling * (layer.ny - 1) + 1)
+upscaling = 10
+x = numpy.linspace(layer.xmin, layer.xmax, upscaling * (layer.nx - 1) + 1)
+y = numpy.linspace(layer.ymin, layer.ymax, upscaling * (layer.ny - 1) + 1)
 
-# Then, we flatten grid data using numpy's meshgrid
+# Then, we flatten grid data using numpy's meshgrid. This is required since
+# mulder's vectorization only operates over flat arrays.
 
 X, Y = [a.flatten() for a in numpy.meshgrid(x, y)]
 
