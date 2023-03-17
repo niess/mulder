@@ -326,6 +326,7 @@ struct mulder_projection mulder_layer_project(
 /* Internal data layout of a geomagnetic field */
 struct geomagnet {
         struct mulder_geomagnet api;
+        int iid;
         struct gull_snapshot * snapshot;
         double * workspace;
 };
@@ -337,7 +338,14 @@ struct mulder_geomagnet * mulder_geomagnet_create(
     int month,
     int year)
 {
+        static int iid = 0; /* Instance ID */
         struct geomagnet * geomagnet = malloc(sizeof *geomagnet);
+        if (geomagnet == NULL) {
+                mulder_error("could not allocate memory");
+                return NULL;
+        } else {
+                geomagnet->iid = iid++;
+        }
 
         /* Load the snapshot */
         enum gull_return rc = gull_snapshot_create(
@@ -859,6 +867,19 @@ struct mulder_state mulder_fluxmeter_transport(
 
 
 /* Low level sampling routines */
+static int check_geomagnet(struct fluxmeter * fluxmeter)
+{
+        const struct geomagnet * geomagnet =
+            (void *)fluxmeter->api.geometry->geomagnet;
+        const struct geomagnet * current = fluxmeter->current_geomagnet;
+
+        if (current != geomagnet) {
+                return 0;
+        } else {
+                return (current->iid == geomagnet->iid);
+        }
+}
+
 static struct state init_event(
     struct fluxmeter * f,
     enum mulder_pid pid,
@@ -876,7 +897,7 @@ static struct state init_event(
         update_steppers(f);
 
         /* Update geomagnet (if needed) */
-        if (f->api.geometry->geomagnet != (void *)f->current_geomagnet) {
+        if (check_geomagnet(f) == 0) {
                 free(f->geomagnet_workspace);
                 f->geomagnet_workspace = NULL;
                 memset(f->geomagnet_field, 0x0, sizeof f->geomagnet_field);
