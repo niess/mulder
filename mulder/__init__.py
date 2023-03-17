@@ -571,11 +571,11 @@ class Reference:
         strides = [a.strides[-1] if a.strides else 0 for a in args]
         height, elevation, energy = args
 
-        flux = Flux.empty(size if size > 1 else None)
+        flux = Flux.empty(size)
 
         lib.mulder_reference_flux_v(
             self._reference[0],
-            size,
+            size or 1,
             strides,
             _todouble(height),
             _todouble(elevation),
@@ -864,8 +864,8 @@ def create_map(path, projection, x, y, data):
         raise LibraryError()
 
 
-def create_reference_table(path, height, cos_theta, energy, data):
-    """Create a reference flux table from a numpy array."""
+def create_reference_table(path, height, cos_theta, energy, flux: Flux):
+    """Create a reference flux table from a grid of flux values."""
 
     # Check inputs
     assert(len(cos_theta) > 1)
