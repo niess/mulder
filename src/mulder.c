@@ -1288,7 +1288,12 @@ int mulder_fluxmeter_whereami(
             index
         );
 
-        return (index[0] > 0) ? index[0] - 1 : -1;
+        if (index > 0) {
+                const int top = f->api.geometry->size;
+                return (index[0] <= top) ? index[0] - 1 : top;
+        } else {
+                return -1;
+        }
 }
 
 

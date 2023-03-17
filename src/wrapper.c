@@ -157,6 +157,21 @@ void mulder_geomagnet_field_v(
 }
 
 
+/* Vectorized atmosphere getter */
+void mulder_geometry_atmosphere_v(
+    struct mulder_geometry * geometry,
+    int size,
+    int stride,
+    const double * height,
+    struct mulder_atmosphere * atmosphere)
+{
+        for (; size > 0; size--, atmosphere++) {
+                *atmosphere = geometry->atmosphere(*height);
+                height = (void *)height + stride;
+        }
+}
+
+
 /* Vectorized flux computation */
 enum mulder_return mulder_fluxmeter_flux_v(
     struct mulder_fluxmeter * fluxmeter,

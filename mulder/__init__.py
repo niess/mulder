@@ -85,6 +85,18 @@ class Projection:
 
 
 @arrayclass
+class Atmosphere:
+    """Container for atmosphere local properties."""
+
+    ctype = "struct mulder_atmosphere *"
+
+    properties = (
+        ("density",  "f8", "Local density, in kg / m^3."),
+        ("gradient", "f8", "Density gradient, in kg / m^4.")
+    )
+
+
+@arrayclass
 class Flux:
     """Container for muon flux data."""
 
@@ -239,6 +251,13 @@ class Layer:
                 layer,
                 lib.mulder_layer_destroy
             )
+
+    def __repr__(self):
+        args = [self.material]
+        if self.model: args.append(self.model)
+        if self.offset: args.append(f"{self.offset:+g}")
+        args = ", ".join(args)
+        return f"Layer({args})"
 
     def asarrays(self):
         """Return topography data as numpy arrays"""
@@ -460,6 +479,29 @@ class Geometry:
         if geomagnet:
             self.geomagnet = geomagnet
 
+    def atmosphere(self, height) -> Atmosphere:
+        """Return atmosphere local properties, at given height.
+
+        The magnetic field components are returned in East-North-Upward (ENU)
+        coordinates.
+        """
+
+        height = numpy.asarray(height, dtype="f8")
+
+        size = height.size
+        stride = height.strides[-1] if height.strides else 0
+        atmosphere = Atmosphere.empty(None if size <= 1 else size)
+
+        lib.mulder_geometry_atmosphere_v(
+            self._geometry[0],
+            size,
+            stride,
+            _todouble(height),
+            atmosphere.cffi_pointer
+        )
+
+        return atmosphere
+
 
 class Reference:
     """Reference (opensky) muon flux."""
@@ -523,7 +565,8 @@ class Reference:
         if height is None:
             height = 0.5 * (self.height_min + self.height_max)
 
-        args = [numpy.asarray(a) for a in (height, elevation, energy)]
+        args = [numpy.asarray(a, dtype="f8") \
+                for a in (height, elevation, energy)]
         size = commonsize(*args)
         strides = [a.strides[-1] if a.strides else 0 for a in args]
         height, elevation, energy = args
@@ -763,10 +806,10 @@ class Fluxmeter:
 
         return grammage
 
-    def whereami(self, position: Position) -> numpy.ndarray:
+    def whereami(self, *args, **kwargs) -> numpy.ndarray:
         """Get geometric layer indice(s) for given location(s)."""
 
-        assert(isinstance(position, Position))
+        position = Position.parse(*args, **kwargs)
 
         size = position._size or 1
         i = numpy.empty(size, dtype="i4")
