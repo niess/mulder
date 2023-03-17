@@ -1,7 +1,10 @@
 """Matplotlib related utilities
 """
+from types import MethodType
+
 import matplotlib.colors as colors
 import matplotlib.pyplot as plot
+import matplotlib.transforms as transforms
 import numpy
 
 
@@ -124,3 +127,42 @@ class LightSource:
         clrs[:,:3] *= self._intensity + (1 - self._intensity) * tmp
 
         return clrs
+
+
+def set_cursor_data(image, data):
+    """This function overrides cursor data.
+
+    This is achieved by monkey patching the AxesImage.get_cursor_data. Note that
+    data must have the same width and length than the image array.
+    """
+
+    arr = image.get_array()
+    assert(data.shape[0] == arr.shape[0])
+    assert(data.shape[1] == arr.shape[1])
+
+    def get_cursor_data(self, event):
+        """Patched method, modified from matplotlib source code."""
+
+        xmin, xmax, ymin, ymax = self.get_extent()
+        if self.origin == 'upper':
+            ymin, ymax = ymax, ymin
+        arr = self.get_array()
+        data_extent = transforms.Bbox([[xmin, ymin], [xmax, ymax]])
+        array_extent = transforms.Bbox([[0, 0], [arr.shape[1], arr.shape[0]]])
+        trans = self.get_transform().inverted()
+        trans += transforms.BboxTransform(
+            boxin = data_extent,
+            boxout = array_extent
+        )
+        point = trans.transform([event.x, event.y])
+        if any(numpy.isnan(point)):
+            return None
+        j, i = point.astype(int)
+        # Clip the coordinates at array bounds
+        if not (0 <= i < arr.shape[0]) or not (0 <= j < arr.shape[1]):
+            return None
+        else:
+            return data[i, j]
+
+    # Monkey patch the AxisImage.get_cursor_data
+    image.get_cursor_data = MethodType(get_cursor_data, image)

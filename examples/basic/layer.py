@@ -16,7 +16,7 @@ stored under data/GMRT.asc.
 
 import matplotlib.pyplot as plot
 from mulder import Layer, create_map
-from mulder.matplotlib import LightSource
+from mulder.matplotlib import LightSource, set_cursor_data
 import numpy
 
 
@@ -105,7 +105,7 @@ upscaling = 10
 x = numpy.linspace(layer.xmin, layer.xmax, upscaling * (layer.nx - 1) + 1)
 y = numpy.linspace(layer.ymin, layer.ymax, upscaling * (layer.ny - 1) + 1)
 
-# Then, we flatten grid data using numpy's meshgrid. This is required since
+# Then, we flatten grid nodes using numpy's meshgrid. This is required since
 # mulder's vectorization only operates over flat arrays.
 
 X, Y = [a.flatten() for a in numpy.meshgrid(x, y)]
@@ -145,11 +145,16 @@ colors = colors.reshape((y.size, x.size, 4))
 
 plot.style.use("examples/examples.mplstyle")
 plot.figure()
-plot.imshow(
+image = plot.imshow(
     colors,
     origin="lower",
     extent=[layer.xmin, layer.xmax, layer.ymin, layer.ymax]
 )
+
+# This overrides cursor data such that hovering indicates actual height values
+# instead of colors.
+set_cursor_data(image, z.reshape(y.size, x.size))
+
 plot.xlabel("longitude (deg)")
 plot.ylabel("latitude (deg)")
 plot.show()
