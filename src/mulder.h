@@ -125,10 +125,16 @@ struct mulder_enu mulder_geomagnet_field(
     struct mulder_position position
 );
 
+/* Container for atmosphere local properties */
+struct mulder_atmosphere {
+    double density;
+    double gradient;
+};
 
 /* Stratified Earth geometry */
 struct mulder_geometry {
     /* Mutable properties */
+    struct mulder_atmosphere (*atmosphere)(double height);
     struct mulder_geomagnet * geomagnet;
 
     /* Initial settings (non mutable) */

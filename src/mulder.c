@@ -421,6 +421,8 @@ struct mulder_enu mulder_geomagnet_field(
 
 
 /* Geometry create & destroy */
+static struct mulder_atmosphere default_atmosphere(double height);
+
 struct mulder_geometry * mulder_geometry_create(
     int size,
     struct mulder_layer * layers[]
@@ -438,6 +440,9 @@ struct mulder_geometry * mulder_geometry_create(
         for (i = 0; i < size; i++) {
                 init_ptr((void **)&geometry->layers[i], layers[i]);
         }
+
+        geometry->atmosphere = &default_atmosphere;
+        geometry->geomagnet = NULL;
 
         return geometry;
 }
@@ -1338,6 +1343,17 @@ static double us_standard_density(double height, double * lambda)
 }
 
 
+/* Default atmosphere callback */
+static struct mulder_atmosphere default_atmosphere(double height)
+{
+        struct mulder_atmosphere atmosphere;
+        double lambda;
+        atmosphere.density = us_standard_density(height, &lambda);
+        atmosphere.gradient = atmosphere.density / lambda;
+        return atmosphere;
+}
+
+
 /* Compute rotation matrix from ECEF to ENU */
 static void ecef_to_enu(
     double latitude,
@@ -1379,6 +1395,8 @@ static double atmosphere_locals(
     struct pumas_locals * locals)
 {
         /* Get local density */
+        struct state * s = (void *)state;
+        struct fluxmeter * f = s->fluxmeter;
         double latitude, longitude, height;
         turtle_ecef_to_geodetic(
             state->position,
@@ -1386,23 +1404,27 @@ static double atmosphere_locals(
             &longitude,
             &height
         );
+        struct mulder_atmosphere atmosphere =
+            f->api.geometry->atmosphere(height);
+        locals->density = atmosphere.density;
+
         double lambda;
-        locals->density = us_standard_density(height, &lambda);
+        if (fabs(atmosphere.gradient) > 1E-09 * atmosphere.density) {
+                double azimuth, elevation;
+                turtle_ecef_to_horizontal(
+                    latitude,
+                    longitude,
+                    state->direction,
+                    &azimuth,
+                    &elevation
+                );
+                double c = fabs(sin(elevation * M_PI / 180));
+                if (c < 0.1) c = 0.1;
+                lambda = atmosphere.density / (c * atmosphere.gradient);
+        } else {
+                lambda = 1E+09;
+        }
 
-        double azimuth, elevation;
-        turtle_ecef_to_horizontal(
-            latitude,
-            longitude,
-            state->direction,
-            &azimuth,
-            &elevation
-        );
-        double c = fabs(sin(elevation * M_PI / 180));
-        if (c < 0.1) c = 0.1;
-        lambda /= c;
-
-        struct state * s = (void *)state;
-        struct fluxmeter * f = s->fluxmeter;
         if (!f->use_geomagnet) {
                 return lambda;
         }
