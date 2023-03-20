@@ -15,7 +15,7 @@ stored under data/GMRT.asc.
 """
 
 import matplotlib.pyplot as plot
-from mulder import Layer, create_map
+from mulder import create_map, Flatgrid, Layer
 from mulder.matplotlib import LightSource, set_cursor_data
 import numpy
 
@@ -98,27 +98,27 @@ create_map("data/GMRT.png", layer.projection, x, y, z)
 
 # =============================================================================
 # In the following, let us illustrate some additional properties of Layers by
-# drawing the topography content. First, let us interpolate data over a refined
-# grid, as
+# drawing the topography content. First, let us define refined coordinates, as
 
 upscaling = 10
 x = numpy.linspace(layer.xmin, layer.xmax, upscaling * (layer.nx - 1) + 1)
 y = numpy.linspace(layer.ymin, layer.ymax, upscaling * (layer.ny - 1) + 1)
 
-# Then, we flatten grid nodes using numpy's meshgrid. This is required since
-# mulder's vectorization only operates over flat arrays.
+# Then, we generate a mulder.Flatgrid over (x, y). This is required since
+# mulder's vectorization only operates over flat arrays (vectors), i.e. not over
+# multidimensional arrays.
 
-X, Y = [a.flatten() for a in numpy.meshgrid(x, y)]
+grid = Flatgrid(x=x, y=y)
 
 # The height method returns interpolated height values of the topography, as
 
-z = layer.height(X, Y)
+z = layer.height(**grid)
 
 # In order to add specular effects to the drawing, we also need to compute the
 # outgoing normal to the topography surface. The later is obtained from the
 # gradient, as
 
-gx, gy = layer.gradient(X, Y)
+gx, gy = layer.gradient(**grid)
 normal = numpy.vstack((gx, gy, numpy.ones(z.size))).T
 
 # Following, we associate a set of colors to topography data using a LightSource
@@ -139,7 +139,7 @@ colors = light.colorize(
 
 # The result needs to be recast in grid shape, for the plotting.
 
-colors = colors.reshape((y.size, x.size, 4))
+colors = colors.reshape((*grid.shape, 4))
 
 # Finally, we plot the resulting picture.
 

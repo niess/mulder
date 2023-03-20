@@ -6,7 +6,7 @@ structures, accessed through cffi. Thus, Arrays are the base input and output
 objects of the mulder Python package.
 """
 
-from mulder import arrayclass, Layer, Projection
+from mulder import arrayclass, Flatgrid, Layer, Projection
 
 
 # =============================================================================
@@ -71,8 +71,8 @@ assert(p.size is None)
 assert(v.size == 3)
 assert(v.size == len(v))
 
-# When a parameter takes is constant over the vector, then a scalar value can be
-# given as input. For example
+# When a parameter is constant over the vector, then a scalar value can be given
+# as input. For example
 
 w = Projection(1, (1, 2, 3))
 assert(v == w)
@@ -87,7 +87,7 @@ assert(z.size == 3)
 
 # =============================================================================
 # Accessing specific elements of a mulder Array is done with the usual slice
-# syntax. The returned object is also of Array. Note that it might be a
+# syntax. The returned object is also a mulder.Array. Note that it might be a
 # reference to the initial array or a copy (following numpy's mechanic). For
 # example
 
@@ -119,6 +119,54 @@ assert(w == v)
 
 w.x[0] = 1
 assert(v.x[1] == 0)
+
+
+# =============================================================================
+# Mulder functions only accept scalar or vector data. That is, multidimensional
+# arrays are not allowed. For example, the following raises an error
+
+try:
+    projection = Projection(x=((1, 2), (3, 4)))
+except ValueError:
+    pass
+
+# Thus, grided data need to be flatened first, before being passed to a mulder
+# function. This can be done conveniently with a mulder.Flatgrid object. For
+# example, the following generates a 2d-grid over (x, y)
+
+x = (1, 2, 3)
+y = (0, 1)
+grid = Flatgrid(x=x, y=y)
+
+print(f"""\
+Flat grid:
+- shape: {grid.shape}
+- size: {grid.size}
+- x: {grid.x}
+- y: {grid.y}
+""")
+
+# Note that only named arguments are allowed when creating a Flatgrid object.
+# Note also that the grid can be directly unpacked as argument to a mulder
+# function, as
+
+projection = Projection(**grid)
+
+# The Flatgrid.shape property contains the actual grid shape (before
+# flattening). Getting back to the multidimensional grid is just a matter of
+# reshaping vectorized (flattened) arrays. This can be done as
+
+x, y = grid.unflatten(grid.x, grid.y)
+
+# Let us print the result with some formatting
+
+oneline = lambda s: str(s).replace("\n", ",")
+
+print(f"""\
+Two-dimensional grid:
+- x: {oneline(x)}
+- y: {oneline(y)}
+""")
 
 
 # =============================================================================

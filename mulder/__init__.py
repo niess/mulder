@@ -6,7 +6,7 @@ import weakref
 
 import numpy
 
-from .arrayclasses import arrayclass, commonsize
+from .arrays import arrayclass, commonsize, Flatgrid
 from .version import git_revision, version
 from .wrapper import ffi, lib
 
@@ -70,6 +70,10 @@ class Enu:
         ("north",  "f8", "Local north-ward coordinate."),
         ("upward", "f8", "Local upward coordinate.")
     )
+
+    def norm(self):
+        """Vector L^2 norm."""
+        return numpy.sqrt(self.east**2 + self.north**2 + self.upward**2)
 
 
 @arrayclass
@@ -267,9 +271,9 @@ class Layer:
         else:
             x = numpy.linspace(self.xmin, self.xmax, self.nx)
             y = numpy.linspace(self.ymin, self.ymax, self.ny)
-            X, Y = [a.flatten() for a in numpy.meshgrid(x, y)]
-            z = self.height(X, Y)
-            z = z.reshape((self.ny, self.nx))
+            grid = Flatgrid(x=x, y=y)
+            z = self.height(**grid)
+            z = z.reshape(grid.shape)
             return x, y, z
 
     def gradient(self, *args, **kwargs) -> Projection:

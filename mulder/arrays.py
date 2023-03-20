@@ -2,6 +2,7 @@
 """
 
 from collections import namedtuple
+from collections.abc import Mapping
 import numpy
 from .wrapper import ffi, lib
 
@@ -170,15 +171,28 @@ class Array:
         size = None
         for i, arg in enumerate(args):
             try:
-                s = len(arg)
+                shape = numpy.shape(arg)
             except:
+                raise ValueError(
+                    "bad shape (expected a scalar or vector, "
+                    "got an undefined shape)"
+                )
+            ndim = len(shape)
+            if ndim == 0:
                 continue
             else:
                 if properties:
                     tp = properties[i][1]
                     if not isinstance(tp, str):
-                        if not hasattr(arg[0], "__len__"):
+                        ndim -= 1
+                        if ndim == 0:
                             continue
+                if ndim > 1:
+                    raise ValueError(
+                        f"bad shape (expected a scalar or vector, "
+                        f"got a {ndim}d array)"
+                    )
+                s = shape[0]
                 if size is None:
                     size = s
                 elif (s != size) and (s != 1):
@@ -241,3 +255,45 @@ class Array:
             obj = self.empty(size)
             obj._data[:] = numpy.repeat(self._data, repeats, axis=0)
             return obj
+
+
+class Flatgrid(Mapping):
+    """Flat grid container, built from a set of base vectors."""
+
+    @property
+    def size(self):
+        """Grid size"""
+        return self._size
+
+    @property
+    def shape(self):
+        """Grid shape"""
+        return self._shape
+
+    def __init__(self, **kwargs):
+        arrays = numpy.meshgrid(*tuple(kwargs.values()))
+        self._size = arrays[0].size
+        self._shape = arrays[0].shape
+        self._vectors = {
+            k: arrays[i].flatten() for i, k in enumerate(kwargs.keys())
+        }
+
+    def __iter__(self):
+        """Iterator over flattened grid vectors, as dict."""
+        return iter(self._vectors)
+
+    def __getitem__(self, k):
+        return self._vectors[k]
+
+    def __getattr__(self, k):
+        return self._vectors[k]
+
+    def __len__(self):
+        return len(self._vectors)
+
+    def unflatten(self, *args):
+        """Unflatten arrays over the grid."""
+        if len(args) == 1:
+            return args[0].reshape(self._shape)
+        else:
+            return (arg.reshape(self._shape) for arg in args)

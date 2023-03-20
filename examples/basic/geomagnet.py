@@ -7,7 +7,7 @@ They can be attached to Geometry objects in order to magnetize the atmosphere
 """
 
 import matplotlib.pyplot as plot
-from mulder import Geomagnet
+from mulder import Flatgrid, Geomagnet
 import numpy
 
 
@@ -70,28 +70,26 @@ latitude = numpy.linspace(-90, 90, 181)
 longitude = numpy.linspace(-180, 180, 361)
 
 # Mulder functions can operate over vectorized inputs. However, not directly
-# over grids. Thus, we generate flattened coordinates using numpy.meshgrid
+# over 2d grids. Thus, we generate flattened positions using a mulder.Flatgrid.
 
-x, y = [a.flatten() for a in numpy.meshgrid(longitude, latitude)]
+grid = Flatgrid(longitude = longitude, latitude = latitude)
 
-# Then, let us compute the geomagnetic field total intensity at grid points
+# Then, let us compute the geomagnetic field total intensity at grid points, as
 
-e, n, u = geomagnet.field(latitude=y, longitude=x)
-intensity = numpy.sqrt(e**2 + n**2 + u**2)
+field = geomagnet.field(**grid)
+intensity = field.norm()
 
+# Finally, we plot the result. Note that, first, we need to unflatten the
+# intensity values as a 2d-grid.
 
-# Finally, we plot the result. Note that first, we need to reshape the intensity
-# values as a grid.
-
-intensity = intensity.reshape((latitude.size, longitude.size))
-intensity *= 1E+04 # G.
+intensity = grid.unflatten(intensity)
 
 plot.style.use("examples/examples.mplstyle")
 plot.figure()
 plot.pcolormesh(
     longitude,
     latitude,
-    intensity,
+    intensity * 1E+04, # Tesla to Gauss.
     vmin=0,
     vmax=0.7,
     cmap="hot"
