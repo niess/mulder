@@ -12,7 +12,7 @@ objects. Please, check the layer.py example first, otherwise.
 
 import matplotlib.pyplot as plot
 import matplotlib.colors as colors
-from mulder import Fluxmeter, Geomagnet, Geometry, Layer
+from mulder import Grid, Fluxmeter, Geomagnet, Geometry, Layer
 import numpy
 
 
@@ -89,24 +89,21 @@ plot.show(block=False)
 
 fluxmeter = Fluxmeter(geometry)
 
-# Then, let us generate a grid for the side view. We use the rock layer metadata
-# in order to get consistent grid coordinates. Thus,
+# Then, let us generate a grid for the side view using a mulder.Grid object (see
+# the grids.py example for more information on Grids). We use the rock layer
+# metadata in order to get consistent grid coordinates. Thus,
 
 rock = geometry.layers[0]
-
 latitude = 0.5 * (rock.ymin + rock.ymax)
-longitude = numpy.linspace(rock.xmin, rock.xmax, 1001)
-height = numpy.linspace(rock.zmin, rock.zmax, 1001)
 
-# Mulder functions can only operate over vectors. Thus, let us flatten the grid
-# with numpy.meshgrid.
-
-x, z = [a.flatten() for a in numpy.meshgrid(longitude, height)]
+grid = Grid(
+    longitude = numpy.linspace(rock.xmin, rock.xmax, 1001),
+    height = numpy.linspace(rock.zmin, rock.zmax, 1001)
+)
 
 # Then, we obtain the layer indices from the fluxmeter, as
 
-index = fluxmeter.whereami(latitude=latitude, longitude=x, height=z)
-index = index.reshape((height.size, longitude.size))
+index = fluxmeter.whereami(latitude=latitude, **grid.nodes)
 
 # Finally, let us plot the result using a custom color map. For comparison, we
 # also superimpose the corresponding topography, from the rock layer.
@@ -119,16 +116,16 @@ cmap = colors.ListedColormap((
 
 plot.figure()
 plot.pcolormesh(
-    longitude,
-    height,
-    index,
+    grid.base.longitude,
+    grid.base.height,
+    grid.reshape(index),
     cmap = cmap,
     vmin = 0,
     vmax = len(geometry.layers)
 )
 plot.plot(
-    longitude,
-    rock.height(x=longitude, y=latitude),
+    grid.base.longitude,
+    rock.height(x=grid.base.longitude, y=latitude),
     "w-"
 )
 plot.xlabel("longitude (deg)")

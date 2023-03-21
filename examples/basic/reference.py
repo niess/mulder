@@ -7,7 +7,7 @@ information on Fluxmeters).
 """
 
 import matplotlib.pyplot as plot
-from mulder import Reference
+from mulder import Flux, FluxGrid, Reference
 import numpy
 
 
@@ -62,12 +62,79 @@ Flux properties:
 #
 # https://github.com/niess/atmospheric-muon-flux
 #
-# For the present case, let us show how to create a reference flux tabulation
-# starting from a simple parameterisation. First, we generate a grid using
-# numpy.meshgrid.
+# For the present case, let us show how to create a reference flux table
+# starting from a simple parameterisation. This is done with a FluxGrid object,
+# a specialised mulder.Grid for flux tables. Let us first generate grid nodes as
 
-cos_theta = numpy.logspace(0, 1, 101)
-energy = numpy.logspace(-1, 9, 201)
-C, E = [a.flatten() for a in numpy.meshgrid(cos_theta, energy)]
+grid = FluxGrid(
+    energy = numpy.logspace(-1, 9, 201), # GeV
+    cos_theta = numpy.linspace(0, 1, 101)
+)
 
-# Then, let us compute the reference flux at grid nodes
+# Let us print a recap of the grid properties.
+
+print(f"""\
+Flux grid:
+- shape:      {grid.shape}
+- energy:     {len(grid.base.energy)} values
+- cos(theta): {len(grid.base.cos_theta)} values
+- height:     {numpy.size(grid.base.height)} value
+""")
+
+# Note that since no height was specified, mulder assumes a value of 0 for the
+# latter.
+#
+# Then, let us compute the reference flux at grid nodes. That for, we use a
+# simple model from the Particle Data Group (PDG 2022, ch. 30) (a.k.a. Gaisser
+# model). Thus
+
+def pdg_flux(cos_theta, energy, height=None):
+    """PDG muon flux model, in 1 / (GeV m^2 sr s).
+
+    Note: a constant charge asymmetry is assumed.
+    """
+
+    x = cos_theta * energy
+    return Flux(
+        value = 1.4E+03 * energy**-2.7 * \
+                (1 / (1 + x / 115) + 0.054 / (1 + x / 850)),
+        asymmetry = 0.1215
+    )
+
+grid.flux[:] = pdg_flux(**grid.nodes)
+
+# Then, the corresponding table file can be generated as
+
+grid.create_table("data/pdg.table")
+
+
+# =============================================================================
+# The previous command should have generated a *pdg.table* file under the data
+# folder. A mulder.Reference object can created from such a file as
+
+reference = Reference("data/pdg.table")
+
+# As a cross-check, let us plot the resulting values, and compare to the initial
+# model. First, let us define an observation condition.
+
+energy = numpy.logspace(-1, 9, 1001) # GeV
+elevation = 30 # deg
+cos_theta = numpy.cos(numpy.radians(90 - elevation))
+
+# Then, we compute the corresponding flux values
+
+flux_ref = reference.flux(elevation, energy).value
+flux_pdg = pdg_flux(cos_theta, energy).value
+
+# Finally, we plot the results.
+
+plot.style.use("examples/examples.mplstyle")
+plot.figure()
+plot.plot(energy, flux_pdg, "k-", label="PDG model")
+plot.plot(energy[::20], flux_ref[::20], "ko", label="from table")
+plot.xscale("log")
+plot.yscale("log")
+plot.xlabel("kinetic energy (GeV)")
+plot.ylabel("flux (GeV$^{-1}$ m$^{-2}$ s$^{-1}$ sr$^{-1}$)")
+plot.legend()
+plot.show()

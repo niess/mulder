@@ -2,7 +2,6 @@
 """
 
 from collections import namedtuple
-from collections.abc import Mapping
 import numpy
 from .wrapper import ffi, lib
 
@@ -226,6 +225,11 @@ class Array:
         obj._data = data
         return obj
 
+    def __setitem__(self, i, v):
+        """Set elements from a sub-array"""
+        assert(isinstance(v, self.__class__))
+        self._data[i] = v._data
+
     def __repr__(self):
         return repr(self._data)
 
@@ -255,45 +259,3 @@ class Array:
             obj = self.empty(size)
             obj._data[:] = numpy.repeat(self._data, repeats, axis=0)
             return obj
-
-
-class Flatgrid(Mapping):
-    """Flat grid container, built from a set of base vectors."""
-
-    @property
-    def size(self):
-        """Grid size"""
-        return self._size
-
-    @property
-    def shape(self):
-        """Grid shape"""
-        return self._shape
-
-    def __init__(self, **kwargs):
-        arrays = numpy.meshgrid(*tuple(kwargs.values()))
-        self._size = arrays[0].size
-        self._shape = arrays[0].shape
-        self._vectors = {
-            k: arrays[i].flatten() for i, k in enumerate(kwargs.keys())
-        }
-
-    def __iter__(self):
-        """Iterator over flattened grid vectors, as dict."""
-        return iter(self._vectors)
-
-    def __getitem__(self, k):
-        return self._vectors[k]
-
-    def __getattr__(self, k):
-        return self._vectors[k]
-
-    def __len__(self):
-        return len(self._vectors)
-
-    def unflatten(self, *args):
-        """Unflatten arrays over the grid."""
-        if len(args) == 1:
-            return args[0].reshape(self._shape)
-        else:
-            return (arg.reshape(self._shape) for arg in args)

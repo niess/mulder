@@ -6,7 +6,10 @@ import weakref
 
 import numpy
 
-from .arrays import arrayclass, commonsize, Flatgrid
+from .arrays import arrayclass, commonsize
+from .grids import FluxGrid, Grid
+from .types import Atmosphere, Direction, Enu, Flux, Intersection, Position, \
+                   Projection
 from .version import git_revision, version
 from .wrapper import ffi, lib
 
@@ -31,97 +34,6 @@ _toint = lambda x: ffi.cast("int *", x.ctypes.data)
 
 _tostr = lambda x: ffi.NULL if x is None else \
                    ffi.new("const char[]", x.encode())
-
-
-# Decorated array types
-@arrayclass
-class Position:
-    """Observation position, using geographic coordinates (GPS like)."""
-
-    ctype = "struct mulder_position *"
-
-    properties = (
-        ("latitude",  "f8", "Geographic latitude, in deg."),
-        ("longitude", "f8", "Geographic longitude, in deg."),
-        ("height",    "f8", "Geographic height w.r.t. WGS84 ellipsoid, in m.")
-    )
-
-
-@arrayclass
-class Direction:
-    """Observation direction, using Horizontal angular coordinates."""
-
-    ctype = "struct mulder_direction *"
-
-    properties = (
-        ("azimuth",   "f8", "Azimuth angle, in deg, (clockwise from North)."),
-        ("elevation", "f8", "Elevation angle, in deg, (w.r.t. horizontal).")
-    )
-
-
-@arrayclass
-class Enu:
-    """East, North, Upward (ENU) local coordinates."""
-
-    ctype = "struct mulder_enu *"
-
-    properties = (
-        ("east",   "f8", "Local east-ward coordinate."),
-        ("north",  "f8", "Local north-ward coordinate."),
-        ("upward", "f8", "Local upward coordinate.")
-    )
-
-    def norm(self):
-        """Vector L^2 norm."""
-        return numpy.sqrt(self.east**2 + self.north**2 + self.upward**2)
-
-
-@arrayclass
-class Projection:
-    """Projected (map) local coordinates."""
-
-    ctype = "struct mulder_projection *"
-
-    properties = (
-        ("x", "f8", "Local x-coordinate."),
-        ("y", "f8", "Local y-coordinate.")
-    )
-
-
-@arrayclass
-class Atmosphere:
-    """Container for atmosphere local properties."""
-
-    ctype = "struct mulder_atmosphere *"
-
-    properties = (
-        ("density",  "f8", "Local density, in kg / m^3."),
-        ("gradient", "f8", "Density gradient, in kg / m^4.")
-    )
-
-
-@arrayclass
-class Flux:
-    """Container for muon flux data."""
-
-    ctype = "struct mulder_flux *"
-
-    properties = (
-        ("value",     "f8", "The actual flux value, per GeV m^2 s sr."),
-        ("asymmetry", "f8", "The corresponding charge asymmetry.")
-    )
-
-
-@arrayclass
-class Intersection:
-    """Container for geometry intersection."""
-
-    ctype = "struct mulder_intersection *"
-
-    properties = (
-        ("layer",    "i4",     "Intersected layer index."),
-        ("position", Position, "Intersection position.")
-    )
 
 
 @arrayclass
@@ -271,8 +183,8 @@ class Layer:
         else:
             x = numpy.linspace(self.xmin, self.xmax, self.nx)
             y = numpy.linspace(self.ymin, self.ymax, self.ny)
-            grid = Flatgrid(x=x, y=y)
-            z = self.height(**grid)
+            grid = Grid(x=x, y=y)
+            z = self.height(**grid.nodes)
             z = z.reshape(grid.shape)
             return x, y, z
 
@@ -831,16 +743,15 @@ class Fluxmeter:
         return i if size > 1 else i[0]
 
 
-def _is_regular(a):
-    """Check if a 1d array has a regular stepping."""
-    d = numpy.diff(a)
-    dmin, dmax = min(d), max(d)
-    amax = max(numpy.absolute(a))
-    return dmax - dmin <= 1E-15 * amax
-
-
 def create_map(path, projection, x, y, data):
     """Create a Turtle map from a numpy array."""
+
+    def _is_regular(a):
+        """Check if a 1d array has a regular stepping."""
+        d = numpy.diff(a)
+        dmin, dmax = min(d), max(d)
+        amax = max(numpy.absolute(a))
+        return dmax - dmin <= 1E-15 * amax
 
     assert(len(x) > 1)
     assert(_is_regular(x))
@@ -866,58 +777,6 @@ def create_map(path, projection, x, y, data):
     )
     if rc != lib.MULDER_SUCCESS:
         raise LibraryError()
-
-
-def create_reference_table(path, height, cos_theta, energy, flux: Flux):
-    """Create a reference flux table from a grid of flux values."""
-
-    # Check inputs
-    assert(len(cos_theta) > 1)
-    assert(_is_regular(cos_theta))
-    assert(len(energy) > 1)
-    assert(_is_regular(numpy.log(energy)))
-
-    data = numpy.ascontiguousarray(data, dtype="<f4")
-
-    if isinstance(height, Number):
-        assert(data.ndim == 3)
-        assert(data.shape[0] == len(cos_theta))
-        assert(data.shape[1] == len(energy))
-        assert(data.shape[2] == 2)
-    else:
-        assert(_is_regular(height))
-        assert(data.ndim == 4)
-        assert(data.shape[0] == len(height))
-        assert(data.shape[1] == len(cos_theta))
-        assert(data.shape[2] == len(energy))
-        assert(data.shape[3] == 2)
-
-    # Generate binary table file
-    with open(path, "wb") as f:
-        dims = numpy.array(
-            (
-                len(energy),
-                len(cos_theta),
-                len(height)
-            ),
-            dtype="i8"
-        )
-        dims.astype("<i8").tofile(f)
-
-        lims = numpy.array(
-            (
-                energy[0],
-                energy[-1],
-                cos_theta[0],
-                cos_theta[-1],
-                height[0],
-                height[-1]
-            ),
-            dtype="f8"
-        )
-        lims.astype("<f8").tofile(f)
-
-        data.flatten().tofile(f)
 
 
 def generate_physics(path, destination=None):

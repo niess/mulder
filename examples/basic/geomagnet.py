@@ -7,7 +7,7 @@ They can be attached to Geometry objects in order to magnetize the atmosphere
 """
 
 import matplotlib.pyplot as plot
-from mulder import Flatgrid, Geomagnet
+from mulder import Grid, Geomagnet
 import numpy
 
 
@@ -64,38 +64,34 @@ Field components:
 # As an example, let us plot the total intensity of the geomagnetic field over
 # the Earth.
 #
-# First, we define a grid of coordinates, as
+# First, we define a grid of coordinates, using a Grid object (see the grids.py
+# example for more information on Grids).
 
-latitude = numpy.linspace(-90, 90, 181)
-longitude = numpy.linspace(-180, 180, 361)
-
-# Mulder functions can operate over vectorized inputs. However, not directly
-# over 2d grids. Thus, we generate flattened positions using a mulder.Flatgrid.
-
-grid = Flatgrid(longitude = longitude, latitude = latitude)
+grid = Grid(
+    longitude = numpy.linspace(-180, 180, 361), # deg
+    latitude = numpy.linspace(-90, 90, 181)     # deg
+)
 
 # Then, let us compute the geomagnetic field total intensity at grid points, as
 
-field = geomagnet.field(**grid)
+field = geomagnet.field(**grid.nodes)
 intensity = field.norm()
 
-# Finally, we plot the result. Note that, first, we need to unflatten the
-# intensity values as a 2d-grid.
-
-intensity = grid.unflatten(intensity)
+# Finally, we plot the result. Note that for this we need to unflatten the
+# intensity values to a 2d-array.
 
 plot.style.use("examples/examples.mplstyle")
 plot.figure()
 plot.pcolormesh(
-    longitude,
-    latitude,
-    intensity * 1E+04, # Tesla to Gauss.
+    grid.base.longitude,
+    grid.base.latitude,
+    grid.reshape(intensity) * 1E+04, # Tesla to Gauss.
     vmin=0,
     vmax=0.7,
     cmap="hot"
 )
 plot.xlabel("longitude (deg)")
 plot.ylabel("latitude (deg)")
-plot.title("Earth magnetic field (G)")
+plot.title("Earth magnetic field, in Gauss.")
 plot.colorbar()
 plot.show()

@@ -15,7 +15,7 @@ stored under data/GMRT.asc.
 """
 
 import matplotlib.pyplot as plot
-from mulder import create_map, Flatgrid, Layer
+from mulder import create_map, Grid, Layer
 from mulder.matplotlib import LightSource, set_cursor_data
 import numpy
 
@@ -98,27 +98,24 @@ create_map("data/GMRT.png", layer.projection, x, y, z)
 
 # =============================================================================
 # In the following, let us illustrate some additional properties of Layers by
-# drawing the topography content. First, let us define refined coordinates, as
+# drawing the topography content. First, let us define refined coordinates over
+# a mulder.Grid (see the grids.py example for more information on Grid objects).
 
 upscaling = 10
-x = numpy.linspace(layer.xmin, layer.xmax, upscaling * (layer.nx - 1) + 1)
-y = numpy.linspace(layer.ymin, layer.ymax, upscaling * (layer.ny - 1) + 1)
-
-# Then, we generate a mulder.Flatgrid over (x, y). This is required since
-# mulder's vectorization only operates over flat arrays (vectors), i.e. not over
-# multidimensional arrays.
-
-grid = Flatgrid(x=x, y=y)
+grid = Grid(
+    x = numpy.linspace(layer.xmin, layer.xmax, upscaling * (layer.nx - 1) + 1),
+    y = numpy.linspace(layer.ymin, layer.ymax, upscaling * (layer.ny - 1) + 1)
+)
 
 # The height method returns interpolated height values of the topography, as
 
-z = layer.height(**grid)
+z = layer.height(**grid.nodes)
 
 # In order to add specular effects to the drawing, we also need to compute the
 # outgoing normal to the topography surface. The later is obtained from the
 # gradient, as
 
-gx, gy = layer.gradient(**grid)
+gx, gy = layer.gradient(**grid.nodes)
 normal = numpy.vstack((gx, gy, numpy.ones(z.size))).T
 
 # Following, we associate a set of colors to topography data using a LightSource
@@ -153,7 +150,7 @@ image = plot.imshow(
 
 # This overrides cursor data such that hovering indicates actual height values
 # instead of colors.
-set_cursor_data(image, z.reshape(y.size, x.size))
+set_cursor_data(image, grid.reshape(z))
 
 plot.xlabel("longitude (deg)")
 plot.ylabel("latitude (deg)")
