@@ -1,13 +1,14 @@
 #! /usr/bin/env python3
 """This example illustrates the usage of mulder.Geometry objects.
 
-Geometry objects are containers for representing a Stratified Earth Geometry
-(SEG). They have little capabilities on their own. However, the geometry can be
-investigated with a Fluxmeter which is briefly discussed below (see the
-fluxmeter.py example for more detailed usage).
+Geometry objects are containers describing a Stratified Earth Geometry (SEG).
+They are mostly descriptive. Thus, they have little capabilities on their own.
+However, the actual geometry can be investigated with a mulder.Fluxmeter, which
+is briefly discussed below (see the `basic/fluxmeter.py` example for more
+detailed usage).
 
 Note that this example assumes that you are already familiar with mulder.Layer
-objects. Please, check the layer.py example first, otherwise.
+objects. Please, check the `basic/layer.py` example first, otherwise.
 """
 
 import matplotlib.pyplot as plot
@@ -17,10 +18,10 @@ import numpy
 
 
 # =============================================================================
-# A mulder geometry is defined as a vertical stack of Layers composed of, a
-# priori, different materials. A layer is limited on top by a topography
-# surface, and at bottom by the top of the layer below in the stack. Thus, a
-# geometry is created by stacking Layers, as
+# A mulder geometry describes a vertical stack of Layers composed of, a priori,
+# different materials. A layer is limited on top by a topography surface, and at
+# bottom by the top of the layer below in the stack. Thus, a geometry is defined
+# by stacking Layers, as
 
 geometry = Geometry(
     Layer(material="Rock", model="data/GMRT.asc"),
@@ -64,7 +65,7 @@ Atmosphere properties (at 10 km):
 - gradient: {gradient} kg / m^4
 """)
 
-# Let draw mulder's atmosphere density profile, for illustration. Note that
+# Let us draw mulder's atmosphere density profile, for illustration. Note that
 # by default the US Standard (USStd) density profile is used, with CORSIKA
 # parameterisation.
 
@@ -81,11 +82,39 @@ plot.show(block=False)
 
 
 # =============================================================================
-# Geometry objects have little capabilities on their own. However, the geometry
-# can be investigated with a mulder.Fluxmeter. For example, the
-# Fluxmeter.whereami method return the layer index at a given position. Let us
-# draw a side view of the geometry using the later method. First, we create a
-# Fluxmeter by providing a geometry
+# For convenience, Geometry objects accept several shortcut notations at
+# initialisation, where Layers are implied. Let us showcase those below.
+# First, the Layer object can be omitted, substituting a tuple (dict) with the
+# corresponding (named) arguments. As
+
+geometry = Geometry(
+    ("Rock", "data/GMRT.asc"),
+    ("Water",)
+)
+
+geometry = Geometry(
+    {"material": "Rock", "model": "data/GMRT.asc"},
+    {"material": "Water"}
+)
+
+# Note that mixed dict / tuple notations could be used as well. Secondly, a
+# layer can also be specified as a named argument, where the name designates the
+# material and the corresponding value indicates the topography model or offset.
+# Thus, the later geometry could have been more concisely defined as
+
+geometry = Geometry(
+    Rock = "data/GMRT.asc",
+    Water = 0
+)
+
+# =============================================================================
+# Geometry objects are mostly descriptive. They have little capabilities on
+# their own. However, the geometry can be investigated with a mulder.Fluxmeter.
+# For example, the Fluxmeter.whereami method return the layer index at a given
+# position (see the fluxmeter.py example for more detailed usage of Fluxmeters).
+#
+# Let us draw a side view of the geometry using the later Fluxmeter.whereami
+# method. First, we create a Fluxmeter by providing a geometry
 
 fluxmeter = Fluxmeter(geometry)
 

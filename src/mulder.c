@@ -607,7 +607,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
         init_ptr((void **)&fluxmeter->api.geometry, geometry);
 
         /* Initialise transport mode etc. */
-        fluxmeter->api.mode = MULDER_CSDA;
+        fluxmeter->api.mode = MULDER_CONTINUOUS;
 
         /* Initialise reference flux */
         fluxmeter->api.reference = &default_reference;
@@ -839,7 +839,7 @@ struct mulder_state mulder_fluxmeter_transport(
         /* Check pid */
         enum mulder_pid pid = state.pid;
         if ((pid == MULDER_ANY) &&
-            (fluxmeter->mode == MULDER_CSDA)) {
+            (fluxmeter->mode == MULDER_CONTINUOUS)) {
                 if (fluxmeter->geometry->geomagnet != NULL) {
                         MULDER_ERROR("bad pid (%d)", 16, (int)state.pid);
                         struct mulder_state tmp = {0.};
@@ -863,7 +863,7 @@ struct mulder_state mulder_fluxmeter_transport(
 
         /* Restore pid, if needed */
         if ((state.pid == MULDER_ANY) &&
-            (fluxmeter->mode == MULDER_CSDA)) {
+            (fluxmeter->mode == MULDER_CONTINUOUS)) {
                 result.pid = MULDER_ANY;
         }
 
@@ -951,7 +951,7 @@ static struct mulder_state transport_event(
         if (position.height < f->ztop - FLT_EPSILON) {
                 /* Transport backward with Pumas */
                 f->context->limit.energy = f->api.reference->energy_max;
-                if (f->api.mode == MULDER_CSDA) {
+                if (f->api.mode == MULDER_CONTINUOUS) {
                         f->context->mode.energy_loss = PUMAS_MODE_CSDA;
                         f->context->mode.scattering = PUMAS_MODE_DISABLED;
                 } else if (f->api.mode == MULDER_MIXED) {
@@ -988,7 +988,7 @@ static struct mulder_state transport_event(
                                 struct mulder_state state = {0.};
                                 return state;
                         }
-                        if ((f->api.mode == MULDER_DETAILED) &&
+                        if ((f->api.mode == MULDER_DISCRETE) &&
                             (event == PUMAS_EVENT_LIMIT_ENERGY)) {
                                 if (s.api.energy >=
                                     f->api.reference->energy_max -

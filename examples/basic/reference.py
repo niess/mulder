@@ -29,8 +29,8 @@ Reference properties:
 
 # Note that the previous flux model is a parametrisation of measurements at sea
 # level. Thus, the validity range for height is set to 0 m. The previous
-# properties can be modified, though it is usually not necessary to do so, as
-# discussed hereafter.
+# properties could be modified, if required, though it is usually not necessary
+# to do so, nor recommended.
 
 
 # =============================================================================

@@ -201,18 +201,18 @@ struct mulder_prng {
 
 /* Transport modes for muon flux computations */
 enum mulder_mode {
-    /* Muons are transported using a deterministic CSDA. This is the default
-     * mode of operation
+    /* Muons are transported using a deterministic Continuously Slowing Down
+     * Approximation (CSDA). This is the default mode of operation.
      */
-    MULDER_CSDA = 0,
+    MULDER_CONTINUOUS = 0,
     /* As previously, but catastrophic energy losses are randomised,
-     * e.g. as in MUM (Sokalski, Bugaev and Klimushin, hep-ph/0010322)
+     * e.g. as in MUM (Sokalski, Bugaev and Klimushin, hep-ph/0010322).
      */
     MULDER_MIXED,
     /* A detailed Monte Carlo simulation is done, including multiple
-     * scattering
+     * scattering.
      */
-    MULDER_DETAILED
+    MULDER_DISCRETE
 };
 
 

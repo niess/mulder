@@ -1,6 +1,7 @@
 """Core functionalities of the mulder library.
 """
 
+from numbers import Number
 from pathlib import Path
 import weakref
 
@@ -352,10 +353,34 @@ class Geometry:
         """Topographic layers."""
         return self._layers
 
-    def __init__(self, *layers, geomagnet=None):
-        layers = [layer if isinstance(layer, Layer) else Layer(*layer) \
-                  for layer in layers]
+    def __init__(self, *args, geomagnet=None, **kwargs):
 
+        # Convert arguments to Layers.
+        def fromarg(v):
+            if isinstance(v, Layer):
+                return v
+            elif isinstance(v, dict):
+                return Layer(**v)
+            elif hasattr(v, "__iter__"):
+                return Layer(*v)
+            else:
+                raise TypeError(f"bad Geometry argument ({type(v)})")
+
+        def fromkwarg(k, v):
+            # Note that Python version greater than 3.6 is implied. That is,
+            # PEP 468, preserving the order of kwargs.
+
+            if isinstance(v, str):
+                return Layer(material = k, model = v)
+            elif isinstance(v, Number):
+                return Layer(material = k, offset = v)
+            else:
+                raise TypeError(f"bad Geometry argument ({type(v)})")
+
+        layers = [fromarg(v) for v in args] + \
+                 [fromkwarg(k, v) for k, v in kwargs.items()]
+
+        # Create the geometry.
         geometry = ffi.new("struct mulder_geometry *[1]")
         geometry[0] = lib.mulder_geometry_create(
             len(layers),
@@ -545,12 +570,12 @@ class Fluxmeter:
     def mode(self):
         """Muons transport mode."""
         mode = self._fluxmeter[0].mode
-        if mode == lib.MULDER_CSDA:
-            return "csda"
+        if mode == lib.MULDER_CONTINUOUS:
+            return "continuous"
         elif mode == lib.MULDER_MIXED:
             return "mixed"
         else:
-            return "detailed"
+            return "discrete"
 
     @mode.setter
     def mode(self, v):
