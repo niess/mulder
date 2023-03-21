@@ -7,33 +7,15 @@ import weakref
 import numpy
 
 from .arrays import arrayclass, commonsize
-from .grids import FluxGrid, Grid
+from .ffi import ffi, lib, LibraryError, _todouble, _toint, _tostr
+from .grids import FluxGrid, Grid, MapGrid
 from .types import Atmosphere, Direction, Enu, Flux, Intersection, Position, \
                    Projection
 from .version import git_revision, version
-from .wrapper import ffi, lib
 
 
 """Package / C-library installation prefix."""
 PREFIX=str(Path(__file__).parent.resolve())
-
-
-class LibraryError(Exception):
-    """Mulder C-library error."""
-
-    def __init__(self):
-        msg = lib.mulder_error_get()
-        if msg != ffi.NULL:
-            self.args = (ffi.string(msg).decode(),)
-
-
-# Type conversions between cffi and numpy
-_todouble = lambda x: ffi.cast("double *", x.ctypes.data)
-
-_toint = lambda x: ffi.cast("int *", x.ctypes.data)
-
-_tostr = lambda x: ffi.NULL if x is None else \
-                   ffi.new("const char[]", x.encode())
 
 
 @arrayclass
@@ -175,18 +157,17 @@ class Layer:
         args = ", ".join(args)
         return f"Layer({args})"
 
-    def asarrays(self):
-        """Return topography data as numpy arrays"""
+    def grid(self):
+        """Return topography data as a MapGrid object"""
 
         if self.model is None:
             return None
         else:
             x = numpy.linspace(self.xmin, self.xmax, self.nx)
             y = numpy.linspace(self.ymin, self.ymax, self.ny)
-            grid = Grid(x=x, y=y)
-            z = self.height(**grid.nodes)
-            z = z.reshape(grid.shape)
-            return x, y, z
+            grid = MapGrid(x, y)
+            grid.height[:] = self.height(**grid.nodes)
+            return grid
 
     def gradient(self, *args, **kwargs) -> Projection:
         """Topography gradient (w.r.t. map coordinates)."""
@@ -741,42 +722,6 @@ class Fluxmeter:
             raise LibraryError()
 
         return i if size > 1 else i[0]
-
-
-def create_map(path, projection, x, y, data):
-    """Create a Turtle map from a numpy array."""
-
-    def _is_regular(a):
-        """Check if a 1d array has a regular stepping."""
-        d = numpy.diff(a)
-        dmin, dmax = min(d), max(d)
-        amax = max(numpy.absolute(a))
-        return dmax - dmin <= 1E-15 * amax
-
-    assert(len(x) > 1)
-    assert(_is_regular(x))
-    assert(len(y) > 1)
-    assert(_is_regular(y))
-
-    data = numpy.ascontiguousarray(data, "f8")
-
-    assert(data.ndim == 2)
-    assert(data.shape[0] == len(y))
-    assert(data.shape[1] == len(x))
-
-    rc = lib.mulder_map_create(
-        _tostr(path),
-        _tostr(projection),
-        len(x),
-        len(y),
-        x[0],
-        x[-1],
-        y[0],
-        y[-1],
-        _todouble(data)
-    )
-    if rc != lib.MULDER_SUCCESS:
-        raise LibraryError()
 
 
 def generate_physics(path, destination=None):

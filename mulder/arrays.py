@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 import numpy
-from .wrapper import ffi, lib
+from .ffi import ffi, lib
 
 
 def arrayclass(cls):

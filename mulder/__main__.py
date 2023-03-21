@@ -4,11 +4,11 @@ from typing import Optional
 
 import numpy
 
-from . import create_map, generate_physics, git_revision, PREFIX, version
+from . import generate_physics, git_revision, MapGrid, PREFIX, version
 
 
 def convert(path: Path, offset: Optional[float]=None):
-    """Convert GeoTIFF data to Turtle PNG"""
+    """Convert GeoTIFF data to Turtle PNG."""
 
     from geotiff import GeoTiff # Optional dependency
 
@@ -29,15 +29,18 @@ def convert(path: Path, offset: Optional[float]=None):
 
     ny, nx = g.tif_shape
     (xmin, ymin), (xmax, ymax) = g.tif_bBox
-    x = numpy.linspace(xmin, xmax, nx)
-    y = numpy.linspace(ymin, ymax, ny)
+    grid = MapGrid(
+        x = numpy.linspace(xmin, xmax, nx),
+        y = numpy.linspace(ymin, ymax, ny)
+    )
+    grid.height[:] = data.flatten()
 
     path = path.with_suffix(".png")
-    create_map(str(path), projection, x, y, data)
+    grid.create_map(str(path), projection)
 
 
 def main():
-    """Entry point for the mulder utility"""
+    """Entry point for the mulder utility."""
 
     copyright = "Copyright (C) 2023 Université Clermont Auvergne, "\
                 "CNRS/IN2P3, LPC"

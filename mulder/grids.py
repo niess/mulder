@@ -8,6 +8,7 @@ from collections import namedtuple
 import numpy
 
 from .types import Flux
+from .ffi import ffi, lib, LibraryError, _todouble, _tostr
 
 
 class Grid:
@@ -174,3 +175,53 @@ class FluxGrid(Grid):
             lims.astype("<f8").tofile(f)
 
             data.flatten().tofile(f)
+
+
+class MapGrid(Grid):
+    """Specialised Grid, used for tabulating topography values."""
+
+    @property
+    def height(self) -> numpy.ndarray:
+        """Height at grid nodes"""
+        return self._height
+
+    def __init__(self, x, y):
+
+        # Check inputs
+        assert(len(x) > 1)
+        assert(len(y) > 1)
+
+        if not _is_regular(x):
+            raise ValueError("bad x-coordinate vector (not regular)")
+
+        if not _is_regular(y):
+            raise ValueError("bad y-coordinate vector (not regular)")
+
+        super().__init__(
+            x = x,
+            y = y
+        )
+
+        self._height = numpy.zeros(self._size)
+
+    def create_map(self, path, projection=None):
+        """Create a Turtle map from a numpy array."""
+
+        # Prepare path directory.
+        directory = Path(path).parent
+        directory.mkdir(parents=True, exist_ok=True)
+
+        # Generate the map.
+        rc = lib.mulder_map_create(
+            _tostr(path),
+            _tostr(projection),
+            len(self.base.x),
+            len(self.base.y),
+            self.base.x[0],
+            self.base.x[-1],
+            self.base.y[0],
+            self.base.y[-1],
+            _todouble(self.height)
+        )
+        if rc != lib.MULDER_SUCCESS:
+            raise LibraryError()

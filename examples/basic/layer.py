@@ -15,7 +15,7 @@ stored under data/GMRT.asc.
 """
 
 import matplotlib.pyplot as plot
-from mulder import create_map, Grid, Layer
+from mulder import Grid, Layer
 from mulder.matplotlib import LightSource, set_cursor_data
 import numpy
 
@@ -81,25 +81,43 @@ assert(abs(y - projection.y) < 1E-07)
 
 
 # =============================================================================
-# The topography data can be retrieved as numpy arrays using the asarrays
-# method.
+# The topography data can be retrieved as a mulder.Grid like object using the
+# Layer.grid method (see the grids.py example for more information on mulder
+# Grids). Thus
 
-x, y, z = layer.asarrays()
+grid = layer.grid()
 
-# Note that the returned arrays are a copy of the layer internal data. That is,
-# modifying *z* does not alter the instanciated layer object. Yet, a new
-# topography file could be created from the (potentially modified) arrays, as
+# The returned *grid* object is a specialised MapGrid holding an extra height
+# attribute, containing topography data.
 
-create_map("data/GMRT.png", layer.projection, x, y, z)
+print(f"""\
+Grid properties:
+- shape:  {grid.shape},
+- x:      {len(grid.base.x)} values
+- y:      {len(grid.base.y)} values
+- height: {len(grid.height)} values
+""")
 
-# which could then be loaded back as another Layer object. Note that Mulder uses
-# its own .png format in order to store the new map.
+# Note that the grid arrays are copies of the layer internal data. That is,
+# modifying *grid.height* does not alter the instanciated layer object. However,
+# a new topography file could be created from the (potentially modified) grid,
+# as
+
+grid.create_map("data/GMRT.png", layer.projection)
+
+# which could then be loaded back as another Layer object.
+
+layer = Layer(model="data/GMRT.png")
+
+# Let us point out that Mulder uses its own .png format in order to store the
+# new map. This is a compressed image format, thus, resulting in reduced file
+# size as compared to initial *.asc data.
 
 
 # =============================================================================
 # In the following, let us illustrate some additional properties of Layers by
 # drawing the topography content. First, let us define refined coordinates over
-# a mulder.Grid (see the grids.py example for more information on Grid objects).
+# a new mulder.Grid.
 
 upscaling = 10
 grid = Grid(
