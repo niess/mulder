@@ -127,6 +127,11 @@ class Array:
         return self._size
 
     @property
+    def shape(self):
+        """Numpy like shape, for compatibility."""
+        return (self._size,)
+
+    @property
     def cffi_pointer(self):
         """cffi pointer."""
         return ffi.cast(self.ctype, self._data.ctypes.data)

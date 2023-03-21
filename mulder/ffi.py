@@ -1,7 +1,6 @@
 """FFI related utilities.
 """
 
-
 from .wrapper import ffi, lib
 
 
@@ -15,9 +14,9 @@ class LibraryError(Exception):
 
 
 # Type conversions between cffi and numpy
-_todouble = lambda x: ffi.cast("double *", ffi.from_buffer(x))
+todouble = lambda x: ffi.cast("double *", x.ctypes.data)
 
-_toint = lambda x: ffi.cast("int *", ffi.from_buffer(x))
+toint = lambda x: ffi.cast("int *", x.ctypes.data)
 
-_tostr = lambda x: ffi.NULL if x is None else \
-                   ffi.new("const char[]", x.encode())
+tostr = lambda x: ffi.NULL if x is None else \
+                  ffi.new("const char[]", x.encode())

@@ -6,7 +6,8 @@ structures, accessed through cffi. Thus, Arrays are the base input and output
 objects of the mulder Python package.
 """
 
-from mulder import arrayclass, Layer, Projection
+from mulder import Layer, Projection
+from mulder.arrays import arrayclass
 
 
 # =============================================================================

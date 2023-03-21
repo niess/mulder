@@ -4,7 +4,9 @@ from typing import Optional
 
 import numpy
 
-from . import generate_physics, git_revision, MapGrid, PREFIX, version
+from .grids import MapGrid
+from .physics import generate_physics
+from .version import git_revision, version
 
 
 def convert(path: Path, offset: Optional[float]=None):

@@ -8,7 +8,7 @@ from collections import namedtuple
 import numpy
 
 from .types import Flux
-from .ffi import ffi, lib, LibraryError, _todouble, _tostr
+from .ffi import ffi, lib, LibraryError, todouble, tostr
 
 
 class Grid:
@@ -213,15 +213,15 @@ class MapGrid(Grid):
 
         # Generate the map.
         rc = lib.mulder_map_create(
-            _tostr(path),
-            _tostr(projection),
+            tostr(path),
+            tostr(projection),
             len(self.base.x),
             len(self.base.y),
             self.base.x[0],
             self.base.x[-1],
             self.base.y[0],
             self.base.y[-1],
-            _todouble(self.height)
+            todouble(self.height)
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
