@@ -72,7 +72,7 @@ Atmosphere properties (at 10 km):
 height = numpy.logspace(2, 5, 301)
 atmosphere = geometry.atmosphere(height)
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 plot.plot(height, atmosphere.density, "k-")
 plot.xscale("log")

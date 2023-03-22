@@ -43,7 +43,7 @@ reference = fluxmeter.reference.flux(
 # Plot normed flux, for comparison with Guan et al. (arxiv.org:1509.06176)
 norm = state.energy**2.7 * 1E-04
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 plot.plot(state.energy, flux.value * norm, "k-", label="computation")
 plot.plot(state.energy, reference.value * norm, "k--", label="reference")

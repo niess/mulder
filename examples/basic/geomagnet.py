@@ -80,7 +80,7 @@ intensity = field.norm()
 # Finally, we plot the result. Note that for this we need to unflatten the
 # intensity values to a 2d-array.
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 plot.pcolormesh(
     grid.base.longitude,

@@ -128,7 +128,7 @@ flux_pdg = pdg_flux(cos_theta, energy).value
 
 # Finally, we plot the results.
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 plot.plot(energy, flux_pdg, "k-", label="PDG model")
 plot.plot(energy[::20], flux_ref[::20], "ko", label="from table")

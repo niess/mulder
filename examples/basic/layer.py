@@ -158,7 +158,7 @@ colors = colors.reshape((*grid.shape, 4))
 
 # Finally, we plot the resulting picture.
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 image = plot.imshow(
     colors,

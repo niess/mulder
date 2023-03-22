@@ -170,7 +170,7 @@ reference_flux = fluxmeter.reference.flux(
     energy = energy
 )
 
-plot.style.use("examples/examples.mplstyle")
+plot.style.use("examples.mplstyle")
 plot.figure()
 plot.plot(energy, flux.value, "k-", label="computation")
 plot.plot(energy, reference_flux.value, "k--", label="reference")
