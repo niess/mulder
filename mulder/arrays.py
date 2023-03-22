@@ -115,6 +115,7 @@ class Array:
             if len(args) == 1 and not kwargs:
                 return args[0]
         elif args or kwargs:
+            return cls(*args, **kwargs)
             try:
                 return cls(*args, **kwargs)
             except:
@@ -174,33 +175,39 @@ class Array:
         """Compute (common) array size for given arguments."""
         size = None
         for i, arg in enumerate(args):
-            try:
-                shape = numpy.shape(arg)
-            except:
-                raise ValueError(
-                    "bad shape (expected a scalar or vector, "
-                    "got an undefined shape)"
-                )
-            ndim = len(shape)
-            if ndim == 0:
-                continue
+            if isinstance(arg, Array):
+                s = arg.size
+                if (s is None) or (s == 1):
+                    continue
             else:
-                if properties:
-                    tp = properties[i][1]
-                    if not isinstance(tp, str):
-                        ndim -= 1
-                        if ndim == 0:
-                            continue
-                if ndim > 1:
+                try:
+                    shape = numpy.shape(arg)
+                except:
                     raise ValueError(
-                        f"bad shape (expected a scalar or vector, "
-                        f"got a {ndim}d array)"
+                        "bad shape (expected a scalar or vector, "
+                        "got an undefined shape)"
                     )
-                s = shape[0]
-                if size is None:
-                    size = s
-                elif (s != size) and (s != 1):
-                    raise ValueError("incompatible size(s)")
+                ndim = len(shape)
+                if ndim == 0:
+                    continue
+                else:
+                    if properties and (i < len(properties)):
+                        tp = properties[i][1]
+                        if not isinstance(tp, str):
+                            ndim -= 1
+                            if ndim == 0:
+                                continue
+                    if ndim > 1:
+                        raise ValueError(
+                            f"bad shape (expected a scalar or vector, "
+                            f"got a {ndim}d array)"
+                        )
+                    s = shape[0]
+
+            if size is None:
+                size = s
+            elif (s != size) and (s != 1):
+                raise ValueError("incompatible size(s)")
         return size
 
     def __eq__(self, other):

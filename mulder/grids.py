@@ -7,7 +7,7 @@ from pathlib import Path
 from collections import namedtuple
 import numpy
 
-from .types import Flux
+from .types import Direction, Flux
 from .ffi import ffi, lib, LibraryError, todouble, tostr
 
 
@@ -225,3 +225,56 @@ class MapGrid(Grid):
         )
         if rc != lib.MULDER_SUCCESS:
             raise LibraryError()
+
+
+class PixelGrid(Grid):
+    """Specialised Grid for converting pixel coordinates to angular ones."""
+
+    @property
+    def focus(self):
+        """Camera focus."""
+        return self._focus
+
+    @focus.setter
+    def focus(self, v):
+        assert(isinstance(v, Number))
+        self._focus = v
+
+    def __init__(self, u, v, focus):
+
+        super().__init__(
+            u = u,
+            v = v
+        )
+
+        self.focus = focus
+
+    def direction(self, *args, **kwargs) -> Direction:
+        """Convert pixel coordinates to angular ones"""
+
+        obs_direction = Direction.parse(*args, **kwargs)
+        assert(obs_direction.size is None)
+
+        # Generate spherical base vectors.
+        theta = numpy.radians(90 - obs_direction.elevation)
+        phi = numpy.radians(90 - obs_direction.azimuth)
+        ct, st = numpy.cos(theta), numpy.sin(theta)
+        cp, sp = numpy.cos(phi), numpy.sin(phi)
+
+        ur = numpy.array((st * cp, st * sp, ct)).reshape((3, 1))
+        ut = numpy.array((ct * cp, ct * sp, -st)).reshape((3, 1))
+        up = numpy.array((-sp, cp, 0)).reshape((3, 1))
+
+        # Compute pixel vectors.
+        r = -up * self.u - ut * self.v + self.focus * ur
+
+        # Convert to angular coordinates.
+        x, y, z = r
+        rho = numpy.sqrt(x**2 + y**2)
+        theta = numpy.arctan2(rho, z)
+        phi = numpy.arctan2(y, x)
+
+        return Direction(
+            azimuth = 90 - numpy.degrees(phi),
+            elevation = 90 - numpy.degrees(theta),
+        )

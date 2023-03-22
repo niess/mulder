@@ -26,7 +26,8 @@ otherwise.
 """
 
 import matplotlib.pyplot as plot
-from mulder import Direction, Fluxmeter, Geometry, Reference, State
+from mulder import Direction, Fluxmeter, Geometry, Grid, PixelGrid, Reference, \
+                   State
 import numpy
 
 
@@ -178,4 +179,54 @@ plot.yscale("log")
 plot.xlabel("kinetic energy (GeV)")
 plot.ylabel("flux (GeV$^{-1}$ m$^{2}$ s$^{-1}$ sr$^{-1}$)")
 plot.legend()
+plot.show(block=False)
+
+
+# =============================================================================
+# As a second illustration, we realize a picture of the muon flux at a fixed
+# energy. That for, let us use a mulder.PixelGrid. This is a specialised Grid
+# object (see e.g. the `base/grid.py` example) that can convert (u, v) pixel
+# (camera) coordinates to the corresponding angular directions of observation.
+# Thus, using a tunable *resolution* factor, we define the PixelGrid as
+
+resolution = 50
+grid = PixelGrid(
+    u = numpy.linspace(-2, 2, 4 * resolution + 1),
+    v = numpy.linspace(0, 1, resolution + 1),
+    focus = 3
+)
+
+# Then, the muon flux observed at pixel coordinates is computed for a fixed
+# muon kinetic energy of 10 GeV, as
+
+flux = fluxmeter.flux(
+    latitude = 38.82,
+    longitude = 15.24,
+    direction = grid.direction(
+        azimuth = -145,
+        elevation = 0.5
+    ),
+    energy = 1E+01
+)
+
+# Note that we manually selected an observation location and direction
+# consistent with the map of the `basic/layer.py` example. That is, the
+# observation would be done from a "boat" (at sea level), located northeast of
+# Stromboli island, and with a camera pointing towards the volcano.
+
+plot.figure(figsize=(8, 3.5))
+plot.imshow(
+    grid.reshape(flux.value),
+    origin = "lower",
+    extent = (
+        grid.base.u[0],
+        grid.base.u[-1],
+        grid.base.v[0],
+        grid.base.v[-1]
+    ),
+    cmap = "hot",
+    norm = "log"
+)
+plot.axis("off")
+plot.title(r"Picture of $\mu$ flux at 10 GeV (log-intensity)")
 plot.show()
