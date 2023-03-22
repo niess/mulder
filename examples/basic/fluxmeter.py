@@ -26,7 +26,7 @@ otherwise.
 """
 
 import matplotlib.pyplot as plot
-from mulder import Fluxmeter, Geometry, Reference
+from mulder import Direction, Fluxmeter, Geometry, Reference, State
 import numpy
 
 
@@ -130,8 +130,52 @@ Flux estimate:
 
 # =============================================================================
 # The Fluxmeter.flux method actually takes a mulder.State object as input
-# argument, defining the observation state. But, as other mulder methods, it
+# argument, specifying the observation state. But, as other mulder methods, it
 # also supports implicit packing (see e.g. the `basic/arrays.py` example for
-# more details). Thus, the following syntaxes are equivalent
+# more details). Thus, the following, more lengthy, syntax is equivalent to the
+# previous call
+
+state = State(
+    position = position,
+    direction = Direction(
+        azimuth = 90,  # deg
+        elevation = 60 # deg
+    ),
+    energy = 10 # GeV
+)
+
+assert(fluxmeter.flux(state) == flux)
 
 
+# =============================================================================
+# As an illustration, let us plot the energy spectrum for the previous
+# observation state. First, we define an energy vector, as
+
+energy = numpy.logspace(-1, 3, 401)
+
+# The we compute the flux, as previously, as
+
+flux = fluxmeter.flux(
+    position = state.position,
+    direction = state.direction,
+    energy = energy
+)
+
+# Finally, let us plot the result. As a comparison, we also superimpose the
+# reference flux spectrum.
+
+reference_flux = fluxmeter.reference.flux(
+    elevation = state.elevation,
+    energy = energy
+)
+
+plot.style.use("examples/examples.mplstyle")
+plot.figure()
+plot.plot(energy, flux.value, "k-", label="computation")
+plot.plot(energy, reference_flux.value, "k--", label="reference")
+plot.xscale("log")
+plot.yscale("log")
+plot.xlabel("kinetic energy (GeV)")
+plot.ylabel("flux (GeV$^{-1}$ m$^{2}$ s$^{-1}$ sr$^{-1}$)")
+plot.legend()
+plot.show()

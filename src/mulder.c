@@ -661,6 +661,14 @@ void mulder_fluxmeter_destroy(struct mulder_fluxmeter ** fluxmeter)
 /* Update Turtle steppers for the layered & opensky geometries */
 static void update_steppers(struct fluxmeter * fluxmeter)
 {
+        /* Reset history (local transform) */
+        if (fluxmeter->layers_stepper != NULL) {
+                turtle_stepper_reset(fluxmeter->layers_stepper);
+        }
+        if (fluxmeter->opensky_stepper != NULL) {
+                turtle_stepper_reset(fluxmeter->opensky_stepper);
+        }
+
         const struct mulder_reference * const reference =
             fluxmeter->api.reference;
         if ((fluxmeter->zref_min == reference->height_min) &&
