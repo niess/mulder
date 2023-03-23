@@ -56,9 +56,18 @@ fluxmeter = Fluxmeter(geometry)
 # `advanced/intersect.py` examples for more details on the geometric
 # capabilities of a fluxmeter object.
 
+# The previous code lines could also be simplified using a brief notation with
+# implicit argument packing (see e.g. the `basic/arrays.py example`). Thus,
+# we could have written instead
+
+fluxmeter = Fluxmeter(
+    Rock  = "data/GMRT.asc",
+    Water = 0
+)
+
 
 # =============================================================================
-# The Fluxmeter object is created with a default reference flux, given by the
+# A Fluxmeter object is created with a default reference flux, given by the
 # Fluxmeter.reference attribute. For example
 
 assert(isinstance(
@@ -214,7 +223,7 @@ flux = fluxmeter.flux(
 # observation would be done from a "boat" (at sea level), located northeast of
 # Stromboli island, and with a camera pointing towards the volcano.
 
-plot.figure(figsize=(8, 3.5))
+plot.figure(figsize=(12, 5))
 plot.imshow(
     grid.reshape(flux.value),
     origin = "lower",

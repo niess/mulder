@@ -3,7 +3,7 @@
 
 import numpy
 
-from .arrays import arrayclass
+from .arrays import Algebraic, arrayclass
 
 
 @arrayclass
@@ -19,7 +19,7 @@ class Atmosphere:
 
 
 @arrayclass
-class Direction:
+class Direction(Algebraic):
     """Observation direction, using Horizontal angular coordinates."""
 
     ctype = "struct mulder_direction *"
@@ -31,7 +31,7 @@ class Direction:
 
 
 @arrayclass
-class Enu:
+class Enu(Algebraic):
     """East, North, Upward (ENU) local coordinates."""
 
     ctype = "struct mulder_enu *"
@@ -41,10 +41,6 @@ class Enu:
         ("north",  "f8", "Local north-ward coordinate."),
         ("upward", "f8", "Local upward coordinate.")
     )
-
-    def norm(self):
-        """Vector L^2 norm."""
-        return numpy.sqrt(self.east**2 + self.north**2 + self.upward**2)
 
 
 @arrayclass
@@ -60,7 +56,7 @@ class Flux:
 
 
 @arrayclass
-class Position:
+class Position(Algebraic):
     """Observation position, using geographic coordinates (GPS like)."""
 
     ctype = "struct mulder_position *"
@@ -73,7 +69,7 @@ class Position:
 
 
 @arrayclass
-class Projection:
+class Projection(Algebraic):
     """Projected (map) local coordinates."""
 
     ctype = "struct mulder_projection *"

@@ -7,7 +7,7 @@ import weakref
 
 import numpy
 
-from .arrays import arrayclass, commonsize
+from .arrays import arrayclass, commonsize, pack
 from .ffi import ffi, lib, LibraryError, todouble, toint, tostr
 from .grids import MapGrid
 from .types import Atmosphere, Direction, Enu, Flux, Intersection, Position, \
@@ -613,9 +613,9 @@ class Fluxmeter:
             self._fluxmeter[0].reference = v._reference[0]
             self._reference = v
 
-    def __init__(self, geometry: Geometry, physics=None):
+    def __init__(self, *args, physics=None, **kwargs):
 
-        assert(isinstance(geometry, Geometry))
+        geometry = pack(Geometry, *args, **kwargs)
 
         if physics is None:
             physics = f"{PREFIX}/data/materials.pumas"

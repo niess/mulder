@@ -2,7 +2,12 @@
 """
 
 from collections import namedtuple
+from numbers import Number
+
 import numpy
+from numpy.lib.recfunctions import structured_to_unstructured, \
+                                   unstructured_to_structured
+
 from .ffi import ffi, lib
 
 
@@ -82,12 +87,27 @@ def arrayclass(cls):
         module = cls.__module__
     )
 
-    return type(cls.__name__, (Array,), dict(cls.__dict__))
+    return type(cls.__name__, (Array, *cls.__bases__), dict(cls.__dict__))
 
 
 def commonsize(*args):
     """Return the common size of a set of arrays."""
     return Array._get_size(*args)
+
+
+def pack(cls, *args, **kwargs):
+    """Implicit argument(s) packing"""
+
+    if args and isinstance(args[0], cls):
+        if len(args) == 1 and not kwargs:
+            return args[0]
+    elif args or kwargs:
+        return cls(*args, **kwargs)
+        try:
+            return cls(*args, **kwargs)
+        except:
+            pass
+    raise ValueError(f"bad arguments for {cls.__name__}")
 
 
 class Array:
@@ -104,23 +124,26 @@ class Array:
     def zeros(cls, size):
         """Create a zeroed Array instance."""
         obj = super().__new__(cls)
-        obj._init_array(numpy.empty, size)
+        obj._init_array(numpy.zeros, size)
+        return obj
+
+    @classmethod
+    def from_structured(cls, data, copy=True):
+        """Create an Array instance from a numpy structured array."""
+        assert(data.dtype == cls.dtype)
+        obj = super().__new__(cls)
+        if copy:
+            obj._init_array(numpy.empty, data.size)
+            obj._data[:] = data
+        else:
+            obj._size = data.size
+            obj._data = data
         return obj
 
     @classmethod
     def parse(cls, *args, **kwargs):
         """Create or forward an Array instance."""
-
-        if args and isinstance(args[0], cls):
-            if len(args) == 1 and not kwargs:
-                return args[0]
-        elif args or kwargs:
-            return cls(*args, **kwargs)
-            try:
-                return cls(*args, **kwargs)
-            except:
-                pass
-        raise ValueError(f"bad arguments for {cls.__name__}")
+        return pack(cls, *args, **kwargs)
 
     @property
     def size(self):
@@ -271,3 +294,80 @@ class Array:
             obj = self.empty(size)
             obj._data[:] = numpy.repeat(self._data, repeats, axis=0)
             return obj
+
+
+class Algebraic:
+    """Algebraic properties for Array types"""
+
+    def __add__(self, other):
+        other = self._format(other)
+        data = self.unstructured() + other
+        return self.from_unstructured(data)
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __sub__(self, other):
+        other = self._format(other)
+        data = self.unstructured() - other
+        return self.from_unstructured(data)
+
+    def __rsub__(self, other):
+        other = self._format(other)
+        data = other - self.unstructured()
+        return self.from_unstructured(data)
+
+    def __mul__(self, other):
+        other = self._format(other)
+        data = self.unstructured() * other
+        return self.from_unstructured(data)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        other = self._format(other)
+        data = self.unstructured() / other
+        return self.from_unstructured(data)
+
+    def __rtruediv__(self, other):
+        other = self._format(other)
+        data = other / self.unstructured()
+        return self.from_unstructured(data)
+
+    def __pow__(self, exponent):
+        if isinstance(exponent, Number):
+            data = self.unstructured()**exponent
+            return self.from_unstructured(data)
+        else:
+            return NotImplemented()
+
+    def _format(self, other):
+        if isinstance(other, Number):
+            size = self._size
+        elif isinstance(other, self.__class__):
+            size = self._size if other._size is None else other._size
+            other = other.unstructured()
+        else:
+            return NotImplemented()
+        return other
+
+    @classmethod
+    def from_unstructured(cls, data, copy=False):
+        """Create an Array instance from an unstuctured numpy array"""
+        obj = super().__new__(cls)
+        data = unstructured_to_structured(data, cls.numpy_dtype, copy=copy)
+        obj._size = data.size if data.size > 1 else None
+        obj._data = data
+        return obj
+
+    def unstructured(self, copy=False):
+        """Return an unstructured numpy view of self"""
+        return structured_to_unstructured(self._data, copy=copy)
+
+    def norm(self):
+        """Return L^2 norm"""
+        if self._size is None:
+            return numpy.linalg.norm(self.unstructured())
+        else:
+            return numpy.linalg.norm(self.unstructured(), axis=0)

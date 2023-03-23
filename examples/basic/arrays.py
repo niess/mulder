@@ -7,7 +7,9 @@ objects of the mulder Python package.
 """
 
 from mulder import Layer, Projection
-from mulder.arrays import arrayclass
+from mulder.arrays import Algebraic, arrayclass
+
+import numpy
 
 
 # =============================================================================
@@ -123,6 +125,56 @@ assert(v.x[1] == 0)
 
 
 # =============================================================================
+# Mulder Arrays representing Cartesian coordinates also support algebraic
+# operations. This is the case for example for the Projection type. Checking
+# for algebraic support can be done as
+
+assert(isinstance(v, Algebraic))
+
+# Then, for example, the distance between two points could be computed as
+
+a = Projection(2, 1)
+b = Projection(1, 0)
+c = a - b
+distance = (c.x**2 + c.y**2)**0.5
+
+# Or directly as
+
+assert(distance == (a - b).norm())
+
+# Algebraic objects can also be simply viewed as unstructured numpy arrays. This
+# can be convenient e.g. in order to apply numpy functions, as
+
+data = c.unstructured()
+print(f"""\
+# Data properties (unstructured view):
+- shape: {data.shape}
+- size:  {data.size}
+""")
+
+distance = numpy.linalg.norm(data)
+
+# Note that by default a reference to the initial data is returned. Thus
+
+assert(c.x == 1)
+data *= 2
+assert(c.x == 2)
+
+# does modify the original Array. The converse Algebraic.from_unstructured
+# method allows one to create an Algebraic Array instance from a numpy.ndarray,
+# as
+
+d = Projection.from_unstructured(data, copy=True)
+assert(d == c)
+
+# Note that in this case we explictly requested a copy (by default copy is
+# False, as previously). Thus *d* refers to new data.
+
+d.x = 1
+assert(c.x == 2)
+
+
+# =============================================================================
 # Finally, let us briefly discuss the arrayclass decorator, as well as some
 # technicalities of mulder Arrays. Note that the following is not required for
 # basic usage of mulder.
@@ -155,16 +207,17 @@ class Point:
 p = Point(x=1, y=(1, 2))
 
 print(f"""\
-numpy dtype: {Point.numpy_dtype}
-numpy data:  {p.numpy_array.data}
-data size:   {p.numpy_array.nbytes}
-data stride: {p.numpy_stride}
+# Point properties:
+- numpy dtype: {Point.numpy_dtype}
+- numpy data:  {p.numpy_array.data}
+- data size:   {p.numpy_array.nbytes}
+- data stride: {p.numpy_stride}
 """)
 
 # The memory managed by numpy could be forwarded to a C library, using cffi, as
 
 print(f"""\
-cffi pointer: {q.cffi_pointer}
+- cffi pointer: {q.cffi_pointer}
 """)
 
 # Note that in the previous example we did not use our Point object. It would
