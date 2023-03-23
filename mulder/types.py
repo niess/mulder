@@ -54,6 +54,21 @@ class Flux:
         ("asymmetry", "f8", "The corresponding charge asymmetry.")
     )
 
+    def __add__(self, other):
+        """Combine two fluxes with proper computation of the resulting
+        asymmetry.
+        """
+        if isinstance(other, Flux):
+            value = self.value + other.value
+            asymmetry = (
+                    self.asymmetry * self.value +
+                    other.asymmetry * other.value
+                ) / \
+                value
+            return Flux(value, asymmetry)
+        else:
+            return NotImplemented()
+
 
 @arrayclass
 class Position(Algebraic):

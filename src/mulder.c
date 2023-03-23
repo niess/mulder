@@ -792,6 +792,10 @@ struct mulder_flux mulder_fluxmeter_flux(
                         struct mulder_flux r0 = mulder_state_flux(
                             s0, reference);
 
+                        /* Reset steppers for numeric consistency. */
+                        turtle_stepper_reset(f->layers_stepper);
+                        turtle_stepper_reset(f->opensky_stepper);
+
                         s.api.charge = 1.;
                         struct mulder_state s1 =
                             transport_event(f, initial.position, s);

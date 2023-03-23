@@ -89,7 +89,7 @@ print(f"""\
 # The muon flux for the given observation state is simply obtained from the
 # conjugated state as
 #
-# phi_obs = phi_ref(s_ref) * s_ref.weight . (eq1)
+# phi_obs = phi_ref(s_ref) * s_ref.weight (eq1)
 #
 # That is, the observed flux is given by the flux for the conjugated state, i.e.
 # transported to the reference, times the transport weight. This flux can be
@@ -99,7 +99,7 @@ flux = s_ref.flux(fluxmeter.reference)
 
 print(f"""\
 # Observed flux (default reference):
-- value     = {flux.value}
+- value     = {flux.value} per GeV m^2 s sr
 - asymmetry = {flux.asymmetry}
 """)
 
@@ -131,6 +131,78 @@ flux_pdg = s_ref.flux(reference_pdg)
 
 print(f"""\
 # Observed flux (PDG reference):
-- value     = {flux_pdg.value}
+- value     = {flux_pdg.value} per GeV m^2 s sr
 - asymmetry = {flux_pdg.asymmetry}
 """)
+
+
+# =============================================================================
+# So far, we did not discuss the muon charge asymmetry. Indeed, in the absence
+# of geomagnetic field, muons and anti-muons follow identical trajectories.
+# Thus, the charge asymmetry is simply obtained from the conjugated state
+# without any transport weight, as
+#
+# A_obs = A_ref(s_ref) (eq2)
+#
+# However, when a geomagnetic field is added, muon and anti-muons follow
+# different trajectories. Note that this is marginal for many applications.
+# Nevertheless, let us add a geomagnetic field, and let us compute the
+# corresponding conjugated states for both charges.
+
+fluxmeter.geometry.geomagnet = True
+
+s_obs.pid = 13
+s_muon = fluxmeter.transport(s_obs)
+
+s_obs.pid = -13
+s_anti = fluxmeter.transport(s_obs)
+
+print(f"""\
+# Comparison of muon and anti-muon states:
+- elevation: ({s_muon.elevation}, {s_anti.elevation}) deg
+- energy:    ({s_muon.energy}, {s_anti.energy}) GeV
+- weight:    ({s_muon.weight}, {s_anti.weight})
+""")
+
+# As can be seen, results are very similar for both states. The most significant
+# difference is on the angular elevation. The corresponding fluxes at
+# observation point are
+
+flux_muon = s_muon.flux(fluxmeter.reference)
+flux_anti = s_anti.flux(fluxmeter.reference)
+
+print(f"""\
+- flux:      ({flux_muon.value}, {flux_anti.value}) per GeV m^2 s sr
+- asymmetry: ({flux_muon.asymmetry}, {flux_anti.asymmetry})
+""")
+
+# The resulting asymmetry is given
+#
+# A_obs = (A_muon * phi_muon + A_anti * phi_anti) / (phi_muon + phi_anti) (eq3)
+#
+# Mulder also supports directly adding two mulder.Flux objects, as
+
+flux = flux_muon + flux_anti
+
+# where the asymmetry is computed according to (eq3). Let us print the result
+
+print(f"""\
+# Observed flux (with geomagnetic field):
+- value     = {flux.value} per GeV m^2 s sr
+- asymmetry = {flux.asymmetry}
+""")
+
+# Note that, as previously, we could have obtained this result directly with the
+# Fluxmeter.flux method, as
+
+s_obs.pid = 0
+assert(flux == fluxmeter.flux(s_obs))
+
+# Let us also point out that the purpose of the previous example was only to
+# illustrate the capabilities of the Fluxmeter.transport method. In order to
+# perform a consistent flux estimate, the reference flux model should actually
+# not be considered at sea level in such a case. Or, it should take geomagnetic
+# effects into account, otherwise. Thus, for the remaining discussion, let us
+# deactivate the geomagnetic field.
+
+fluxmeter.geomagnet = None
