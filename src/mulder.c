@@ -892,6 +892,8 @@ static int check_geomagnet(struct fluxmeter * fluxmeter)
 
         if (current != geomagnet) {
                 return 0;
+        } else if (current == NULL) {
+                return 1;
         } else {
                 return (current->iid == geomagnet->iid);
         }

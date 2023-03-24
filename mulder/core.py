@@ -1,7 +1,7 @@
 """Core functionalities of the mulder library.
 """
 
-from numbers import Number
+from numbers import Integral, Number
 from pathlib import Path
 import weakref
 
@@ -38,7 +38,7 @@ class State:
         assert(isinstance(reference, Reference))
 
         size = self._size or 1
-        flux = Flux(self._size)
+        flux = Flux.empty(self._size)
 
         lib.mulder_state_flux_v(
             reference._reference[0],
@@ -713,16 +713,23 @@ class Fluxmeter:
 
         return flux
 
-    def transport(self, *args, **kwargs) -> State:
+    def transport(self, *args, events=None, **kwargs) -> State:
         """Transport observation state to the reference location."""
 
         state = State.parse(*args, **kwargs)
 
         size = state._size or 1
-        result = State.empty(state._size)
+        if events is not None:
+            assert(isinstance(events, Integral))
+            assert(events > 0)
+            result = State.empty(events * size)
+        else:
+            events = 1
+            result = State.empty(state._size)
 
         rc = lib.mulder_fluxmeter_transport_v(
             self._fluxmeter[0],
+            events,
             size,
             state.numpy_stride,
             state.cffi_pointer,

@@ -240,19 +240,23 @@ void mulder_state_flux_v(
 /* Vectorized transport */
 enum mulder_return mulder_fluxmeter_transport_v(
     struct mulder_fluxmeter * fluxmeter,
+    int events,
     int size,
     int stride,
     const struct mulder_state * in,
     struct mulder_state * out)
 {
         last_error.rc = MULDER_SUCCESS;
-        for (; size > 0; size--, out++) {
-                *out = mulder_fluxmeter_transport(
-                    fluxmeter,
-                    *in
-                );
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+        for (; size > 0; size--) {
+                int i;
+                for (i = 0; i < events; i++, out++) {
+                        *out = mulder_fluxmeter_transport(
+                            fluxmeter,
+                            *in
+                        );
+                        if (last_error.rc == MULDER_FAILURE) {
+                                return MULDER_FAILURE;
+                        }
                 }
                 in = (void *)in + stride;
         }

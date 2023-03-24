@@ -32,7 +32,7 @@ import numpy
 # =============================================================================
 # As a preamble, let us define a geometry and instanciate the corresponding
 # fluxmeter. Following the `basic/fluxmeter.py` example, this is done using a
-# brief notation where arguments packing is implicit. Thus
+# brief notation where arguments are implicitly packed. Thus
 
 fluxmeter = Fluxmeter(
     Rock  = "data/GMRT.png",
@@ -54,7 +54,7 @@ s_obs.height -= 10  # m
 
 # =============================================================================
 # Let us first discuss the continuous mode. This is the fastest but most
-# approximate algorithm.
+# approximate algorithm. Conceptually, it is also the most familiar to us.
 #
 # In continuous mode, muons behave as deterministic point like (charged)
 # particles with an averaged energy loss. Thus, in the absence of any
@@ -73,33 +73,33 @@ s_ref = fluxmeter.transport(s_obs)
 
 print(f"""\
 # Conjugated state (at reference):
-- height    = {s_ref.height} m
-- elevation = {s_ref.elevation} deg
-- energy    = {s_ref.energy} GeV
-- weight    = {s_ref.weight}
+- height:    {s_ref.height} m
+- elevation: {s_ref.elevation} deg
+- energy:    {s_ref.energy} GeV
+- weight:    {s_ref.weight}
 """)
 
 # As expected, the reference state has a null height, corresponding to Mulder's
 # default reference model. Let us also point out that the transport weight
-# differs from 1 (though, only slightly in this case).
+# differs from unity (though, only slightly in this case).
 
 
 # =============================================================================
 # The muon flux for the given observation state is simply obtained from the
 # conjugated state as
 #
-# phi_obs = phi_ref(s_ref) * s_ref.weight (eq1)
+# flux(s_obs) = reference_flux(s_ref) * s_ref.weight.                     (eq1)
 #
-# That is, the observed flux is given by the flux for the conjugated state, i.e.
-# transported to the reference, times the transport weight. This flux can be
-# obtained directly with the State.flux method, as
+# That is, the observed flux is given by the reference flux for the conjugated
+# state times the transport weight. This flux can be obtained directly with the
+# State.flux method, as
 
 flux = s_ref.flux(fluxmeter.reference)
 
 print(f"""\
 # Observed flux (default reference):
-- value     = {flux.value} per GeV m^2 s sr
-- asymmetry = {flux.asymmetry}
+- value:     {flux.value} per GeV m^2 s sr
+- asymmetry: {flux.asymmetry}
 """)
 
 # Let us point out that the previous result takes into account the transport
@@ -130,8 +130,8 @@ flux_pdg = s_ref.flux(reference_pdg)
 
 print(f"""\
 # Observed flux (PDG reference):
-- value     = {flux_pdg.value} per GeV m^2 s sr
-- asymmetry = {flux_pdg.asymmetry}
+- value:     {flux_pdg.value} per GeV m^2 s sr
+- asymmetry: {flux_pdg.asymmetry}
 """)
 
 
@@ -141,7 +141,7 @@ print(f"""\
 # Thus, the charge asymmetry is simply obtained from the conjugated state
 # without any transport weight, as
 #
-# A_obs = A_ref(s_ref) (eq2)
+# A_obs = A_ref(s_ref).                                                   (eq2)
 #
 # However, when a geomagnetic field is added, muon and anti-muons follow
 # different trajectories. Note that this is marginal for many applications.
@@ -175,9 +175,10 @@ print(f"""\
 - asymmetry: ({flux_muon.asymmetry}, {flux_anti.asymmetry})
 """)
 
-# The resulting asymmetry is given
+# The resulting asymmetry is given by
 #
-# A_obs = (A_muon * phi_muon + A_anti * phi_anti) / (phi_muon + phi_anti) (eq3)
+# A(s_obs) = (A(s_muon) * flux(s_muon) + A(s_anti) * flux(s_anti) /
+#            (flux(s_muon) + flux(s_anti)).                               (eq3)
 #
 # Mulder also supports directly adding two mulder.Flux objects, as
 
@@ -187,8 +188,8 @@ flux = flux_muon + flux_anti
 
 print(f"""\
 # Observed flux (with geomagnetic field):
-- value     = {flux.value} per GeV m^2 s sr
-- asymmetry = {flux.asymmetry}
+- value:     {flux.value} per GeV m^2 s sr
+- asymmetry: {flux.asymmetry}
 """)
 
 # Note that, as previously, we could have obtained this result directly with the
@@ -204,4 +205,91 @@ assert(flux == fluxmeter.flux(s_obs))
 # effects into account, otherwise. Thus, for the remaining discussion, let us
 # deactivate the geomagnetic field.
 
-fluxmeter.geomagnet = None
+fluxmeter.geometry.geomagnet = None
+
+
+# =============================================================================
+# Let us now discuss the two other transport modes, i.e. "discrete" and "mixed".
+# Let us recall that (anti)muons are actually elementary particles governed by
+# quantum physics (Quantum Field Theory, more precisely). Thus, their
+# interactions with matter (collisions) are intrinsically non deterministic. The
+# continuous picture is only an approximate model, resulting from the
+# macroscopic averaging of a large number of atomic collisions. Most of these
+# collisions are actually soft, i.e. with a small energy transfer. The
+# collective effect of these soft collisions is well rendered by a continuous
+# (average) energy loss.
+#
+# However, as the muon energy increases (typically above a few hundreds of GeV),
+# hard (catastrophic) collisions become more and more likely, where the muon
+# looses a significant fraction of its kinetic energy. As a result, the energy
+# loss of high energy muons strongly fluctuates. This needs to be taken into
+# account for precise flux predictions, e.g. with a discrete Monte Carlo
+# treatment.
+#
+# In mixed mode, (anti)muons still follow deterministic straight trajectories,
+# in the absence of any geomagnetic field. However, the energy loss of
+# catastrophic collisions is simulated in detail (soft collisions are still
+# treated continuously). As a result, conjugated states are no more
+# deterministic. In practice, the fluxmeter usage is almost identical to the
+# continuous case, but applying a Monte Carlo procedure. That is, one needs to
+# simulate multiple discrete events for a given observation point. Then, a flux
+# estimate is obtained by averaging the individual result.
+#
+# As an example, let us switch to mixed mode, and let us generate a bunch of
+# conjugated states for the observation.
+
+fluxmeter.mode = "mixed"
+
+s_ref = fluxmeter.transport(
+    s_obs,
+    events = 5
+)
+
+print(f"""\
+# Conjugated states (mixed case):
+- pid:       {s_ref.pid}
+- elevation: {s_ref.elevation} deg
+- energy:    {s_ref.energy} GeV
+- weight:    {s_ref.weight}
+""")
+
+# Note that you get different results each time that you run this example. Thus,
+# you should see that sometimes the energy is higher. This indicates that a
+# catastrophic collision occurred. As a result, a higher energy muon is required
+# in order to actually reach the observer.
+#
+# Note also that the conjugated states now have a defined pid, corresponding to
+# muons (13) or anti-muons (-13). That is, in mixed (and discrete) mode, when no
+# specific charge is given for the observation, then it is randomised with a 1 /
+# 2 probability for (anti)muon. Following, the transport weight is two times
+# higher than previously.
+#
+# Now, let us generate a more significant number of events, and let us compute
+# the corresponding fluxes.
+
+s_ref = fluxmeter.transport(
+    s_obs,
+    events = 10000
+)
+
+flux = s_ref.flux(fluxmeter.reference)
+
+
+# =============================================================================
+# The Monte Carlo estimate of the flux at observation point is obtained by
+# averaging previous results, as
+
+flux_mean = numpy.mean(flux.value)
+flux_std = numpy.std(flux.value) / numpy.sqrt(flux.size - 1)
+
+print(f"""\
+# Observed flux (mixed mode):
+- value: {flux_mean} +- {flux_std} per GeV m^2 s sr
+""")
+
+# In this particular case, the Monte Carlo estimate should be close to the
+# previous continuous result. Indeed, as stated previously, fluctuations in the
+# energy loss are only significant for high energy muons traversing a
+# significant amount of matter (hundreds of meters of rock). As a cross-check,
+# you could increase the observation's kinetic energy to 1 TeV (i.e. 1000 GeV)
+# and.decrease the height by 1 km, at the top of this example (and run again).

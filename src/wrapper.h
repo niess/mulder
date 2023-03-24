@@ -94,6 +94,7 @@ void mulder_state_flux_v(
 /* Vectorized transport */
 enum mulder_return mulder_fluxmeter_transport_v(
     struct mulder_fluxmeter * fluxmeter,
+    int events,
     int size,
     int stride,
     const struct mulder_state * in,
