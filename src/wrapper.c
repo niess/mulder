@@ -1,5 +1,7 @@
 /* C standard library */
 #include <float.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,13 +36,13 @@ static void capture_error(const char * message)
 static void (*default_error)(const char * msg) = NULL;
 
 
+/* Initialise & finalise */
 __attribute__((constructor))
 static void initialise_wrapper(void)
 {
         default_error = mulder_error;
         mulder_error = &capture_error;
 }
-
 
 __attribute__((destructor))
 static void finalise_wrapper(void)
@@ -67,6 +69,49 @@ void mulder_error_clear(void)
 }
 
 
+/* Catch interrupts */
+typedef void (*sighandler_t)(int);
+
+static struct {
+        int signum;
+        sighandler_t handler;
+} sig_context = { .signum = 0 };
+
+
+static void catch_signal(int signum);
+
+
+static void set_signal(void)
+{
+        sig_context.signum = 0;
+        /* Redirect default signal handler */
+        sig_context.handler = signal(SIGINT, &catch_signal);
+}
+
+
+static void clear_signal(void)
+{
+        sig_context.signum = 0;
+        if (sig_context.handler != NULL) {
+                /* Restore default signal handler */
+                signal(SIGINT, sig_context.handler);
+                sig_context.handler = NULL;
+        }
+}
+
+
+static void catch_signal(int signum)
+{
+        if (signum == SIGINT) {
+                sig_context.signum = signum;
+                if (sig_context.handler != NULL) {
+                        /* Call default signal handler */
+                        sig_context.handler(signum);
+                }
+        }
+}
+
+
 /* Vectorized topography height */
 void mulder_layer_height_v(
     const struct mulder_layer * layer,
@@ -75,13 +120,19 @@ void mulder_layer_height_v(
     const struct mulder_projection * projection,
     double * height)
 {
+        set_signal();
         for (; size > 0; size--, height++) {
                 *height = mulder_layer_height(
                     layer,
                     *projection
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 projection = (void *)projection + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -93,13 +144,19 @@ void mulder_layer_gradient_v(
     const struct mulder_projection * projection,
     struct mulder_projection * gradient)
 {
+        set_signal();
         for (; size > 0; size--, gradient++) {
                 *gradient = mulder_layer_gradient(
                     layer,
                     *projection
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 projection = (void *)projection + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -111,13 +168,19 @@ void mulder_layer_position_v(
     const struct mulder_projection * projection,
     struct mulder_position * position)
 {
+        set_signal();
         for (; size > 0; size--, position++) {
                 *position = mulder_layer_position(
                     layer,
                     *projection
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 projection = (void *)projection + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -129,13 +192,19 @@ void mulder_layer_project_v(
     const struct mulder_position * position,
     struct mulder_projection * projection)
 {
+        set_signal();
         for (; size > 0; size--, projection++) {
                 *projection = mulder_layer_project(
                     layer,
                     *position
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 position = (void *)position + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -147,13 +216,19 @@ void mulder_geomagnet_field_v(
     const struct mulder_position * position,
     struct mulder_enu * field)
 {
+        set_signal();
         for (; size > 0; size--, field++) {
                 *field = mulder_geomagnet_field(
                     geomagnet,
                     *position
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 position = (void *)position + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -165,10 +240,16 @@ void mulder_geometry_atmosphere_v(
     const double * height,
     struct mulder_atmosphere * atmosphere)
 {
+        set_signal();
         for (; size > 0; size--, atmosphere++) {
                 *atmosphere = geometry->atmosphere(*height);
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 height = (void *)height + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -180,18 +261,22 @@ enum mulder_return mulder_fluxmeter_flux_v(
     const struct mulder_state * state,
     struct mulder_flux * flux)
 {
+        set_signal();
         last_error.rc = MULDER_SUCCESS;
         for (; size > 0; size--, flux++) {
                 *flux = mulder_fluxmeter_flux(
                     fluxmeter,
                     *state
                 );
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+                if ((last_error.rc == MULDER_FAILURE) ||
+                    (sig_context.signum != 0)) {
+                        goto exit;
                 }
                 state = (void *)state + stride;
         }
-        return MULDER_SUCCESS;
+exit:
+        clear_signal();
+        return last_error.rc;
 }
 
 
@@ -205,6 +290,7 @@ void mulder_reference_flux_v(
     const double * energy,
     struct mulder_flux * flux)
 {
+        set_signal();
         for (; size > 0; size--, flux++) {
                 *flux = reference->flux(
                     reference,
@@ -212,10 +298,15 @@ void mulder_reference_flux_v(
                     *elevation,
                     *energy
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 height = (void *)height + strides[0];
                 elevation = (void *)elevation + strides[1];
                 energy = (void *)energy + strides[2];
         }
+exit:
+        clear_signal();
 }
 
 
@@ -227,13 +318,19 @@ void mulder_state_flux_v(
     const struct mulder_state * state,
     struct mulder_flux * flux)
 {
+        set_signal();
         for (; size > 0; size--, flux++) {
                 *flux = mulder_state_flux(
                     *state,
                     reference
                 );
+                if (sig_context.signum != 0) {
+                        goto exit;
+                }
                 state = (void *)state + stride;
         }
+exit:
+        clear_signal();
 }
 
 
@@ -246,6 +343,7 @@ enum mulder_return mulder_fluxmeter_transport_v(
     const struct mulder_state * in,
     struct mulder_state * out)
 {
+        set_signal();
         last_error.rc = MULDER_SUCCESS;
         for (; size > 0; size--) {
                 int i;
@@ -254,13 +352,16 @@ enum mulder_return mulder_fluxmeter_transport_v(
                             fluxmeter,
                             *in
                         );
-                        if (last_error.rc == MULDER_FAILURE) {
-                                return MULDER_FAILURE;
+                        if ((last_error.rc == MULDER_FAILURE) ||
+                            (sig_context.signum != 0)) {
+                                goto exit;
                         }
                 }
                 in = (void *)in + stride;
         }
-        return MULDER_SUCCESS;
+exit:
+        clear_signal();
+        return last_error.rc;
 }
 
 
@@ -273,6 +374,7 @@ enum mulder_return mulder_fluxmeter_intersect_v(
     const struct mulder_direction * direction,
     struct mulder_intersection * intersection)
 {
+        set_signal();
         last_error.rc = MULDER_SUCCESS;
         for (; size > 0; size--, intersection++) {
                 *intersection = mulder_fluxmeter_intersect(
@@ -280,13 +382,16 @@ enum mulder_return mulder_fluxmeter_intersect_v(
                     *position,
                     *direction
                 );
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+                if ((last_error.rc == MULDER_FAILURE) ||
+                    (sig_context.signum != 0)) {
+                        goto exit;
                 }
                 position = (void *)position + strides[0];
                 direction = (void *)direction + strides[1];
         }
-        return MULDER_SUCCESS;
+exit:
+        clear_signal();
+        return last_error.rc;
 }
 
 
@@ -299,6 +404,7 @@ enum mulder_return mulder_fluxmeter_grammage_v(
     const struct mulder_direction * direction,
     double * grammage)
 {
+        set_signal();
         last_error.rc = MULDER_SUCCESS;
         const int m = fluxmeter->geometry->size + 1;
         for (; size > 0; size--, grammage+= m) {
@@ -308,13 +414,16 @@ enum mulder_return mulder_fluxmeter_grammage_v(
                     *direction,
                     grammage
                 );
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+                if ((last_error.rc == MULDER_FAILURE) ||
+                    (sig_context.signum != 0)) {
+                        goto exit;
                 }
                 position = (void *)position + strides[0];
                 direction = (void *)direction + strides[1];
         }
-        return MULDER_SUCCESS;
+exit:
+        clear_signal();
+        return last_error.rc;
 }
 
 
@@ -326,18 +435,22 @@ enum mulder_return mulder_fluxmeter_whereami_v(
     const struct mulder_position * position,
     int * layer)
 {
+        set_signal();
         last_error.rc = MULDER_SUCCESS;
         for (; size > 0; size--, layer++) {
                 *layer = mulder_fluxmeter_whereami(
                     fluxmeter,
                     *position
                 );
-                if (last_error.rc == MULDER_FAILURE) {
-                        return MULDER_FAILURE;
+                if ((last_error.rc == MULDER_FAILURE) ||
+                    (sig_context.signum != 0)) {
+                        goto exit;
                 }
                 position = (void *)position + stride;
         }
-        return MULDER_SUCCESS;
+exit:
+        clear_signal();
+        return last_error.rc;
 }
 
 
