@@ -123,7 +123,7 @@ fluxmeter = Fluxmeter(geometry)
 # metadata in order to get consistent grid coordinates. Thus,
 
 rock = geometry.layers[0]
-latitude = 0.5 * (rock.ymin + rock.ymax)
+latitude = rock.middle.latitude
 
 grid = Grid(
     longitude = numpy.linspace(rock.xmin, rock.xmax, 1001),

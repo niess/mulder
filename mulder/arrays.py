@@ -277,8 +277,9 @@ class Array:
 
     def copy(self):
         """Return a copy of self."""
-        obj = self.empty(self._size)
-        obj._data[:] = self._data
+        obj = super().__new__(self.__class__)
+        obj._data = self._data.copy()
+        obj._size = self._size
         return obj
 
     def repeat(self, repeats):

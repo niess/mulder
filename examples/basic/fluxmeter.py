@@ -25,6 +25,7 @@ the corresponding examples (`basic/geometry.py`, `basic/reference.py`, etc.),
 otherwise.
 """
 
+import matplotlib.colors as colors
 import matplotlib.pyplot as plot
 from mulder import Direction, Fluxmeter, Geometry, Grid, PixelGrid, Reference, \
                    State
@@ -106,13 +107,10 @@ fluxmeter.mode = "continuous"
 # =============================================================================
 # The Fluxmeter.flux method computes a point estimate of the atmospheric muons
 # flux for a given observation state. Let us first define an observation
-# position at the center or the rock layer, as
+# position at the middle or the rock layer, as
 
 rock = geometry.layers[0]
-position = rock.position(
-    0.5 * (rock.xmin + rock.xmax),
-    0.5 * (rock.ymin + rock.ymax)
-)
+position = rock.middle.position
 
 # Then, we relocate the observation point 10 m below the ground, as
 
@@ -234,7 +232,7 @@ plot.imshow(
         grid.base.v[-1]
     ),
     cmap = "hot",
-    norm = "log"
+    norm = colors.LogNorm()
 )
 plot.axis("off")
 plot.title(r"Picture of $\mu$ flux at 10 GeV (log-intensity)")

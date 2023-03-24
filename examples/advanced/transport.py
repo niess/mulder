@@ -1,16 +1,18 @@
 #! /usr/bin/env python3
 """This example illustrates usage of the Fluxmeter.transport method.
 
-The Fluxmeter.transport method takes as input a Mulder observation State and
+The Fluxmeter.transport method takes as input an observation mulder.State and
 returns a conjugated state, transported to the reference's height where the
-corresponding muon flux is known. The returned State carries a transport weight
-resulting from two multiplicative factors:
+corresponding muon flux is known. The conjugated State carries a transport
+weight resulting from two multiplicative factors:
 
 - A Jacobian factor, expressing the conservation of the total number of muons
-  during the transport.
+  during the transport, independently of kinematic variables used for describing
+  the flux.
 
 - An attenuation factor representing muon decays. Note that for reverse
-  transport this term is actually a regeneration factor, i.e. larger than 1.
+  transport this term is actually a regeneration factor, i.e. it is larger than
+  one.
 
 Depending on the Fluxmeter.mode flag, different transport algorithms are used.
 Possible values for the mode flag are "continuous", "discrete" or "mixed". The
@@ -42,10 +44,7 @@ fluxmeter = Fluxmeter(
 
 rock = fluxmeter.geometry.layers[0]
 s_obs = State(
-    position = rock.position(
-        0.5 * (rock.xmin + rock.xmax),
-        0.5 * (rock.ymin + rock.ymax)
-    ),
+    position = rock.middle.position,
     azimuth = 90,   # deg
     elevation = 60, # deg
     energy = 10     # GeV

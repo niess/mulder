@@ -10,8 +10,8 @@ import numpy
 from .arrays import arrayclass, commonsize, pack
 from .ffi import ffi, lib, LibraryError, todouble, toint, tostr
 from .grids import MapGrid
-from .types import Atmosphere, Direction, Enu, Flux, Intersection, Position, \
-                   Projection
+from .types import Atmosphere, Direction, Enu, Flux, Intersection, \
+                   MapLocation, Position, Projection
 
 
 """Package / C-library installation prefix."""
@@ -133,6 +133,46 @@ class Layer:
         """Map maximum value along z-axis."""
         return float(self._layer[0].zmax)
 
+    @property
+    def bottom_left(self):
+        """Layer's bottom-left location."""
+        return self._get_location(
+            "_bottom_left",
+            (1, 0, 1, 0)
+        )
+
+    @property
+    def bottom_right(self):
+        """Layer's bottom-right location."""
+        return self._get_location(
+            "_bottom_right",
+            (0, 1, 1, 0)
+        )
+
+    @property
+    def middle(self):
+        """Layer's middle location."""
+        return self._get_location(
+            "_middle",
+            (0.5, 0.5, 0.5, 0.5)
+        )
+
+    @property
+    def top_left(self):
+        """Layer's top-left location."""
+        return self._get_location(
+            "_top_left",
+            (1, 0, 0, 1)
+        )
+
+    @property
+    def top_right(self):
+        """Layer's top-right location."""
+        return self._get_location(
+            "_top_right",
+            (0, 1, 0, 1)
+        )
+
     def __init__(self, material=None, model=None, density=None, offset=None):
         if material is None: material = "Rock"
 
@@ -240,6 +280,22 @@ class Layer:
         )
 
         return projection
+
+    def _get_location(self, name, signature):
+        """Get a specific (signed) map location."""
+        try:
+            location = getattr(self, name)
+        except AttributeError:
+            projection = Projection(
+                signature[0] * self.xmin + signature[1] * self.xmax,
+                signature[2] * self.ymin + signature[3] * self.ymax
+            )
+            location = MapLocation(
+                self.position(projection),
+                projection
+            )
+            setattr(self, name, location)
+        return location.copy()
 
 
 class Geomagnet:

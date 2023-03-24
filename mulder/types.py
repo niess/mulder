@@ -1,5 +1,7 @@
-"""Basic decorated array types.
+"""Basic container like types.
 """
+
+from typing import NamedTuple
 
 import numpy
 
@@ -105,3 +107,44 @@ class Intersection:
         ("layer",    "i4",     "Intersected layer index."),
         ("position", Position, "Intersection position.")
     )
+
+
+class MapLocation(NamedTuple):
+    """Container for representing a map location."""
+
+    """Location geographic coordinates"""
+    position: Position
+
+    """Location projected coordinates"""
+    projection: Projection
+
+    @property
+    def latitude(self):
+        """Location latitude coordinate, in deg."""
+        return self.position.latitude
+
+    @property
+    def longitude(self):
+        """Location longitude coordinate, in deg."""
+        return self.position.longitude
+
+    @property
+    def height(self):
+        """Location height coordinate, in m."""
+        return self.position.height
+
+    @property
+    def x(self):
+        """Location x coordinate."""
+        return self.projection.x
+
+    @property
+    def y(self):
+        """Location y coordinate."""
+        return self.projection.y
+
+    def copy(self):
+        return MapLocation(
+            self.position.copy(),
+            self.projection.copy()
+        )

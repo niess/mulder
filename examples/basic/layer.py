@@ -54,14 +54,14 @@ Map metadata:
 
 # =============================================================================
 # Mulder uses geographic (GPS-like) coordinates in order to locate a position.
-# Let us get the geographic coordinates at the map center.
+# Let us get the geographic coordinates at the middle of the map.
 
 x = 0.5 * (layer.xmin + layer.xmax)
 y = 0.5 * (layer.ymin + layer.ymax)
 latitude, longitude, height = layer.position(x, y)
 
 # The returned *height* coordinates corresponds to the topography height at the
-# given center position. Let us print the result below.
+# given middle position. Let us print the result below.
 
 print(f"""\
 Center coordinates:
@@ -77,7 +77,13 @@ assert(abs(x - projection.x) < 1E-07)
 assert(abs(y - projection.y) < 1E-07)
 
 # Note that for this example the projection is trivial, since the map uses
-# geographic (longitude, latitude) coordinates.
+# geographic (longitude, latitude) coordinates. Let us also point that specific
+# location, like the middle of the map, can be directly obtained as
+
+assert(projection == layer.middle.projection)
+
+# Other remarkable locations are bottom-left, bottom-right, top-left and
+# top-right.
 
 
 # =============================================================================
