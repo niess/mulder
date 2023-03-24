@@ -850,21 +850,25 @@ struct mulder_state mulder_fluxmeter_transport(
 {
         /* Check pid */
         enum mulder_pid pid = state.pid;
-        if ((pid == MULDER_ANY) &&
-            (fluxmeter->mode == MULDER_CONTINUOUS)) {
-                if (fluxmeter->geometry->geomagnet != NULL) {
+        if (pid == MULDER_ANY) {
+                if (fluxmeter->geometry->geomagnet == NULL) {
+                        pid = MULDER_MUON;
+                } else if (fluxmeter->mode == MULDER_CONTINUOUS) {
                         MULDER_ERROR("bad pid (%d)", 16, (int)state.pid);
                         struct mulder_state tmp = {0.};
                         return tmp;
-                } else {
-                        pid = MULDER_MUON;
                 }
         }
 
         /* Initialise the geometry etc. */
         struct fluxmeter * f = (void *)fluxmeter;
         struct state s = init_event(
-            f, pid, state.position, state.direction, state.energy);
+            f,
+            pid,
+            state.position,
+            state.direction,
+            state.energy
+        );
         if (s.api.weight <= 0.) {
                 struct mulder_state tmp = {0.};
                 return tmp;
@@ -875,7 +879,7 @@ struct mulder_state mulder_fluxmeter_transport(
 
         /* Restore pid, if needed */
         if ((state.pid == MULDER_ANY) &&
-            (fluxmeter->mode == MULDER_CONTINUOUS)) {
+            (fluxmeter->geometry->geomagnet == NULL)) {
                 result.pid = MULDER_ANY;
         }
 

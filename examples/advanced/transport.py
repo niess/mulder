@@ -247,7 +247,6 @@ s_ref = fluxmeter.transport(
 
 print(f"""\
 # Conjugated states (mixed case):
-- pid:       {s_ref.pid}
 - elevation: {s_ref.elevation} deg
 - energy:    {s_ref.energy} GeV
 - weight:    {s_ref.weight}
@@ -255,17 +254,11 @@ print(f"""\
 
 # Note that you get different results each time that you run this example. Thus,
 # you should see that sometimes the energy is higher. This indicates that a
-# catastrophic collision occurred. As a result, a higher energy muon is required
-# in order to actually reach the observer.
+# catastrophic collision occurred. As a result, a higher energy (anti)muon is
+# required in order to actually reach the observer.
 #
-# Note also that the conjugated states now have a defined pid, corresponding to
-# muons (13) or anti-muons (-13). That is, in mixed (and discrete) mode, when no
-# specific charge is given for the observation, then it is randomised with a 1 /
-# 2 probability for (anti)muon. Following, the transport weight is two times
-# higher than previously.
-#
-# Now, let us generate a more significant number of events, and let us compute
-# the corresponding fluxes.
+# For the following, let us generate a more significant number of events, and
+# let us compute their corresponding fluxes.
 
 s_ref = fluxmeter.transport(
     s_obs,
