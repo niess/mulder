@@ -89,14 +89,14 @@ print(f"""\
 #
 # flux(s_obs) = reference_flux(s_ref) * s_ref.weight.                     (eq1)
 #
-# That is, the observed flux is given by the reference flux for the conjugated
-# state times the transport weight. This flux is obtained with the State.flux
-# method, as
+# That is, the observation flux is given by the reference flux for the
+# conjugated state times the transport weight. This flux is obtained with the
+# State.flux method, as
 
 flux = s_ref.flux(fluxmeter.reference)
 
 print(f"""\
-# Observed flux (default reference):
+# Observation flux (default reference):
 - value:     {flux.value} per GeV m^2 s sr
 - asymmetry: {flux.asymmetry}
 """)
@@ -118,17 +118,17 @@ assert(flux.value == eq1)
 assert(flux == fluxmeter.flux(s_obs))
 
 # However, explicitly computing the conjugated state can be handy in some cases.
-# In particular, this is usefull when comparing results for different
-# reference models. Indeed, as can be seen from (eq1), there is usually no need
-# to recompute the conjugated state when changing the reference flux (except
-# if the heights of the references do not overlap). For example, the observed
-# flux for the PDG model would be
+# In particular, this is usefull when comparing results for different reference
+# models. Indeed, as can be seen from (eq1), there is usually no need to
+# recompute the conjugated state when changing the reference flux (except if the
+# heights of the references do not overlap). For example, the observation flux
+# for the PDG model would be
 
 reference_pdg = Reference("data/pdg.table")
 flux_pdg = s_ref.flux(reference_pdg)
 
 print(f"""\
-# Observed flux (PDG reference):
+# Observation flux (PDG reference):
 - value:     {flux_pdg.value} per GeV m^2 s sr
 - asymmetry: {flux_pdg.asymmetry}
 """)
@@ -186,7 +186,7 @@ flux = flux_muon + flux_anti
 # where the asymmetry is computed according to (eq3). Let us print the result
 
 print(f"""\
-# Observed flux (with geomagnetic field):
+# Observation flux (with geomagnetic field):
 - value:     {flux.value} per GeV m^2 s sr
 - asymmetry: {flux.asymmetry}
 """)
@@ -281,7 +281,7 @@ flux_std = numpy.std(flux.value) / numpy.sqrt(flux.size - 1)
 # Let us print the result
 
 print(f"""\
-# Observed flux (mixed mode):
+# Observation flux (mixed mode):
 - value:     {flux_mean} +- {flux_std} per GeV m^2 s sr
 """)
 
@@ -319,3 +319,31 @@ print(f"""\
 # Note that in this particular case the reference's charge asymmetry is
 # constant. Thus, we should recover the corresponding value, as well as a null
 # uncertainty estimate, up to numerical errors.
+
+
+# =============================================================================
+# Mulder provides a utility class for reducing Monte Carlo flux data, that is
+# to a mulder.ReducedFlux. The syntax is as follow
+
+flux = flux.reduce()
+
+# The new ReducedFlux object inherits from a scalar mulder.flux with extra
+# statistical properties. Let us print those
+
+print(f"""\
+# Flux statistics (mixed mode):
+- value:     {flux.value} +- {flux.value_error} per GeV m^2 s sr
+- asymmetry: {flux.asymmetry} +- {flux.asymmetry_error}
+
+- events:    {flux.events}
+- value_min: {flux.value_min}
+- value_max: {flux.value_max}
+- zeros:     {flux.zeros}
+""")
+
+# Note that the flux estimate might slightly differ from previous direct
+# computation due to limited floating point accuracy, when normalising.
+
+precision = 1E-12
+assert(abs(flux.value - flux_mean) < precision)
+assert(abs(flux.asymmetry - asymmetry_mean) < precision)

@@ -60,7 +60,11 @@ class Flux:
         """Combine two fluxes with proper computation of the resulting
         asymmetry.
         """
-        if isinstance(other, Flux):
+
+        if isinstance(other, ReducedFlux):
+            return ReducedFlux.__add__(other, self)
+        else:
+            assert(isinstance(other, Flux))
             value = self.value + other.value
             asymmetry = (
                     self.asymmetry * self.value +
@@ -68,8 +72,150 @@ class Flux:
                 ) / \
                 value
             return Flux(value, asymmetry)
+
+    def reduce(self):
+        """Return a reduced flux estimate."""
+        return ReducedFlux.reduce(self)
+
+
+class FluxStatistics(NamedTuple):
+    """Statictics container summarising a set of flux data."""
+
+    events: int
+    zeros: int
+
+    max_value: float = 0
+    min_value: float = 0
+
+    sum_value: float = 0
+    sum_value2: float = 0
+    weighted_sum_asymmetry: float = 0
+    weighted_sum_asymmetry2: float = 0
+
+
+class ReducedFlux(Flux):
+    """Container for reduced muon flux data."""
+
+    @classmethod
+    def reduce(cls, flux):
+        """Return a reduced flux estimate."""
+        if isinstance(flux, cls):
+            obj = flux.copy()
+            obj._statistics = flux._statistics.copy()
+            return obj
+        else:
+            assert(isinstance(flux, Flux))
+            events = flux._size or 1
+            sel = flux.value > 0
+            zeros = events - sum(sel)
+            values = flux.value[sel]
+            asymmetries = flux.asymmetry[sel]
+            return cls._build_stats(
+                events,
+                zeros,
+                values,
+                values**2,
+                values * asymmetries,
+                values * asymmetries**2,
+            )
+
+    @classmethod
+    def _build_stats(cls, events, zeros, v, v2, wa, wa2):
+        obj = cls.empty(None)
+        if zeros == events:
+            statistics = FluxStatistics(events, zeros)
+        else:
+            statistics = FluxStatistics(
+                events = events,
+                zeros = zeros,
+                max_value = max(v),
+                min_value = min(v),
+                sum_value = sum(v),
+                sum_value2 = sum(v2),
+                weighted_sum_asymmetry = sum(wa),
+                weighted_sum_asymmetry2 = sum(wa2)
+            )
+            obj.value = statistics.sum_value / events
+            obj.asymmetry = statistics.weighted_sum_asymmetry / \
+                            statistics.sum_value
+        obj._statistics = statistics
+        return obj
+
+    @property
+    def asymmetry_error(self):
+        """Error estimate on asymmetry value."""
+        statistics = self._statistics
+        n = statistics.events - 1
+        if (n == 0) or (statistics.zeros == statistics.events):
+            return 0
+        tmp = statistics.weighted_sum_asymmetry2 - \
+              statistics.weighted_sum_asymmetry**2
+        if tmp <= 0:
+            return 0
+        else:
+            return numpy.sqrt(tmp / (n * statistics.sum_value))
+
+    @property
+    def events(self):
+        return self._statistics.events
+
+    @property
+    def value_error(self):
+        """Error estimate on flux value."""
+        statistics = self._statistics
+        n = statistics.events - 1
+        if (n == 0) or (statistics.zeros == statistics.events):
+            return 0
+        tmp = statistics.sum_value2 / statistics.events - self.value**2
+        if tmp <= 0:
+            return 0
+        else:
+            return numpy.sqrt(tmp / n)
+
+    @property
+    def value_max(self):
+        """Maximum flux value."""
+        return self._statistics.max_value
+
+    @property
+    def value_min(self):
+        """Minimum (strictly positive) flux value."""
+        return self._statistics.min_value
+
+    @property
+    def zeros(self):
+        """Number of null flux values."""
+        return self._statistics.zeros
+
+    def __add__(self, other):
+        """Add to a ReducedFlux with propagation of statistics."""
+
+        if isinstance(other, ReducedFlux):
+            s_other = other._statistics
+        elif isinstance(other, Flux):
+            s_other = other.reduce()._statistics
         else:
             return NotImplemented()
+
+        s_self = self._statistics
+
+        return self._build_stats(
+            s_self.events + s_other.events,
+            s_self.zeros + s_other.zeros,
+            numpy.array((s_self.sum_value, s_other.sum_value)),
+            numpy.array((s_self.sum_value2, s_other.sum_value2)),
+            numpy.array((
+                s_self.weighted_sum_asymmetry,
+                s_other.weighted_sum_asymmetry
+            )),
+            numpy.array((
+                s_self.weighted_sum_asymmetry2,
+                s_other.weighted_sum_asymmetry2
+            ))
+        )
+
+    def __radd__(self, other):
+        return other.__add__(self)
 
 
 @arrayclass
