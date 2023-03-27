@@ -207,19 +207,20 @@ grid = PixelGrid(
 # muon kinetic energy of 10 GeV, as
 
 flux = fluxmeter.flux(
-    latitude = 38.82,
-    longitude = 15.24,
+    latitude = 38.82,   # deg
+    longitude = 15.24,  # deg
+    height = 0.5,       # m
     direction = grid.direction(
-        azimuth = -145,
-        elevation = 0.5
+        azimuth = -145, # deg
+        elevation = 0.5 # deg
     ),
-    energy = 1E+01
+    energy = 1E+01      # GeV
 )
 
 # Note that we manually selected an observation location and direction
 # consistent with the map of the `basic/layer.py` example. That is, the
-# observation would be done from a "boat" (at sea level), located northeast of
-# Stromboli island, and with a camera pointing towards the volcano.
+# observation would be done from a "boat" (0.5m above sea level), located
+# northeast of Stromboli island, and with a camera pointing towards the volcano.
 
 plot.figure(figsize=(12, 5))
 plot.imshow(

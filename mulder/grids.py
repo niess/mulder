@@ -96,6 +96,10 @@ class Grid:
         else:
             return (numpy.reshape(arg, self._shape) for arg in args)
 
+    def zeros(self):
+        """Return a flat array of zeros spanning the grid."""
+        return numpy.zeros(self._size)
+
 
 def _is_regular(a):
     """Check if a 1d array has a regular stepping."""
