@@ -89,9 +89,9 @@ print(f"""\
 #
 # flux(s_obs) = reference_flux(s_ref) * s_ref.weight.                     (eq1)
 #
-# That is, the observation flux is given by the reference flux for the
-# conjugated state times the transport weight. This flux is obtained with the
-# State.flux method, as
+# That is, the `observed' flux is given by the reference flux for the conjugated
+# state times the transport weight. This flux is obtained with the State.flux
+# method, as
 
 flux = s_ref.flux(fluxmeter.reference)
 
@@ -344,6 +344,122 @@ print(f"""\
 # Note that the flux estimate might slightly differ from previous direct
 # computation due to limited floating point accuracy, when normalising.
 
-precision = 1E-12
+precision = 1E-09
 assert(abs(flux.value - flux_mean) < precision)
 assert(abs(flux.asymmetry - asymmetry_mean) < precision)
+
+
+# =============================================================================
+# Let us finally discuss the specificities of the discrete transport mode.
+#
+# Let us emphasize that the collective effect of soft collisions not only
+# results in muon energy loss, but also in multiple scattering away from its
+# initial trajectory. The smaller the energy of the muon, the larger the
+# multiple scattering angle. As a result, low energy muons (typically below 1
+# GeV in dense media) do not follow straight line trajectories. In order to
+# properly render the scattering of these low energy muons, a more complete
+# Monte Carlo procedure is required.
+
+# In discrete mode, muons are transported according to a detailed Monte Carlo
+# algorithm. That is, collisions are still classified as soft or hard, where
+# soft collisions are treated collectively. But, collective soft collisions are
+# no more deterministic. The resulting energy loss and scattering angle are
+# distributed. Hard collisions are simulated individually, as in mixed mode, but
+# taking into account muon's deflection.
+#
+# Let us switch to discrete mode, and let us illustrate the previous points by
+# transporting a bunch of events.
+
+fluxmeter.mode = "discrete"
+
+s_ref = fluxmeter.transport(
+    s_obs,
+    events = 5
+)
+
+print(f"""\
+# Conjugated states (discrete case):
+- elevation: {s_ref.elevation} deg
+- energy:    {s_ref.energy} GeV
+- weight:    {s_ref.weight}
+""")
+
+# As can be seen, in discrete mode conjugated states all differ, both in energy
+# and in elevation angle.
+
+
+# =============================================================================
+# Obviously, the discrete transport mode is the most accurate one, but also the
+# most demanding one, cpu-wise. Depending on your use case, the increased
+# accuracy might be relevant or not.
+#
+# Let us further investigate this latter point. That for, lest first generate a
+# more significant set of events.
+
+s_ref = fluxmeter.transport(
+    s_obs,
+    events = 10000
+)
+
+# Let us print the corresponding flux statistics.
+
+flux = s_ref.flux(fluxmeter.reference).reduce()
+
+print(f"""\
+# Flux statistics (discrete mode):
+- value:     {flux.value} +- {flux.value_error} per GeV m^2 s sr
+- asymmetry: {flux.asymmetry} +- {flux.asymmetry_error}
+
+- events:    {flux.events}
+- value_min: {flux.value_min}
+- value_max: {flux.value_max}
+- zeros:     {flux.zeros}
+""")
+
+# As can be seen, in this case no significant difference is observed on the flux
+# estimate, w.r.t. the continuous mode. Going one step further, it is
+# interesting to have a look at the angular distribution of events, at
+# reference. For the elevation angle, this can be obtained as
+
+flux = s_ref.flux(fluxmeter.reference)
+pdf, bin_edges = numpy.histogram(
+    s_ref.elevation,
+    bins = 20,
+    weights = flux.value,
+    density = True
+)
+elevation = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+
+# Let us plot the result
+
+plot.style.use("examples.mplstyle")
+plot.figure()
+plot.plot(elevation, pdf, "k.-")
+plot.xlabel("elevation angle (deg)")
+plot.ylabel("pdf (deg$^{-1}$)")
+plot.show()
+
+# As can be seen, in this case the distribution is peaked at a single value
+# consistent with the straight line expectation, i.e. close to the observation
+# angle. The angular distribution has a spread of ~1 deg. However, this does not
+# significantly impact the observation flux. That is, larger and smaller
+# elevation values, w.r.t. the straight line trajectory, compensate linearly
+# (for small enough spread). Thus, this is clearly a case where the continuous
+# mode is appropriate.
+#
+# As a comparison, you could lower the kinetic energy to 0.1 GeV and offset the
+# height by only 10 cm below the ground, at the begining of this example (and
+# run again). Then, you should observe a much larger angular spread, resulting
+# in a small but statistically significant bias on the flux estimate in
+# continuous or mixed modes, of approximately 2-3%.
+
+
+# =============================================================================
+# As a final word, let us point out that actually, depending on the geometry of
+# your problem, muons scattering can significantly modify the observed flux (up
+# to orders of magnitude in extreme cases). This is the case when the straight
+# line trajectory traverses a significantly larger amount of matter than some
+# alternative -more complex but less attenuated- trajectories. For example, this
+# can be problematic for surface detectors where the observation receives
+# contributions from low energy muons bouncing on the target, instead of going
+# through (see e.g. Niess 2022, arXiv:2206.01457, Figure 11).
