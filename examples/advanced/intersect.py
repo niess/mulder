@@ -1,10 +1,14 @@
 #! /usr/bin/env python3
 """This example illustrates usage of the Fluxmeter.intersect method.
 
-The Fluxmeter.intersect method computes the first intersection of the geometry
-with ray segments. Thus, it provides access to mulder's ray tracing algorithms.
-In this example, we show how this method can be combined with layer data in
-order to realize a photographic like picture of the geometry.
+The Fluxmeter.intersect method is a low level geometry operation. It computes
+the first intersection of the geometry with ray segments. Thus, it provides
+access to mulder's ray tracing algorithms. In this example, we show how this
+method can be combined with layer data in order to realize a photographic like
+picture of the geometry.
+
+See also the `advanced/grammage.py` example for direct computation of column
+depth.
 
 Note:
   This example assumes that your are already familiar with mulder geometries,
@@ -30,25 +34,26 @@ fluxmeter = Fluxmeter(
     Water = 0
 )
 
-# Then, let us define a PixelGrid as observation plane. Note that we introduce
-# a configurable resolution parameter, that might be increased in order to
-# get higher quality picture (at the expanse of longer computing time).
+# Then, let us position the camera at the same observation point than in the
+# `basic/fluxmeter.py` example. That is, aboard a `ship' that would be located
+# North-East of Strombili island.
+
+position = Position(
+    latitude = 38.82,  # deg
+    longitude = 15.24, # deg
+    height = 0.5       # m
+)
+
+# We define a PixelGrid mapping the camera plane to geographic observation
+# directions. Note that we introduce a configurable resolution parameter, that
+# might be increased in order to get higher quality picture (at the expanse of
+# longer computing time).
 
 resolution = 50
 grid = PixelGrid(
     u = numpy.linspace(-2, 2, 4 * resolution + 1),
     v = numpy.linspace(-0.5, 1, int(1.5 * resolution) + 1),
     focus = 3
-)
-
-# Let us position the camera at the same observation point than in the
-# `basic/fluxmeter.py` example. That is, a `boat' located North-East of
-# Strombili island.
-
-position = Position(
-    latitude = 38.82,  # deg
-    longitude = 15.24, # deg
-    height = 0.5       # m
 )
 
 
