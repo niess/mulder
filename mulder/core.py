@@ -600,6 +600,10 @@ class Prng:
 
         return values if n > 1 else values[0]
 
+    def reset(self):
+        """Reset the pseudo-random stream."""
+        self.seed = self.seed
+
 
 class Fluxmeter:
     """Muon flux calculator."""
