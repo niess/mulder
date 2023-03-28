@@ -476,6 +476,8 @@ struct fluxmeter {
         double zref_min;
         double zref_max;
         int use_external_layer;
+        /* Empty geometry placeholder */
+        struct mulder_geometry empty_geometry;
         /* Geomagnet related data */
         struct geomagnet * current_geomagnet;
         double * geomagnet_workspace;
@@ -537,11 +539,20 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
     struct mulder_geometry * geometry)
 {
         /* Allocate memory */
+        struct fluxmeter * fluxmeter;
+        if (geometry == NULL) {
+                fluxmeter = malloc(sizeof *fluxmeter);
+                geometry = &fluxmeter->empty_geometry;
+                geometry->geomagnet = NULL;
+                geometry->atmosphere = &default_atmosphere;
+                init_int((int *)&geometry->size, 0);
+        } else {
+                fluxmeter = malloc(
+                    (sizeof *fluxmeter) +
+                    geometry->size * (sizeof *fluxmeter->layers_media)
+                );
+        }
         const int size = geometry->size;
-        struct fluxmeter * fluxmeter = malloc(
-            (sizeof *fluxmeter) +
-            (size + 1) * (sizeof *fluxmeter->layers_media)
-        );
 
         /* Initialise PUMAS related data */
         FILE * fid = fopen(physics, "r");
@@ -574,7 +585,7 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
 
         struct mulder_layer * const * layers = geometry->layers;
         int i;
-        fluxmeter->zmax = -DBL_MAX;
+        fluxmeter->zmax = ZMIN;
         for (i = 0; i < size; i++) {
                 pumas_error_catch(1);
                 if (pumas_physics_material_index(fluxmeter->physics,
@@ -588,6 +599,14 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
                 fluxmeter->layers_media[i].locals = &layers_locals;
                 if (layers[i]->zmax > fluxmeter->zmax) {
                         fluxmeter->zmax = layers[i]->zmax;
+                } else if (layers[i]->zmin < ZMIN) {
+                        free(fluxmeter);
+                        MULDER_ERROR(
+                            "bad layer height (%g)",
+                            16,
+                            layers[i]->zmin
+                        );
+                        return NULL;
                 }
         }
 

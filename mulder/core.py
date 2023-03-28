@@ -3,7 +3,6 @@
 
 from numbers import Integral, Number
 from pathlib import Path
-import weakref
 
 import numpy
 
@@ -440,7 +439,7 @@ class Geometry:
         geometry = ffi.new("struct mulder_geometry *[1]")
         geometry[0] = lib.mulder_geometry_create(
             len(layers),
-            [layer._layer[0] for layer in layers]
+            [layer._layer[0] for layer in layers] if layers else ffi.NULL
         )
         if geometry[0] == ffi.NULL:
             raise LibraryError()
@@ -568,50 +567,38 @@ class Prng:
 
     @property
     def fluxmeter(self):
-        return self._fluxmeter()
+        return self._fluxmeter
 
     @property
     def seed(self):
-        fluxmeter = self._fluxmeter()
-        if fluxmeter is None:
-            raise RuntimeError("dead fluxmeter ref")
-        else:
-            prng = fluxmeter._fluxmeter[0].prng
-            return int(prng.get_seed(prng))
+        prng = self._fluxmeter._fluxmeter[0].prng
+        return int(prng.get_seed(prng))
 
     @seed.setter
     def seed(self, value):
-        fluxmeter = self._fluxmeter()
-        if fluxmeter is None:
-            raise RuntimeError("dead fluxmeter ref")
-        else:
-            value = ffi.NULL if value is None else \
-                    ffi.new("unsigned long [1]", (value,))
-            prng = fluxmeter._fluxmeter[0].prng
-            prng.set_seed(prng, value)
+        value = ffi.NULL if value is None else \
+                ffi.new("unsigned long [1]", (value,))
+        prng = self._fluxmeter._fluxmeter[0].prng
+        prng.set_seed(prng, value)
 
     def __init__(self, fluxmeter: "Fluxmeter"):
         assert(isinstance(fluxmeter, Fluxmeter))
-        self._fluxmeter = weakref.ref(fluxmeter)
+        self._fluxmeter = fluxmeter
 
     def __call__(self, n=None):
         """Get numbers pseudo-uniformly distributed overs (0, 1)."""
 
-        fluxmeter = self._fluxmeter()
-        if fluxmeter is None:
-            raise RuntimeError("dead fluxmeter ref")
-        else:
-            if n is None: n = 1
-            values = numpy.empty(n)
+        if n is None: n = 1
+        values = numpy.empty(n)
 
-            prng = fluxmeter._fluxmeter[0].prng
-            lib.mulder_prng_uniform01_v(
-                prng,
-                n,
-                todouble(values)
-            )
+        prng = self._fluxmeter._fluxmeter[0].prng
+        lib.mulder_prng_uniform01_v(
+            prng,
+            n,
+            todouble(values)
+        )
 
-            return values if n > 1 else values[0]
+        return values if n > 1 else values[0]
 
 
 class Fluxmeter:
@@ -671,7 +658,10 @@ class Fluxmeter:
 
     def __init__(self, *args, physics=None, **kwargs):
 
-        geometry = pack(Geometry, *args, **kwargs)
+        if args or kwargs:
+            geometry = pack(Geometry, *args, **kwargs)
+        else:
+            geometry = None
 
         if physics is None:
             physics = f"{PREFIX}/data/materials.pumas"
@@ -679,7 +669,7 @@ class Fluxmeter:
         fluxmeter = ffi.new("struct mulder_fluxmeter *[1]")
         fluxmeter[0] = lib.mulder_fluxmeter_create(
             tostr(physics),
-            geometry._geometry[0]
+            geometry._geometry[0] if geometry else ffi.NULL
         )
         if fluxmeter[0] == ffi.NULL:
             raise LibraryError()
@@ -688,6 +678,15 @@ class Fluxmeter:
                 fluxmeter,
                 lib.mulder_fluxmeter_destroy
             )
+
+        if geometry is None:
+            geometry = Geometry.__new__(Geometry)
+            geometry._geometry = ffi.new(
+                "struct mulder_geometry *[1]",
+                (fluxmeter[0].geometry,)
+            )
+            geometry._layers = tuple()
+            geometry._geomagnet = None
 
         self._geometry = geometry
         self._reference = None
