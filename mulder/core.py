@@ -650,11 +650,13 @@ class Fluxmeter:
 
     @reference.setter
     def reference(self, v):
-        if not isinstance(v, Reference):
+        if isinstance(v, str):
+            v = Reference(v)
+        elif not isinstance(v, Reference):
             raise TypeError("bad type (expected a mulder.Reference)")
-        else:
-            self._fluxmeter[0].reference = v._reference[0]
-            self._reference = v
+
+        self._fluxmeter[0].reference = v._reference[0]
+        self._reference = v
 
     def __init__(self, *args, physics=None, **kwargs):
 
