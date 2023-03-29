@@ -8,6 +8,7 @@ import numpy
 
 from .arrays import arrayclass, commonsize, pack
 from .ffi import ffi, lib, LibraryError, todouble, toint, tostr
+from .generators import LogUniform, SinUniform, Uniform
 from .grids import MapGrid
 from .types import Atmosphere, Direction, Enu, Flux, Intersection, \
                    MapLocation, Position, Projection
@@ -28,7 +29,7 @@ class State:
         ("position",  Position,    "Observation position."),
         ("direction", Direction,   "Observation direction."),
         ("energy",    "f8",        "Kinetic energy, in GeV."),
-        ("weight",    "f8",        "Transport weight.")
+        ("weight",    "f8",        "Transport weight.",                 1)
     )
 
     def flux(self, reference: "Reference") -> Flux:
@@ -48,6 +49,13 @@ class State:
         )
 
         return flux
+
+    def generate(self, property, generator):
+        """Generate property using the provided generator."""
+
+        values = generator(self._size)
+        setattr(self, property, values)
+        self.weight[:] *= generator.invpdf(values)
 
 
 class Layer:
@@ -603,6 +611,18 @@ class Prng:
     def reset(self):
         """Reset the pseudo-random stream."""
         self.seed = self.seed
+
+    def log(self, x0, x1):
+        """Return a log-uniform generator over (x0, x1)."""
+        return LogUniform(self, x0, x1)
+
+    def sin(self, x0, x1):
+        """Return a sine-uniform generator over (x0, x1), in deg."""
+        return SinUniform(self, x0, x1)
+
+    def uniform(self, x0, x1):
+        """Return a uniform generator over (x0, x1)."""
+        return Uniform(self, x0, x1)
 
 
 class Fluxmeter:

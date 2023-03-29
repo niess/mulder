@@ -67,7 +67,7 @@ def arrayclass(cls):
         )
 
     dtype = []
-    for name, tp, description in cls.properties:
+    for name, tp, description, *_ in cls.properties:
         add_property(name, tp, description)
         if not isinstance(tp, str):
             tp = tp._dtype
@@ -75,15 +75,17 @@ def arrayclass(cls):
 
     cls._dtype = numpy.dtype(dtype, align=True)
 
-    argnames = [name for (name, _, _) in cls.properties]
-    for (_, tp, _) in cls.properties:
+    argnames = [name for (name, *_) in cls.properties]
+    for (_, tp, *_) in cls.properties:
         if not isinstance(tp, str):
-            argnames += [name for (name, _, _) in tp.properties]
+            argnames += [name for (name, *_) in tp.properties]
+
+    defaults = [None if len(v) < 4 else v[3] for v in cls.properties]
 
     cls._parser = namedtuple( # For unpacking arguments
         f"{cls.__name__}Parser",
         argnames,
-        defaults=len(argnames) * [None,],
+        defaults = defaults,
         module = cls.__module__
     )
 
@@ -114,14 +116,23 @@ class Array:
     """Base class wrapping a structured numpy.ndarray."""
 
     @classmethod
-    def empty(cls, size):
+    def empty(cls, size=None):
         """Create an empty Array instance."""
         obj = super().__new__(cls)
         obj._init_array(numpy.empty, size)
         return obj
 
     @classmethod
-    def zeros(cls, size):
+    def new(cls, size=None):
+        """Create a new Array instance initialised with default values."""
+        obj = cls.zeros(size)
+        for v in cls.properties:
+            if len(v) >= 4:
+                setattr(obj, v[0], v[3])
+        return obj
+
+    @classmethod
+    def zeros(cls, size=None):
         """Create a zeroed Array instance."""
         obj = super().__new__(cls)
         obj._init_array(numpy.zeros, size)

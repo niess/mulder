@@ -73,9 +73,9 @@ class Flux:
                 value
             return Flux(value, asymmetry)
 
-    def reduce(self):
+    def reduce(self, weight=None):
         """Return a reduced flux estimate."""
-        return ReducedFlux.reduce(self)
+        return ReducedFlux.reduce(self, weight=weight)
 
 
 class FluxStatistics(NamedTuple):
@@ -97,18 +97,23 @@ class ReducedFlux(Flux):
     """Container for reduced muon flux data."""
 
     @classmethod
-    def reduce(cls, flux):
+    def reduce(cls, flux, weight=None):
         """Return a reduced flux estimate."""
         if isinstance(flux, cls):
             obj = flux.copy()
             obj._statistics = flux._statistics.copy()
+            if weight is not None:
+                obj.value *= weight
             return obj
         else:
             assert(isinstance(flux, Flux))
             events = flux._size or 1
-            sel = flux.value > 0
+            values = flux.value
+            if weight is not None:
+                values *= weight
+            sel = values > 0
             zeros = events - sum(sel)
-            values = flux.value[sel]
+            values = values[sel]
             asymmetries = flux.asymmetry[sel]
             return cls._build_stats(
                 events,
