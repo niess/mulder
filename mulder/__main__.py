@@ -4,6 +4,7 @@ from typing import Optional
 
 import numpy
 
+from .core import PREFIX
 from .grids import MapGrid
 from .physics import generate_physics
 from .version import git_revision, version

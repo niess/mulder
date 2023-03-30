@@ -135,11 +135,11 @@ wheel: | package
 	@rm -rf build mulder.egg-info
 
 
-# Examples
+# C example(s)
 .PHONY: examples
-examples: bin/test
+examples: bin/example
 
-EXAMPLES_CFLAGS= $(CFLAGS) -Isrc -Llib $(RPATH)
+EXAMPLES_CFLAGS= $(CFLAGS) -Isrc -Llib $(RPATH) -DMULDER_PREFIX='"$(PWD)/mulder"'
 
 bin/%: examples/%.c src/mulder.h | lib/$(LIB) bindir
 	$(CC) $(EXAMPLES_CFLAGS) -o $@ $< -lmulder
