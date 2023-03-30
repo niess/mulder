@@ -478,6 +478,8 @@ struct fluxmeter {
         int use_external_layer;
         /* Empty geometry placeholder */
         struct mulder_geometry empty_geometry;
+        /* Defaukt reference placeholder */
+        struct mulder_reference default_reference;
         /* Geomagnet related data */
         struct geomagnet * current_geomagnet;
         double * geomagnet_workspace;
@@ -629,7 +631,12 @@ struct mulder_fluxmeter * mulder_fluxmeter_create(
         fluxmeter->api.mode = MULDER_CONTINUOUS;
 
         /* Initialise reference flux */
-        fluxmeter->api.reference = &default_reference;
+        memcpy(
+            &fluxmeter->default_reference,
+            &default_reference,
+            sizeof default_reference
+        );
+        fluxmeter->api.reference = &fluxmeter->default_reference;
         fluxmeter->zref = 0.;
         fluxmeter->zref_min = DBL_MAX;
         fluxmeter->zref_max = -DBL_MAX;
@@ -1729,9 +1736,17 @@ static struct mulder_reference default_reference = {
         .flux = &reference_flux
 };
 
-struct mulder_reference * mulder_reference_default(void)
+static struct mulder_reference * reference_default(void)
 {
-        return &default_reference;
+        struct mulder_reference * reference = malloc(sizeof *reference);
+        if (reference == NULL) {
+                mulder_error("could not allocate memory");
+                return NULL;
+        }
+
+        memcpy(reference, &default_reference, sizeof * reference);
+
+        return reference;
 }
 
 
@@ -1862,7 +1877,7 @@ static struct mulder_flux reference_table_flux(
 
 
 /* Load a tabulated reference flux */
-struct mulder_reference * mulder_reference_load_table(const char * path)
+static struct mulder_reference * reference_load_table(const char * path)
 {
         FILE * fid = fopen(path, "rb");
         if (fid == NULL) {
@@ -1914,7 +1929,18 @@ error:
 }
 
 
-void mulder_reference_destroy_table(struct mulder_reference ** reference)
+/* Generic reference API */
+struct mulder_reference * mulder_reference_create(const char * model)
+{
+        if (model == NULL) {
+                return reference_default();
+        } else {
+                return reference_load_table(model);
+        }
+}
+
+
+void mulder_reference_destroy(struct mulder_reference ** reference)
 {
         if ((reference == NULL) || (*reference == NULL)) return;
         free(*reference);

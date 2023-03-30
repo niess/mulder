@@ -25,12 +25,14 @@ Reference properties:
 - energy max: {reference.energy_max}
 - height min: {reference.height_min}
 - height max: {reference.height_max}
+- model:      {reference.model}
 """)
 
-# Note that the previous flux model is a parametrisation of measurements at sea
-# level. Thus, the validity range for height is set to 0 m. The previous
-# properties could be modified, if required, though it is usually not necessary
-# to do so, nor recommended.
+# A `None` model value indicates that the default (built-in) flux model is used.
+# This model is a parametrisation of measurements at sea level. Thus, the
+# validity range for height is set to 0 m. The previous properties could be
+# modified, if required (see e.g. the `advanced/flux.py` example), though it is
+# usually not necessary to do so, nor recommended.
 
 
 # =============================================================================
@@ -114,6 +116,21 @@ grid.create_table("data/pdg.table")
 
 reference = Reference("data/pdg.table")
 
+# Let us print the corresponding properties.
+print(f"""\
+Reference properties:
+- energy min: {reference.energy_min}
+- energy max: {reference.energy_max}
+- height min: {reference.height_min}
+- height max: {reference.height_max}
+- model:      {reference.model}
+""")
+
+# Note that now the model field refers to the table file, while other properties
+# indicate the table limits.
+
+
+# =============================================================================
 # As a cross-check, let us plot the resulting values, and compare to the initial
 # model. First, let us define an observation condition.
 

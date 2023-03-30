@@ -179,11 +179,9 @@ struct mulder_reference {
     );
 };
 
-struct mulder_reference * mulder_reference_default(void);
+struct mulder_reference * mulder_reference_create(const char * model);
 
-struct mulder_reference * mulder_reference_load_table(const char * path);
-
-void mulder_reference_destroy_table(struct mulder_reference ** reference);
+void mulder_reference_destroy(struct mulder_reference ** reference);
 
 
 /* Memory layout for Pseudo Random Numbers Generators (PRNGs) */
