@@ -244,7 +244,7 @@ struct mulder_state {
     struct mulder_direction direction;
     /* Kinetic energy, in GeV */
     double energy;
-    /* Transport weight (unused on input) */
+    /* Observation weight */
     double weight;
 };
 

@@ -210,14 +210,17 @@ azimuth_plane = numpy.mean(azimuth_range)
 state.weight *= numpy.cos(numpy.radians(state.azimuth - azimuth_plane)) * \
                 numpy.cos(numpy.radians(state.elevation))
 
-# Let us finally compute the flux corresponding to the `observed' states. This
+# Let us finally sample the flux corresponding to the `observed' states. This
 # is done as
 
-flux = fluxmeter.flux(state)
+rate = fluxmeter.flux(state)
 
-# Then, the rate corresponding to each Monte Carlo observation is obtained as
+# Note that, since observations states are weighted by the generation procedure,
+# the result of the Fluxmeter.Flux method has units Hz. Thus, we call it a rate
+# in the following. Actually, to each Monte Carlo event, one can attribute an
+# observation rate as
 
-rate = flux.value * state.weight / events
+event_rate = rate.value / events
 
 # A Monte Carlo estimate of the total rate of muons crossing the detection plane
 # is obtained by summing up the rates of all events. But, let us instead use the
@@ -225,11 +228,9 @@ rate = flux.value * state.weight / events
 # method provides us with statistics of the Monte Carlo integration as well.
 # This is done as
 
-total_rate = flux.reduce(weight=state.weight)
+total_rate = rate.reduce()
 
-# Note that the weight argument in the previous expression indicates that flux
-# values need to be weighted, by the generation weights in this case. Let us
-# print the result below.
+# Let us print the result below.
 
 print(f"""\
 # Observation statistics:
@@ -256,7 +257,7 @@ bin_edges = numpy.logspace(
 pdf, _ = numpy.histogram(
     state.energy,
     bin_edges,
-    weights = rate,
+    weights = event_rate,
     density = True
 )
 
@@ -264,7 +265,7 @@ pdf, _ = numpy.histogram(
 
 energy = 0.5 * (bin_edges[1:] + bin_edges[:-1])
 
-# Then, the plot.
+# Then, we produce the plot as below.
 
 plot.style.use("examples.mplstyle")
 plot.figure()

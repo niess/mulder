@@ -3,8 +3,8 @@
 
 The Fluxmeter.transport method takes as input an observation mulder.State and
 returns a conjugated state, transported to the reference's height where the
-corresponding muon flux is known. The returned conjugated State carries a
-transport weight resulting from two multiplicative factors:
+corresponding muon flux is known. The returned conjugated State carries an
+additional transport weight resulting from two multiplicative factors:
 
 - A Jacobian factor, expressing the conservation of the total number of muons
   during the transport, in the absence of sources and sinks.
@@ -50,6 +50,10 @@ s_obs = State(
 )
 s_obs.height -= 10  # m
 
+# Let us point out that, by default mulder.States have a weight of one.
+
+assert(s_obs.weight == 1)
+
 
 # =============================================================================
 # Let us first discuss the continuous mode. This is the fastest but most
@@ -79,8 +83,15 @@ print(f"""\
 """)
 
 # As expected, the conjugated state has a null height, corresponding to Mulder's
-# default reference model. Let us also point out that the transport weight
-# differs from unity (though, only slightly in this case).
+# default reference model. Let us also point out that the weight of the
+# conjugated state differs from unity (though, only slightly in this case).
+# The ratio
+
+w_transport = s_ref.weight / s_obs.weight
+
+# corresponds to the transport weight discussed in the introduction. Thus, in
+# this case since the observation weight is one, the weight of the reference
+# directly corresponds to the transport weight.
 
 
 # =============================================================================
@@ -101,8 +112,8 @@ print(f"""\
 - asymmetry: {flux.asymmetry}
 """)
 
-# Let us point out that the previous result takes into account the transport
-# weight carried by the reference state (c.f. (eq1)). As a cross-check
+# Note that the previous result takes into account the transport weight carried
+# by the reference state (c.f. (eq1)). As a cross-check
 
 flux_ref = fluxmeter.reference.flux(
     elevation = s_ref.elevation,
@@ -112,8 +123,8 @@ eq1 = flux_ref.value * s_ref.weight
 
 assert(flux.value == eq1)
 
-# Let us also point out that the flux value could have been obtained directly
-# from the Fluxmeter.flux method, as
+# Note also that the flux value could have been obtained directly from the
+# Fluxmeter.flux method, as
 
 assert(flux == fluxmeter.flux(s_obs))
 

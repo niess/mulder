@@ -56,7 +56,8 @@ int main(int argc, char * argv[])
                 .azimuth = 0.,
                 .elevation = 90.
             },
-            .energy = 1E+01
+            .energy = 1E+01,
+            .weight = 1
         };
         struct mulder_flux flux = mulder_fluxmeter_flux(fluxmeter, state);
 

@@ -773,7 +773,8 @@ static struct state init_event(
     enum mulder_pid pid,
     struct mulder_position position,
     struct mulder_direction direction,
-    double energy
+    double energy,
+    double weight
 );
 
 static struct mulder_state transport_event(
@@ -794,7 +795,8 @@ struct mulder_flux mulder_fluxmeter_flux(
             MULDER_MUON,
             initial.position,
             initial.direction,
-            initial.energy
+            initial.energy,
+            initial.weight
         );
         if (s.api.weight <= 0.) {
                 return result;
@@ -893,7 +895,8 @@ struct mulder_state mulder_fluxmeter_transport(
             pid,
             state.position,
             state.direction,
-            state.energy
+            state.energy,
+            state.weight
         );
         if (s.api.weight <= 0.) {
                 struct mulder_state tmp = {0.};
@@ -934,7 +937,8 @@ static struct state init_event(
     enum mulder_pid pid,
     const struct mulder_position position,
     const struct mulder_direction direction,
-    double energy)
+    double energy,
+    double weight)
 {
         struct state s = {.api = {.weight = 0.}};
         if (energy <= 0.) {
@@ -961,7 +965,7 @@ static struct state init_event(
 
         /* Initialise the muon state */
         s.api.energy = energy;
-        s.api.weight = 1.;
+        s.api.weight = weight;
         s.fluxmeter = f;
 
         if (pid == MULDER_ANY) {
