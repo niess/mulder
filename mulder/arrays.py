@@ -14,6 +14,20 @@ from .ffi import ffi, lib
 def arrayclass(cls):
     """Decorator for array classes, dynamically setting properties."""
 
+    slots = []
+    for (name, tp, *_) in cls.properties:
+        if not isinstance(tp, str):
+            slots.append(f"_{name}")
+
+    cls = type(
+        cls.__name__,
+        (Array, *cls.__bases__),
+        {
+            "__slots__": tuple(slots),
+            **cls.__dict__
+        }
+    )
+
     def add_property(name, tp, description):
         """Add a property with proper index scoping."""
 
@@ -90,7 +104,7 @@ def arrayclass(cls):
         module = cls.__module__
     )
 
-    return type(cls.__name__, (Array, *cls.__bases__), dict(cls.__dict__))
+    return cls
 
 
 def commonsize(*args):
@@ -115,6 +129,8 @@ def pack(cls, *args, **kwargs):
 
 class Array:
     """Base class wrapping a structured numpy.ndarray."""
+
+    __slots__ = ("_data", "_dtype", "_parser", "_size")
 
     @classmethod
     def empty(cls, size=None):
@@ -311,6 +327,8 @@ class Array:
 
 class Algebraic:
     """Algebraic properties for Array types"""
+
+    __slots__ = tuple()
 
     def __add__(self, other):
         other = self._format(other)
