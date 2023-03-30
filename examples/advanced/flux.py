@@ -220,13 +220,13 @@ plot.show()
 #
 # Let us point out that the previous reasoning is only valid in the continuous
 # approximation. Indeed, inferring the flux above the reference is actually an
-# inverse problem, that is non trivial to solve in the discrete case, involving
-# a Monte Carlo procedure. However, when considering an opensky geometry, the
-# continuous approximation is usually appropriate. Thus, mulder uses it
-# transparently in such case. This allows e.g. to use sea level reference models
-# while working with a detector located above, in mountains. That is, mulder
-# automatically corrects for the reference altitude in such cases. This is done
-# as following.
+# inverse problem that is non trivial to solve in the discrete case, since it
+# involves a Monte Carlo procedure. However, when considering an opensky
+# geometry, the continuous approximation is usually appropriate. Thus, mulder
+# uses it transparently in such case. This allows e.g. to use sea level
+# reference models while working with a detector located above, in mountains.
+# That is, mulder automatically corrects for the reference altitude in such
+# cases. This is done as following.
 #
 # Mulder actually manages two geometries. The user one, and a private opensky
 # one. First, muons are backward transported from the observation point to the

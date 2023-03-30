@@ -61,6 +61,8 @@ class State:
 class Layer:
     """Topographic layer."""
 
+    __slots__ = ("_layer", "_locations")
+
     @property
     def material(self):
         """Constituant material."""
@@ -196,6 +198,7 @@ class Layer:
                 layer,
                 lib.mulder_layer_destroy
             )
+        self._locations = {}
 
     def __repr__(self):
         args = [self.material]
@@ -291,8 +294,8 @@ class Layer:
     def _get_location(self, name, signature):
         """Get a specific (signed) map location."""
         try:
-            location = getattr(self, name)
-        except AttributeError:
+            location = self._locations[name]
+        except KeyError:
             projection = Projection(
                 signature[0] * self.xmin + signature[1] * self.xmax,
                 signature[2] * self.ymin + signature[3] * self.ymax
@@ -301,12 +304,14 @@ class Layer:
                 self.position(projection),
                 projection
             )
-            setattr(self, name, location)
+            self._locations[name] = location
         return location.copy()
 
 
 class Geomagnet:
     """Earth magnetic field."""
+
+    __slots__ = ("_geomagnet",)
 
     @property
     def model(self):
@@ -394,6 +399,8 @@ class Geomagnet:
 class Geometry:
     """Stratified Earth geometry."""
 
+    __slots__ = ("_geomagnet", "_geometry", "_layers", "_depends_on")
+
     @property
     def geomagnet(self):
         """Earth magnetic field."""
@@ -459,6 +466,7 @@ class Geometry:
 
         self._layers = tuple(layers)
         self._geomagnet = None
+        self._depends_on = None
 
         if geomagnet:
             self.geomagnet = geomagnet
@@ -489,6 +497,8 @@ class Geometry:
 
 class Reference:
     """Reference (opensky) muon flux."""
+
+    __slots__ = ("_model", "_reference", "_depends_on")
 
     @property
     def energy_min(self):
@@ -544,6 +554,7 @@ class Reference:
                 lib.mulder_reference_destroy
             )
         self._model = model
+        self._depends_on = None
 
     def flux(self, elevation, energy, height=None):
         """Get reference flux model, defined at reference height(s)."""
@@ -574,6 +585,8 @@ class Reference:
 
 class Prng:
     """Pseudo random numbers generator."""
+
+    __slots__ = ("_fluxmeter",)
 
     @property
     def fluxmeter(self):
@@ -630,6 +643,8 @@ class Prng:
 class Fluxmeter:
     """Muon flux calculator."""
 
+    __slots__ = ("_fluxmeter", "_geometry", "_prng", "_reference")
+
     @property
     def geometry(self):
         """Stratified Earth geometry."""
@@ -669,11 +684,12 @@ class Fluxmeter:
     def reference(self):
         """Reference (opensky) flux model."""
         if self._reference is None:
-            self._reference = Reference.__new__(Reference)
-            self._reference._reference = ffi.new(
+            reference = Reference.__new__(Reference)
+            reference._reference = ffi.new(
                 "struct mulder_reference *[1]", (self._fluxmeter[0].reference,))
-            self._reference._model = None
-            self._reference._depends_on = self
+            reference._model = None
+            reference._depends_on = self
+            self._reference = reference
         return self._reference
 
     @reference.setter

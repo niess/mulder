@@ -20,7 +20,7 @@ import numpy
 
 # =============================================================================
 # For this example, we do not need a sophisticated geometry. Thus, the fluxmeter
-# is created with no arguments (i.e. a default pensky geometry), as
+# is created with no arguments (i.e. a default opensky geometry), as
 
 fluxmeter = Fluxmeter()
 
@@ -81,14 +81,14 @@ assert(numpy.array_equal(prng(3), next3))
 
 
 # =============================================================================
-# Let us now discuss the actual usage of mulder.Prng objects. So far, in other
+# Let us now discuss an application of mulder.Prng objects. So far, in other
 # examples, we only considered point estimates. That is, the observation is done
 # at a fixed point, or over a grid of points. However, in real life cases, one
 # usually has to deal with distributed observations, e.g. an observation
 # performed over an energy range, or over angular bins. Then, one could sample
 # observations over a thin (sub)mesh, and perform a numeric integration e.g.
 # using trapezes or a higher order method. However, this is not always possible,
-# nor efficient depending on the use case. An alternative is to perform a Monte
+# nor efficient, depending on the use case. An alternative is to perform a Monte
 # Carlo integration over the observation space. This is particularly relevant in
 # discrete and mixed modes, since flux computations already require a Monte
 # Carlo procedure.
@@ -97,18 +97,18 @@ assert(numpy.array_equal(prng(3), next3))
 # energy is distributed. That is, let us assume that we have a toy detector
 # selecting muons over a given energy range, as
 
-energy_range = (1E-03, 1E+03) # GeV
+energy_range = (1E-02, 1E+03) # GeV
 
 # Let us point out that the minimum and maximum values for the kinetic energy
-# differ by 6 orders of magnitude. In this case, it is relevant to sample values
+# differ by 5 orders of magnitude. In this case, it is relevant to sample values
 # log-uniformly (i.e. with a 1 / x PDF), instead of uniformly. Let us create the
 # corresponding pseudo-random generator, as
 
 generator = prng.log(*energy_range)
 
-# The previous generator object is a specialised PRNG built from the
-# Uniform(0,1) prng instance. That is, it actually uses values from the
-# Fluxmeter.prng stream, to which an inverse CDF transform is applied.
+# The previous generator object is a specialised PRNG built from the previous
+# prng instance. That is, it actually uses values from the Fluxmeter.prng
+# stream, to which an inverse CDF transform is applied.
 #
 # Let us generate some values as an illustration. This is done as with a Prng
 # instance, as
@@ -178,7 +178,7 @@ width = 1             # m
 # as
 
 azimuth_range = (-0.5, 0.5)   # deg
-elevation_range = (9.5, 10.5) # deg
+elevation_range = (29.5, 30.5) # deg
 
 # Accordingly, the observation space is further generated as
 

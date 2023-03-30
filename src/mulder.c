@@ -1122,6 +1122,8 @@ static struct mulder_state transport_event(
                         return state;
                 }
                 s.api.weight *= dedx1 / dedx0;
+        } else if (fabs(position.height - f->zref) <= 10 * FLT_EPSILON) {
+                position.height = f->zref; /* due to rounding errors */
         }
 
         /* Get direction at reference height */

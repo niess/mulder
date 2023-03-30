@@ -6,7 +6,7 @@ structures, accessed through cffi. Thus, Arrays are the base input and output
 objects of the mulder Python package.
 """
 
-from mulder import Layer, Projection
+from mulder import Layer, Projection, State
 from mulder.arrays import Algebraic, arrayclass
 
 import numpy
@@ -86,6 +86,15 @@ z = Projection.zeros(size=3)
 
 assert(e.size == 3)
 assert(z.size == 3)
+
+# In addition, the Array.new methods creates a new array initialised with
+# default field values. For most types, this is equivalent to Array.zeros.
+
+assert(numpy.array_equal(Projection.new(3), z))
+
+# But, this is not the case e.g. for mulder.State objects.
+
+assert(State.new().weight == 1)
 
 
 # =============================================================================

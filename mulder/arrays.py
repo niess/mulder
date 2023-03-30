@@ -75,12 +75,13 @@ def arrayclass(cls):
 
     cls._dtype = numpy.dtype(dtype, align=True)
 
+    defaults = [None if len(v) < 4 else v[3] for v in cls.properties]
+
     argnames = [name for (name, *_) in cls.properties]
     for (_, tp, *_) in cls.properties:
         if not isinstance(tp, str):
             argnames += [name for (name, *_) in tp.properties]
-
-    defaults = [None if len(v) < 4 else v[3] for v in cls.properties]
+            defaults += [None if len(v) < 4 else v[3] for v in tp.properties]
 
     cls._parser = namedtuple( # For unpacking arguments
         f"{cls.__name__}Parser",
@@ -382,4 +383,4 @@ class Algebraic:
         if self._size is None:
             return numpy.linalg.norm(self.unstructured())
         else:
-            return numpy.linalg.norm(self.unstructured(), axis=0)
+            return numpy.linalg.norm(self.unstructured(), axis=1)
