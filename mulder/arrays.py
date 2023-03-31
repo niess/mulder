@@ -127,6 +127,16 @@ def pack(cls, *args, **kwargs):
     raise ValueError(f"bad arguments for {cls.__name__}")
 
 
+class classproperty(property):
+    """Portable class properties.
+
+       Ref: https://stackoverflow.com/a/13624858
+    """
+
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
+
+
 class Array:
     """Base class wrapping a structured numpy.ndarray."""
 
@@ -188,8 +198,7 @@ class Array:
         """cffi pointer."""
         return ffi.cast(self.ctype, self._data.ctypes.data)
 
-    @classmethod
-    @property
+    @classproperty
     def numpy_dtype(cls):
         """Numpy data type."""
         return cls._dtype
@@ -387,7 +396,11 @@ class Algebraic:
     def from_unstructured(cls, data, copy=False):
         """Create an Array instance from an unstuctured numpy array"""
         obj = super().__new__(cls)
-        data = unstructured_to_structured(data, cls.numpy_dtype, copy=copy)
+        data = unstructured_to_structured(
+            data,
+            dtype = cls.numpy_dtype,
+            copy = copy
+        )
         obj._size = data.size if data.size > 1 else None
         obj._data = data
         return obj

@@ -6,10 +6,10 @@ import subprocess
 
 
 CLASSIFIERS = """\
-Development Status :: 4 - Beta
+Development Status :: 3 - Alpha
 Intended Audience :: Science/Research
 License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)
-Programming Language :: Python
+Programming Language :: Python :: 3
 Topic :: Scientific/Engineering :: Physics
 Operating System :: POSIX :: Linux
 """
@@ -50,13 +50,24 @@ version = "{version:}"
     except FileNotFoundError:
         package_data = []
 
+    with open('README.md') as f:
+        long_description = f.read()
+
     setup(
         name="mulder",
         version=version,
         author="Valentin Niess",
         author_email="valentin.niess@gmail.com",
         description="MUon fLux unDER",
-        packages=['mulder'],
+        long_description=long_description,
+        long_description_content_type="text/markdown",
+        url="https://github.com/niess/mulder",
+        download_url = 'https://pypi.python.org/pypi/mulder',
+        project_urls = {
+            "Bug Tracker" : "https://github.com/niess/mulder/issues",
+            "Source Code" : "https://github.com/niess/mulder",
+        },
+        packages=["mulder"],
         classifiers=[s for s in CLASSIFIERS.split(os.linesep) if s.strip()],
         license='GPLv3',
         platforms=["Linux"],

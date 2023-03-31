@@ -4,6 +4,8 @@
 import os
 from pathlib import Path
 
+from .ffi import lib, tostr
+
 
 def generate_physics(path, destination=None):
     """Generate physics tables for Pumas."""

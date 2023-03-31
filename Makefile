@@ -152,6 +152,7 @@ bindir:
 # Cleaning
 .PHONY: clean
 clean:
+	rm -rf bin
 	rm -rf build
 	rm -rf lib
 	rm -f src/*.o
