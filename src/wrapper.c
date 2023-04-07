@@ -1,6 +1,5 @@
 /* C standard library */
 #include <float.h>
-#include <setjmp.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
