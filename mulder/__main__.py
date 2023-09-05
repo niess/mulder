@@ -18,13 +18,22 @@ def convert(path: Path, offset: Optional[float]=None):
     assert(path.suffix == ".tif") # Input file must be in GeoTIFF format
     g = GeoTiff(path)
 
-    known_crs = {
-        2154: "Lambert 93"
-    }
-    try:
-        projection = known_crs[g.crs_code]
-    except KeyError:
-        raise ValueError(f"unknown CRS ({g.crs_code})")
+    if g.crs_code >= 32601 and g.crs_code <= 32660:
+        projection = f"UTM {g.crs_code - 32600}N"
+    elif g.crs_code >= 32701 and g.crs_code <= 32760:
+        projection = f"UTM {g.crs_code - 32700}S"
+    else:
+        known_crs = {
+            2154: "Lambert 93",
+            27571: "Lambert I",
+            27572: "Lambert II",
+            27573: "Lambert III",
+            27574: "Lambert IV",
+        }
+        try:
+            projection = known_crs[g.crs_code]
+        except KeyError:
+            raise ValueError(f"unknown CRS ({g.crs_code})")
 
     data = numpy.array(g.read())
     if offset is not None:
