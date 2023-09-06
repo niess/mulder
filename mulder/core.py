@@ -199,6 +199,7 @@ class Layer:
                 lib.mulder_layer_destroy
             )
         self._locations = {}
+        self.density = density
 
     def __repr__(self):
         args = [self.material]
