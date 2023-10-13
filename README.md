@@ -5,12 +5,12 @@
 
 ## Description
 
-Mulder is utility library for computing local deformations of the flux of
-atmospheric due to geophysical features, e.g. taking into account a local
-topography described by a Digital Elevation Model (DEM).
+Mulder is utility library for computing local changes in the flux of atmospheric
+muons due to geophysical features, e.g. due to a topography described by a
+Digital Elevation Model (DEM).
 
 The master component of Mulder is a fluxmeter, which behaves as a portable probe
-of the local flux of atmospheric muons. The level of details of fluxmeters is
+of the flux of atmospheric muons. The level of details of fluxmeters is
 configurable, from a fast continuous approximation delivering an average flux
 estimate, to a detailed Monte Carlo delivering discrete (weighted) atmospheric
 muon events (at the observation point).
@@ -65,7 +65,7 @@ git clone --recursive https://github.com/niess/mulder.git
 
 (_note the `--recursive` in the previous command._)
 
-Then, the Python package can be built with the provided Makefile, as
+Then, the Python package should build with the provided Makefile, as
 
 ```
 cd mulder
