@@ -60,7 +60,7 @@ lib: lib/$(LIB_FULLNAME) \
      lib/$(LIB)
 
 lib/$(LIB_FULLNAME): src/mulder.c src/mulder.h $(LIB_DEPS) | libdir
-	$(LD) -o $@ $(LIB_CFLAGS) $^ -ldl -lm
+	$(LD) -o $@ $(LIB_CFLAGS) src/mulder.c $(LIB_DEPS) -ldl -lm
 
 lib/$(LIB_SHORTNAME): lib/$(LIB_FULLNAME)
 	@ln -fs $(LIB_FULLNAME) $@
