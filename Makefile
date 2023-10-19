@@ -131,7 +131,7 @@ mulder/include/%.h: src/%.h
 
 .PHONY: wheel
 wheel: | package
-	$(PYTHON) setup.py build bdist_wheel --py-limited-api cp36
+	$(PYTHON) setup.py build bdist_wheel --py-limited-api cp37
 	@rm -rf build mulder.egg-info
 
 

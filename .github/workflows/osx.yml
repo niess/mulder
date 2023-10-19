@@ -1,0 +1,56 @@
+name: OSX
+on:
+  push:
+    paths-ignore:
+    - 'examples/**'
+    - 'README.md'
+
+jobs:
+  Build:
+    runs-on: macos-latest
+    env:
+      PYTHON_VERSION: 3.7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: conda-incubator/setup-miniconda@v2
+        # Miniconda is used since it is compiled against MACOSX 10.9
+        with:
+          auto-update-conda: true
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build dependencies
+        run: |
+          conda install cffi numpy
+          conda install -c conda-forge pcpp
+        shell: bash -l {0} # This activates conda/test env
+
+      - name: Build the library and the package
+        run: |
+          export MACOSX_DEPLOYMENT_TARGET=10.9
+          make CC=gcc-11
+          make package CC=gcc-11 PYTHON=python${PYTHON_VERSION}
+        shell: bash -l {0}
+
+      - name: Install dist dependencies
+        run: |
+          conda install wheel
+        shell: bash -l {0}
+
+      - name: Build wheel
+        run: |
+          CC=gcc-11 python${PYTHON_VERSION} setup.py bdist_wheel --py-limited-api=cp37
+          mkdir -p dist/wheels
+          mv dist/*.whl dist/wheels
+          make distclean
+        shell: bash -l {0}
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: temporary-wheels
+          path: |
+            dist/wheels/*.whl
+          retention-days: 1

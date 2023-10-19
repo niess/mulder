@@ -1,6 +1,6 @@
 #! /bin/bash
 
-TAG="${1:-cp38-cp38}"
+TAG="${1:-cp37-cp37}"
 ARCH="${2:-x86_64}"
 
 PYTHON="/opt/python/${TAG}/bin/python"
