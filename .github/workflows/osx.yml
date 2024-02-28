@@ -1,15 +1,38 @@
 name: OSX
 on:
-  push:
-    paths-ignore:
-    - 'examples/**'
-    - 'README.md'
+  workflow_dispatch:
+    inputs:
+      python:
+        type: choice
+        description: 'Python version'
+        options: 
+        - 3.7
+        - 3.8
+        - 3.9
+        - 3.10
+        - 3.11
+        - 3.12
+      runner:
+        type: choice
+        description: 'OSX runner'
+        options: 
+        - macos-latest
+        - macos-11
+        - macos-12
+        - macos-13
+        - macos-14
+      target:
+        type: choice
+        description: 'Deployment target'
+        options:
+        - 10.9
+        - 11.0
 
 jobs:
   Build:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner }}
     env:
-      PYTHON_VERSION: 3.7
+      PYTHON_VERSION: ${{ inputs.python }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,10 +40,12 @@ jobs:
 
       - name: Set up Python
         uses: conda-incubator/setup-miniconda@v2
-        # Miniconda is used since it is compiled against MACOSX 10.9
+        # Miniconda is used since it is compiled against MACOSX 10.9, etc.
         with:
+          architecture: ${{ inputs.runner == 'macos-14' && 'ARM64' || '64' }}
           auto-update-conda: true
           python-version: ${{ env.PYTHON_VERSION }}
+          miniconda-version: "latest"
 
       - name: Install build dependencies
         run: |
@@ -30,7 +55,7 @@ jobs:
 
       - name: Build the library and the package
         run: |
-          export MACOSX_DEPLOYMENT_TARGET=10.9
+          export MACOSX_DEPLOYMENT_TARGET=${{ inputs.target }}
           make CC=gcc-11
           make package CC=gcc-11 PYTHON=python${PYTHON_VERSION}
         shell: bash -l {0}
@@ -46,6 +71,13 @@ jobs:
           mkdir -p dist/wheels
           mv dist/*.whl dist/wheels
           make distclean
+        shell: bash -l {0}
+
+      - name: Test wheel
+        run: |
+          python${PYTHON_VERSION} -m pip install --user dist/wheels/*.whl
+          rm -rf mulder # To avoid loading the local package
+          python${PYTHON_VERSION} -m mulder config --version
         shell: bash -l {0}
 
       - uses: actions/upload-artifact@v2

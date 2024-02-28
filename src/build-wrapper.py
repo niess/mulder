@@ -44,10 +44,8 @@ def objects():
 def rpath():
     if platform.system() == "Linux":
         return ["-Wl,-rpath,$ORIGIN/lib",]
-    elif platform.system() == "Darwin":
-        return ["-Wl,-rpath,@loader_path/lib",]
     else:
-        return None
+        return ["-Wl,-rpath,@loader_path/lib",]
 
 
 ffi = FFI()
