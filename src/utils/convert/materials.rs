@@ -131,32 +131,42 @@ impl<'a, 'py> TryFrom<Context<'a, 'py>> for Material {
 //
 // ===============================================================================================
 
-impl ToPyObject for Material {
-    fn to_object(&self, py: Python) -> PyObject {
-        let composition = PyTuple::new_bound(py, &self.composition);
-        match self.I {
+impl<'a, 'py> IntoPyObject<'py> for &'a Material {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let composition = PyTuple::new(py, &self.composition)?;
+        let namespace = match self.I {
             Some(mee) => {
-                Namespace::new(py, &[
-                    ("density", self.density.to_object(py)),
-                    ("I", mee.to_object(py)),
-                    ("composition", composition.into_any().unbind()),
-                ]).unwrap().unbind()
+                Namespace::new(py, [
+                    ("density", self.density.into_pyobject(py)?.into_any()),
+                    ("I", mee.into_pyobject(py)?.into_any()),
+                    ("composition", composition.into_any()),
+                ])?
             },
             None => {
-                Namespace::new(py, &[
-                    ("density", self.density.to_object(py)),
-                    ("composition", composition.into_any().unbind()),
-                ]).unwrap().unbind()
+                Namespace::new(py, [
+                    ("density", self.density.into_pyobject(py)?.into_any()),
+                    ("composition", composition.into_any()),
+                ])?
             },
-        }
+        };
+        Ok(namespace)
     }
 }
 
-impl ToPyObject for Component {
-    fn to_object(&self, py: Python) -> PyObject {
-        Namespace::new(py, &[
-            ("name", self.name.to_object(py)),
-            ("weight", self.weight.to_object(py)),
-        ]).unwrap().unbind()
+impl<'a, 'py> IntoPyObject<'py> for &'a Component {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let namespace = Namespace::new(py, [
+            ("name", self.name.as_str().into_pyobject(py)?.into_any()),
+            ("weight", self.weight.into_pyobject(py)?.into_any()),
+        ]).unwrap();
+        Ok(namespace)
     }
 }

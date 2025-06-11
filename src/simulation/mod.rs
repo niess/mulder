@@ -41,9 +41,7 @@ impl Fluxmeter {
                     for field in fields {
                         if let Some(value) = kwargs.get_item(field)? {
                             result
-                                .get_or_insert_with(|| {
-                                    PyDict::new_bound(py)
-                                })
+                                .get_or_insert_with(|| PyDict::new(py))
                                 .set_item(field, value)?;
                             kwargs.del_item(field)?;
                         }

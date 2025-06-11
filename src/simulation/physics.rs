@@ -34,6 +34,7 @@ pub struct Physics {
 }
 
 unsafe impl Send for Physics {}
+unsafe impl Sync for Physics {}
 
 #[pymethods]
 impl Physics {

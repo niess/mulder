@@ -49,7 +49,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Register constants.
     let default_cache = utils::cache::default_path()
-        .map(|cache| cache.into_py(py))
+        .and_then(|cache| cache.into_pyobject(py).map(|cache| cache.unbind()))
         .unwrap_or_else(|_| py.None());
     module.add("DEFAULT_CACHE", default_cache)?;
 

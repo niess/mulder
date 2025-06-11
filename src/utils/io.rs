@@ -34,7 +34,7 @@ pub struct Toml;
 
 impl ConfigFormat for Toml {
     fn import_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
-        py.import_bound("tomllib")
-            .or_else(|_| py.import_bound("tomli"))
+        py.import("tomllib")
+            .or_else(|_| py.import("tomli"))
     }
 }

@@ -5,16 +5,17 @@ use pyo3::types::{PyDict, PyTuple};
 pub struct Namespace;
 
 impl Namespace {
-    pub fn new<'py, T>(
+    pub fn new<'py, T, U>(
         py: Python<'py>,
-        kwargs: &[(&str, T)]
+        kwargs: impl IntoIterator<Item = (&'static str, T), IntoIter = U>,
     ) -> PyResult<Bound<'py, PyAny>>
     where
-        T: ToPyObject,
+        T: IntoPyObject<'py>,
+        U: ExactSizeIterator<Item = (&'static str, T)>,
     {
-        let kwargs = PyTuple::new_bound(py, kwargs);
-        let kwargs = PyDict::from_sequence_bound(kwargs.as_any())?;
-        let namespace = py.import_bound("types")
+        let kwargs = PyTuple::new(py, kwargs)?;
+        let kwargs = PyDict::from_sequence(kwargs.as_any())?;
+        let namespace = py.import("types")
             .and_then(|x| x.getattr("SimpleNamespace"))
             .and_then(|x| x.call((), Some(&kwargs)))?;
         Ok(namespace)

@@ -2,6 +2,7 @@ use crate::utils::error::{Error, variant_explain};
 use crate::utils::error::ErrorKind::ValueError;
 use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
+use std::convert::Infallible;
 
 // XXX mod array;
 mod materials;
@@ -33,10 +34,12 @@ trait Convert {
     }
 
     #[inline]
-    fn into_any(self, py: Python) -> PyObject
+    fn into_bound<'py>(self, py: Python<'py>) -> Result<Bound<'py, PyAny>, Infallible>
     where
         Self: EnumVariantsStrings,
     {
-        self.to_str().into_py(py)
+        self.to_str()
+            .into_pyobject(py)
+            .map(|obj| obj.into_any())
     }
 }

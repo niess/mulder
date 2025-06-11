@@ -109,7 +109,7 @@ impl Materials {
         Ok(materials)
     }
 
-    fn __getitem__(&self, py: Python, name: &str) -> PyResult<PyObject> {
+    fn __getitem__<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
         let material = self.data.0.get(name)
             .ok_or_else(|| {
                 let why = format!("unknown material '{}'", name);
@@ -118,7 +118,7 @@ impl Materials {
                     .why(&why)
                     .to_err()
             })?;
-        Ok(material.to_object(py))
+        Ok(material.into_pyobject(py)?)
     }
 }
 

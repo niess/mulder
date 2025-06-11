@@ -33,9 +33,13 @@ impl<'py> FromPyObject<'py> for Photonuclear {
     }
 }
 
-impl IntoPy<PyObject> for Photonuclear {
-    fn into_py(self, py: Python) -> PyObject {
-        self.into_any(py)
+impl<'py> IntoPyObject<'py> for Photonuclear {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.into_bound(py)
     }
 }
 
