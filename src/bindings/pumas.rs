@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use ::std::ffi::{c_char, c_int, c_long, c_uint};
+use ::std::ffi::{c_char, c_int, c_long, c_uint, c_void};
 
 pub const MUON: c_uint = 0;
 pub const TAU: c_uint = 1;
@@ -36,6 +36,77 @@ pub const BREMSSTRAHLUNG: c_uint = 0;
 pub const PAIR_PRODUCTION: c_uint = 1;
 pub const PHOTONUCLEAR: c_uint = 2;
 
+pub const EVENT_NONE: c_uint = 0;
+pub const EVENT_LIMIT_ENERGY: c_uint = 1;
+pub const EVENT_LIMIT_DISTANCE: c_uint = 2;
+pub const EVENT_LIMIT_GRAMMAGE: c_uint = 4;
+pub const EVENT_LIMIT_TIME: c_uint = 8;
+pub const EVENT_LIMIT: c_uint = 15;
+pub const EVENT_MEDIUM: c_uint = 16;
+pub const EVENT_VERTEX_BREMSSTRAHLUNG: c_uint = 32;
+pub const EVENT_VERTEX_PAIR_CREATION: c_uint = 64;
+pub const EVENT_VERTEX_PHOTONUCLEAR: c_uint = 128;
+pub const EVENT_VERTEX_DELTA_RAY: c_uint = 256;
+pub const EVENT_VERTEX_DEL: c_uint = 480;
+pub const EVENT_VERTEX_COULOMB: c_uint = 512;
+pub const EVENT_VERTEX_DECAY: c_uint = 1024;
+pub const EVENT_VERTEX: c_uint = 2016;
+pub const EVENT_WEIGHT: c_uint = 2048;
+pub const EVENT_START: c_uint = 4096;
+pub const EVENT_STOP: c_uint = 8192;
+
+pub const MODE_DISABLED: c_int = -1;
+pub const MODE_CSDA: c_int = 0;
+pub const MODE_MIXED: c_int = 1;
+pub const MODE_STRAGGLED: c_int = 2;
+pub const MODE_WEIGHTED: c_int = 0;
+pub const MODE_RANDOMISED: c_int = 1;
+pub const MODE_FORWARD: c_int = 0;
+pub const MODE_BACKWARD: c_int = 1;
+
+pub const STEP_CHECK: c_uint = 0;
+pub const STEP_RAW: c_uint = 1;
+
+#[repr(C)]
+pub struct Context {
+    pub medium: MediumCallback,
+    pub random: RandomCallback,
+    pub recorder: Recorder,
+    pub user_data: *mut c_void,
+    pub mode: ContextMode,
+    pub event: c_uint,
+    pub limit: ContextLimit,
+    pub accuracy: f64,
+}
+
+#[repr(C)]
+pub struct ContextLimit {
+    pub energy: f64,
+    pub distance: f64,
+    pub grammage: f64,
+    pub time: f64,
+}
+
+#[repr(C)]
+pub struct ContextMode {
+    pub energy_loss: c_int,
+    pub decay: c_int,
+    pub direction: c_int,
+    pub scattering: c_int,
+}
+
+#[repr(C)]
+pub struct Locals {
+    pub density: f64,
+    pub magnet: [f64; 3],
+}
+
+#[repr(C)]
+pub struct Medium {
+    pub material: c_int,
+    pub locals: LocalsCallback,
+}
+
 #[repr(C)]
 pub struct Physics {
     _unused: [u8; 0],
@@ -52,6 +123,25 @@ pub struct PhysicsSettings {
     pub energy: *mut f64,
     pub update: c_int,
     pub dry: c_int,
+}
+
+#[repr(C)]
+pub struct Recorder {
+    // XXX Not implemented.
+    length: c_int,
+}
+
+#[repr(C)]
+pub struct State {
+    pub charge: f64,
+    pub energy: f64,
+    pub distance: f64,
+    pub grammage: f64,
+    pub time: f64,
+    pub weight: f64,
+    pub position: [f64; 3],
+    pub direction: [f64; 3],
+    pub decayed: c_int,
 }
 
 pub type Dcs = Option<
@@ -76,12 +166,39 @@ pub type Function = Option<
     unsafe extern "C" fn()
 >;
 
+pub type LocalsCallback = Option<
+    unsafe extern "C" fn(medium: *mut Medium, state: *mut State, locals: *mut Locals) -> f64
+>;
+
+pub type MediumCallback = Option<
+    unsafe extern "C" fn(
+        context: *mut Context,
+        state: *mut State,
+        medium: *mut *mut Medium,
+        step: *mut f64,
+    ) -> c_uint
+>;
+
 pub type Notify = Option<
     unsafe extern "C" fn(slf: *mut PhysicsNotifier) -> c_uint,
 >;
 
+pub type RandomCallback = Option<
+    unsafe extern "C" fn(context: *mut Context) -> f64
+>;
+
 #[link(name = "c-libs")]
 extern "C" {
+    #[link_name="pumas_context_create"]
+    pub fn context_create(
+        context: *mut *mut Context,
+        physics: *const Physics,
+        extra_memory: c_int
+    ) -> c_uint;
+
+    #[link_name="pumas_context_destroy"]
+    pub fn context_destroy(context: *mut *mut Context);
+
     #[link_name="pumas_error_handler_set"]
     pub fn error_handler_set(handler: ErrorHandler);
 

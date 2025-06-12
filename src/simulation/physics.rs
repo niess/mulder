@@ -1,6 +1,6 @@
 use console::style;
 use crate::bindings::pumas;
-use crate::simulation::materials::{Materials, MaterialsData};
+use crate::simulation::materials::{Materials, MaterialsArg, MaterialsData};
 use crate::utils::cache;
 use crate::utils::convert::{Bremsstrahlung, Mdf, PairProduction, Photonuclear};
 use crate::utils::error::{self, Error};
@@ -10,27 +10,31 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use temp_dir::TempDir;
 use ::std::borrow::Cow;
+use ::std::collections::HashMap;
 use ::std::ffi::{c_char, c_int, CStr, CString, c_uint};
 use ::std::fs::File;
 use ::std::os::fd::IntoRawFd;
 use ::std::ptr::{null, null_mut};
 
 
-#[pyclass(module="danton")]
+#[pyclass(module="mulder")]
 pub struct Physics {
-    /// The Bremsstrahlung model for tau energy losses.
+    /// The Bremsstrahlung model for muon energy losses.
     #[pyo3(get)]
     bremsstrahlung: Bremsstrahlung,
-    /// The e+e- pair-production model for tau energy losses.
+    /// The e+e- pair-production model for muon energy losses.
     #[pyo3(get)]
     pair_production: PairProduction,
-    /// The photonuclear model for tau energy losses.
+    /// The photonuclear model for muon energy losses.
     #[pyo3(get)]
     photonuclear: Photonuclear,
+    #[pyo3(get)]
+    /// The materials definition.
+    materials: Py<Materials>,
 
     physics: *mut pumas::Physics,
-    materials_instance: Option<usize>,
-    pub modified: bool,
+    context: *mut pumas::Context,
+    materials_indices: HashMap<String, c_int>,
 }
 
 unsafe impl Send for Physics {}
@@ -47,21 +51,34 @@ impl Physics {
         let bremsstrahlung = Bremsstrahlung::default();
         let pair_production = PairProduction::default();
         let photonuclear = Photonuclear::default();
+        let materials = Py::new(py, Materials::empty())?;
         let physics = null_mut();
-        let materials_instance = None;
-        let modified = false;
+        let context = null_mut();
+        let materials_indices = HashMap::new();
 
         let physics = Self {
-            bremsstrahlung, pair_production, photonuclear, physics,
-            materials_instance, modified,
+            bremsstrahlung, pair_production, photonuclear, materials, physics, context,
+            materials_indices,
         };
         let physics = Bound::new(py, physics)?;
 
+        let mut set_materials = true;
         if let Some(kwargs) = kwargs {
             for (key, value) in kwargs.iter() {
                 let key: Bound<PyString> = key.extract()?;
+                if key == "materials" {
+                    set_materials = false;
+                }
                 physics.setattr(key, value)?
             }
+        }
+        if set_materials {
+            let materials = Materials::new(py, None)?;
+            let materials = Bound::new(py, materials)?;
+            let materials = MaterialsArg::Materials(materials);
+            physics
+                .borrow_mut()
+                .set_materials(py, materials)?;
         }
 
         Ok(physics.unbind())
@@ -71,15 +88,25 @@ impl Physics {
     fn set_bremsstrahlung(&mut self, value: Bremsstrahlung) {
         if value != self.bremsstrahlung {
             self.bremsstrahlung = value;
-            self.modified = true;
+            self.destroy_physics();
         }
+    }
+
+    #[setter]
+    fn set_materials(&mut self, py: Python, value: MaterialsArg) -> PyResult<()> {
+        let value = Materials::from_arg(py, value)?;
+        if !self.materials.is(&value) {
+            self.materials = value;
+            self.destroy_physics();
+        }
+        Ok(())
     }
 
     #[setter]
     fn set_pair_production(&mut self, value: PairProduction) {
         if value != self.pair_production {
             self.pair_production = value;
-            self.modified = true;
+            self.destroy_physics();
         }
     }
 
@@ -87,8 +114,51 @@ impl Physics {
     fn set_photonuclear(&mut self, value: Photonuclear) {
         if value != self.photonuclear {
             self.photonuclear = value;
-            self.modified = true;
+            self.destroy_physics();
         }
+    }
+
+    #[pyo3(signature=(materials=None, /))]
+    pub fn compile<'py>(&mut self, py: Python, materials: Option<MaterialsArg>) -> PyResult<()> {
+        if let Some(materials) = materials {
+            self.set_materials(py, materials)?;
+        }
+        if self.physics == null_mut() {
+            // Load or create Pumas physics.
+            let materials = self.materials.bind(py).borrow();
+            let pumas = match self.load_pumas(materials.tag.as_str()) {
+                None => self.create_pumas(py, materials.tag.as_str())?,
+                Some(pumas) => pumas,
+            };
+            self.physics = pumas;
+
+            // Create the simulation context.
+            let mut context: *mut pumas::Context = null_mut();
+            error::clear();
+            let rc = unsafe { pumas::context_create(&mut context, self.physics, 0) };
+            Self::check_pumas(rc)?;
+            unsafe {
+                (*context).mode.scattering = pumas::MODE_DISABLED; // XXX needed?
+                (*context).mode.decay = pumas::MODE_DISABLED;
+            }
+            self.context = context;
+
+            // Map materials indices.
+            self.materials_indices.clear();
+            for material in materials.data.0.keys() {
+                let mut index: c_int = 0;
+                unsafe {
+                    let rc = pumas::physics_material_index(
+                        self.physics,
+                        CString::new(material.as_str())?.as_ptr(),
+                        &mut index
+                    );
+                    Self::check_pumas(rc)?;
+                }
+                self.materials_indices.insert(material.clone(), index);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -99,43 +169,12 @@ impl Drop for Physics {
 }
 
 impl Physics {
-    pub fn apply(
-        &mut self,
-        py: Python,
-        materials: &Materials,
-    ) -> PyResult<bool> {
-        let modified = if self.modified || (self.materials_instance != Some(materials.instance)) {
-            self.destroy_physics();
-            self.create_physics(py, &materials.tag)?;
-            self.materials_instance = Some(materials.instance);
-            self.modified = false;
-            true
-        } else {
-            false
-        };
-
-        // XXX Map materials indices?
-        // XXX Forward physics object?
-
-        Ok(modified)
-    }
-
     fn check_pumas(rc: c_uint) -> PyResult<()> {
         if rc == pumas::SUCCESS {
             Ok(())
         } else {
             error::to_result(rc, Some("physics"))
         }
-    }
-
-    fn create_physics(&mut self, py: Python, materials: &str) -> PyResult<()> {
-        // Load or create Pumas physics.
-        let pumas = match self.load_pumas(materials) {
-            None => self.create_pumas(py, materials)?,
-            Some(pumas) => pumas,
-        };
-        self.physics = pumas;
-        Ok(())
     }
 
     fn create_pumas(&self, py: Python, materials: &str) -> PyResult<*mut pumas::Physics> {
@@ -211,6 +250,7 @@ impl Physics {
 
     fn destroy_physics(&mut self) {
         unsafe {
+            pumas::context_destroy(&mut self.context);
             pumas::physics_destroy(&mut self.physics);
         }
     }
@@ -392,10 +432,10 @@ extern "C" fn pumas_physics_notifier_notify(slf: *mut pumas::PhysicsNotifier) ->
 //
 // ===============================================================================================
 
-/// Compute materials tables.
+/// Compile materials tables.
 #[pyfunction]
 #[pyo3(signature=(*args, **kwargs))]
-pub fn compute(
+pub fn compile(
     py: Python,
     args: &Bound<PyTuple>,
     kwargs: Option<&Bound<PyDict>>,
@@ -404,15 +444,12 @@ pub fn compute(
         .bind(py)
         .borrow_mut();
     if args.is_empty() {
-        let materials = Materials::new(py, None)?;
-        physics
-            .create_physics(py, materials.tag.as_str())?;
+        physics.compile(py, None)?;
     } else {
         for arg in args.iter() {
             let arg: String = arg.extract()?;
-            let materials = Materials::new(py, Some(arg.as_str()))?;
-            physics
-                .create_physics(py, materials.tag.as_str())?;
+            let materials = MaterialsArg::String(arg);
+            physics.compile(py, Some(materials))?;
         }
     }
     Ok(())

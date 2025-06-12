@@ -37,6 +37,12 @@ pub struct Materials {
     pub instance: usize,
 }
 
+#[derive(FromPyObject)]
+pub enum MaterialsArg<'py> {
+    Materials(Bound<'py, Materials>),
+    String(String),
+}
+
 #[pymethods]
 impl Materials {
     #[new]
@@ -121,6 +127,27 @@ impl Materials {
         Ok(material.into_pyobject(py)?)
     }
 }
+
+impl Materials {
+    pub(crate) fn empty() -> Self {
+        Self { tag: String::new(), data: MaterialsData::new(), instance: 0 }
+    }
+
+    pub(crate) fn from_arg<'py>(
+        py: Python<'py>,
+        arg: MaterialsArg<'py>
+    ) -> PyResult<Py<Materials>> {
+        match arg {
+            MaterialsArg::String(materials) => {
+                Py::new(py, Materials::new(py, Some(materials.as_str()))?)
+            },
+            MaterialsArg::Materials(materials) => {
+                Ok(materials.unbind())
+            },
+        }
+    }
+}
+
 
 // ===============================================================================================
 //

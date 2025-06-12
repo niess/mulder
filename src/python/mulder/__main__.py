@@ -18,27 +18,27 @@ def main():
         dest = "command"
     )
 
-    compute = subparsers.add_parser("compute",
-        help = "Compute materials tables."
+    compile = subparsers.add_parser("compile",
+        help = "Compile materials tables."
     )
-    compute.add_argument("files",
+    compile.add_argument("files",
         help = "Materials description file(s).",
         nargs = "*"
     )
-    compute.add_argument("-b", "--bremsstrahlung",
+    compile.add_argument("-b", "--bremsstrahlung",
         help = "Specify the bremsstralung model.",
-        choices = ["ABB", "KKP", "SSR"],
-        default = "SSR"
+        choices = ["ABB94", "KKP95", "SSR19"],
+        default = "SSR19"
     )
-    compute.add_argument("-n", "--photonuclear",
+    compile.add_argument("-n", "--photonuclear",
         help = "Specify the photonuclear model.",
-        choices = ["BBKS", "BM", "DRSS"],
-        default = "DRSS"
+        choices = ["BBKS03", "BM02", "DRSS01"],
+        default = "DRSS01"
     )
-    compute.add_argument("-p", "--pair-production",
+    compile.add_argument("-p", "--pair-production",
         help = "Specify the pair-production model.",
-        choices = ["KKP", "SSR"],
-        default = "SSR"
+        choices = ["KKP68", "SSR19"],
+        default = "SSR19"
     )
 
     config = subparsers.add_parser("config",
@@ -60,8 +60,8 @@ def main():
     args = parser.parse_args()
 
 
-    if args.command == "compute":
-        mulder.compute(
+    if args.command == "compile":
+        mulder.compile(
             *args.files,
             bremsstrahlung = args.bremsstrahlung,
             pair_production = args.pair_production,

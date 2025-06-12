@@ -43,9 +43,10 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Register class object(s).
     module.add_class::<simulation::Fluxmeter>()?;
+    module.add_class::<simulation::physics::Physics>()?;
 
     // Register function(s).
-    module.add_function(wrap_pyfunction!(simulation::physics::compute, module)?)?;
+    module.add_function(wrap_pyfunction!(simulation::physics::compile, module)?)?;
 
     // Register constants.
     let default_cache = utils::cache::default_path()
