@@ -6,6 +6,7 @@ use std::path::Path;
 
 // mod pumas;
 mod bindings;
+mod geometry;
 mod simulation;
 mod utils;
 
@@ -38,10 +39,14 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     // Register the C error handlers.
     utils::error::initialise();
 
+    // Initialise the numpy interface.
+    utils::numpy::initialise(py)?;
+
     // Initialise the materials.
     simulation::materials::initialise(py)?;
 
     // Register class object(s).
+    module.add_class::<geometry::grid::Grid>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::physics::Physics>()?;
 

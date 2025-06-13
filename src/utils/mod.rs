@@ -3,3 +3,4 @@ pub mod convert;
 pub mod error;
 pub mod io;
 pub mod namespace;
+pub mod numpy;

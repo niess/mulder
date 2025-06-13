@@ -1,8 +1,37 @@
 #![allow(unused)]
 
 use ::std::ffi::{c_char, c_int, c_uint};
+use ::std::ptr::null;
 
 pub const SUCCESS: c_uint = 0;
+
+#[repr(C)]
+pub struct Map {
+    _unused: [u8; 0],
+}
+
+#[repr(C)]
+pub struct MapInfo {
+    pub nx: c_int,
+    pub ny: c_int,
+    pub x: [f64; 2],
+    pub y: [f64; 2],
+    pub z: [f64; 2],
+    pub encoding: *const c_char,
+}
+
+impl Default for MapInfo {
+    fn default() -> Self {
+        Self {
+            nx: 0,
+            ny: 0,
+            x: [f64::NAN; 2],
+            y: [f64::NAN; 2],
+            z: [f64::NAN; 2],
+            encoding: null(),
+        }
+    }
+}
 
 #[repr(C)]
 pub struct Stack {
@@ -63,6 +92,66 @@ extern "C" {
     #[link_name="turtle_error_function"]
     pub fn error_function(function: Function) -> *const c_char;
 
+    #[link_name="turtle_map_create"]
+    pub fn map_create(
+        map: *mut *mut Map,
+        info: *const MapInfo,
+        projection: *const c_char,
+    ) -> c_uint;
+
+    #[link_name="turtle_map_destroy"]
+    pub fn map_destroy(map: *mut *mut Map);
+
+    #[link_name="turtle_map_elevation"]
+    pub fn map_elevation(
+        map: *const Map,
+        x: f64,
+        y: f64,
+        elevation: *mut f64,
+        inside: *mut c_int,
+    ) -> c_uint;
+
+    #[link_name="turtle_map_fill"]
+    pub fn map_fill(
+        map: *const Map,
+        ix: c_int,
+        iy: c_int,
+        elevation: f64,
+    ) -> c_uint;
+
+    #[link_name="turtle_map_gradient"]
+    pub fn map_gradient(
+        map: *const Map,
+        x: f64,
+        y: f64,
+        gx: *mut f64,
+        gy: *mut f64,
+        inside: *mut c_int,
+    ) -> c_uint;
+
+    #[link_name="turtle_map_load"]
+    pub fn map_load(
+        map: *mut *mut Map,
+        path: *const c_char,
+    ) -> c_uint;
+
+    #[link_name="turtle_map_meta"]
+    pub fn map_meta(
+        map: *const Map,
+        info: *mut MapInfo,
+        projection: *mut *const c_char,
+    );
+
+    #[link_name="turtle_map_node"]
+    pub fn map_node(
+        map: *const Map,
+        ix: c_int,
+        iy: c_int,
+        x: *mut f64,
+        y: *mut f64,
+        elevation: *mut f64,
+    ) -> c_uint;
+
     #[link_name="turtle_stack_create"]
     pub fn stack_create(
         stack: *mut *mut Stack,
@@ -74,6 +163,25 @@ extern "C" {
 
     #[link_name="turtle_stack_destroy"]
     pub fn stack_destroy(stack: *mut *mut Stack);
+
+    #[link_name="turtle_stack_elevation"]
+    pub fn stack_elevation(
+        stack: *const Stack,
+        latitude: f64,
+        longitude: f64,
+        elevation: *mut f64,
+        inside: *mut c_int,
+    ) -> c_uint;
+
+    #[link_name="turtle_stack_gradient"]
+    pub fn stack_gradient(
+        stack: *const Stack,
+        latitude: f64,
+        longitude: f64,
+        glat: *mut f64,
+        glon: *mut f64,
+        inside: *mut c_int,
+    ) -> c_uint;
 
     #[link_name="turtle_stack_info"]
     pub fn stack_info(

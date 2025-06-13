@@ -2,7 +2,7 @@ use crate::utils::cache;
 use crate::utils::convert::ToToml;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, ValueError};
-use crate::utils::io::{ConfigFormat, Toml};
+use crate::utils::io::{ConfigFormat, PathString, Toml};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use regex::Regex;
@@ -40,12 +40,13 @@ pub struct Materials {
 #[derive(FromPyObject)]
 pub enum MaterialsArg<'py> {
     Materials(Bound<'py, Materials>),
-    String(String),
+    Path(PathString),
 }
 
 #[pymethods]
 impl Materials {
     #[new]
+    #[pyo3(signature=(path=None, /))]
     pub fn new(py: Python, path: Option<&str>) -> PyResult<Self> {
         let is_default = path.is_none();
         let path = match path {
@@ -135,14 +136,14 @@ impl Materials {
 
     pub(crate) fn from_arg<'py>(
         py: Python<'py>,
-        arg: MaterialsArg<'py>
+        arg: MaterialsArg
     ) -> PyResult<Py<Materials>> {
         match arg {
-            MaterialsArg::String(materials) => {
-                Py::new(py, Materials::new(py, Some(materials.as_str()))?)
-            },
             MaterialsArg::Materials(materials) => {
                 Ok(materials.unbind())
+            },
+            MaterialsArg::Path(materials) => {
+                Py::new(py, Materials::new(py, Some(materials.as_str()))?)
             },
         }
     }

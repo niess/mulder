@@ -5,6 +5,7 @@ use crate::utils::cache;
 use crate::utils::convert::{Bremsstrahlung, Mdf, PairProduction, Photonuclear};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::KeyboardInterrupt;
+use crate::utils::io::PathString;
 use indicatif::{ProgressBar, ProgressStyle};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
@@ -144,7 +145,6 @@ impl Physics {
             self.context = context;
 
             // Map materials indices.
-            self.materials_indices.clear();
             for material in materials.data.0.keys() {
                 let mut index: c_int = 0;
                 unsafe {
@@ -253,6 +253,7 @@ impl Physics {
             pumas::context_destroy(&mut self.context);
             pumas::physics_destroy(&mut self.physics);
         }
+        self.materials_indices.clear();
     }
 
     fn load_pumas(&self, materials: &str) -> Option<*mut pumas::Physics> {
@@ -448,7 +449,7 @@ pub fn compile(
     } else {
         for arg in args.iter() {
             let arg: String = arg.extract()?;
-            let materials = MaterialsArg::String(arg);
+            let materials = MaterialsArg::Path(PathString(arg));
             physics.compile(py, Some(materials))?;
         }
     }
