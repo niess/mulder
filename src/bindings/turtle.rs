@@ -1,13 +1,26 @@
 #![allow(unused)]
 
-use ::std::ffi::{c_char, c_int, c_uint};
+use ::std::ffi::{c_char, c_int, c_uint, c_void};
 use ::std::ptr::null;
 
 pub const SUCCESS: c_uint = 0;
 
 #[repr(C)]
+pub struct List {
+    pub head: *mut c_void,
+    pub tail: *mut c_void,
+    pub size: c_int,
+}
+
+#[repr(C)]
+pub struct ListElement {
+    pub previous: *mut c_void,
+    pub next: *mut c_void,
+}
+
+#[repr(C)]
 pub struct Map {
-    _unused: [u8; 0],
+    pub element: ListElement,
 }
 
 #[repr(C)]
@@ -35,7 +48,7 @@ impl Default for MapInfo {
 
 #[repr(C)]
 pub struct Stack {
-    _unused: [u8; 0],
+    pub list: List,
 }
 
 pub type ErrorHandler = Option<
@@ -190,4 +203,7 @@ extern "C" {
         latitude: *mut f64,
         longitude: *mut f64,
     );
+
+    #[link_name="turtle_stack_load"]
+    pub fn stack_load(stack: *mut Stack) -> c_uint;
 }

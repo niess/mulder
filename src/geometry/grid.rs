@@ -11,6 +11,9 @@ use ::std::ptr::{null, null_mut};
 
 #[pyclass(module="mulder")]
 pub struct Grid {
+    #[pyo3(get)]
+    pub z: (f64, f64),
+
     pub data: Data,
 }
 
@@ -38,7 +41,7 @@ impl Grid {
         y: Option<[f64; 2]>,
         projection: Option<&str>,
     ) -> PyResult<Self> {
-        let data = match data {
+        let (data, z) = match data {
             DataArg::Array(array) => {
                 let shape = array.shape();
                 if shape.len() != 2 {
@@ -89,7 +92,7 @@ impl Grid {
                         error::to_result(rc, Some("grid"))?;
                     }
                 }
-                Data::Map(map)
+                (Data::Map(map), z)
             },
             DataArg::Path(string) => {
                 let path = Path::new(string.as_str());
@@ -105,7 +108,8 @@ impl Grid {
                                 )
                             };
                             error::to_result(rc, Some("grid"))?;
-                            Data::Map(map)
+                            let z = unsafe { get_map_zlim(map) };
+                            (Data::Map(map), z)
                         },
                         Some("tif") => {
                             // XXX implement GeoTIFF loader.
@@ -169,7 +173,12 @@ impl Grid {
                             .why(&why);
                         return Err(err.into())
                     }
-                    Data::Stack(stack)
+                    let rc = unsafe {
+                        turtle::stack_load(stack)
+                    };
+                    error::to_result(rc, Some("grid"))?;
+                    let z = unsafe { get_stack_zlim(stack) };
+                    (Data::Stack(stack), z)
                 } else {
                     let why = format!(
                         "{}: not a file or directory",
@@ -182,7 +191,8 @@ impl Grid {
                 }
             },
         };
-        Ok(Self { data })
+        let z = (z[0], z[1]);
+        Ok(Self { data, z })
     }
 
     /// Grid coordinates projection.
@@ -252,6 +262,45 @@ impl Grid {
         }
     }
 
+    /// Computes the elevation value at grid point(s).
+    #[pyo3(signature=(xy, y=None, /))]
+    fn __call__<'py>(
+        &self,
+        xy: AnyArray<'py, f64>,
+        y: Option<AnyArray<'py, f64>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let py = xy.py();
+        let z = match y {
+            Some(y) => {
+                let x = xy;
+                let (nx, ny, shape) = get_shape(&x, &y);
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let z = array.as_slice_mut();
+                for iy in 0..ny {
+                    let yi = y.get_item(iy)?;
+                    for ix in 0..nx {
+                        let xi = x.get_item(ix)?;
+                        z[iy * nx + ix] = self.data.z(xi, yi);
+                    }
+                }
+                array
+            },
+            None => {
+                let mut shape = parse_xy(&xy)?;
+                shape.pop();
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let z = array.as_slice_mut();
+                for i in 0..z.len() {
+                    let xi = xy.get_item(2 * i)?;
+                    let yi = xy.get_item(2 * i + 1)?;
+                    z[i] = self.data.z(xi, yi);
+                }
+                array
+            },
+        };
+        Ok(z)
+    }
+
     /// Computes the elevation gradient at grid point(s).
     #[pyo3(signature=(xy, y=None, /))]
     fn gradient<'py>(
@@ -293,45 +342,6 @@ impl Grid {
             },
         };
         Ok(gradient)
-    }
-
-    /// Computes the elevation value at grid point(s).
-    #[pyo3(signature=(xy, y=None, /))]
-    fn z<'py>(
-        &self,
-        xy: AnyArray<'py, f64>,
-        y: Option<AnyArray<'py, f64>>,
-    ) -> PyResult<NewArray<'py, f64>> {
-        let py = xy.py();
-        let z = match y {
-            Some(y) => {
-                let x = xy;
-                let (nx, ny, shape) = get_shape(&x, &y);
-                let mut array = NewArray::<f64>::empty(py, shape)?;
-                let z = array.as_slice_mut();
-                for iy in 0..ny {
-                    let yi = y.get_item(iy)?;
-                    for ix in 0..nx {
-                        let xi = x.get_item(ix)?;
-                        z[iy * nx + ix] = self.data.z(xi, yi);
-                    }
-                }
-                array
-            },
-            None => {
-                let mut shape = parse_xy(&xy)?;
-                shape.pop();
-                let mut array = NewArray::<f64>::empty(py, shape)?;
-                let z = array.as_slice_mut();
-                for i in 0..z.len() {
-                    let xi = xy.get_item(2 * i)?;
-                    let yi = xy.get_item(2 * i + 1)?;
-                    z[i] = self.data.z(xi, yi);
-                }
-                array
-            },
-        };
-        Ok(z)
     }
 }
 
@@ -377,6 +387,33 @@ fn get_shape(x: &AnyArray<f64>, y: &AnyArray<f64>) -> (usize, usize, Vec<usize>)
         shape.push(nx)
     }
     (nx, ny, shape)
+}
+
+unsafe fn get_map_zlim(map: *const turtle::Map) -> [f64; 2] {
+    let mut info = turtle::MapInfo::default();
+    turtle::map_meta(map, &mut info, null_mut());
+    let mut z = [f64::INFINITY, -f64::INFINITY];
+    for iy in 0..info.ny {
+        for ix in 0..info.nx {
+            let mut zi = f64::NAN;
+            turtle::map_node(map, ix, iy, null_mut(), null_mut(), &mut zi);
+            if zi < z[0] { z[0] = zi }
+            if zi > z[1] { z[1] = zi }
+        }
+    }
+    z
+}
+
+unsafe fn get_stack_zlim(stack: *const turtle::Stack) -> [f64; 2] {
+    let mut z = [f64::INFINITY, -f64::INFINITY];
+    let mut map = (*stack).list.head as *const turtle::Map;
+    while map != null() {
+        let zi = get_map_zlim(map);
+        if zi[0] < z[0] { z[0] = zi[0] }
+        if zi[1] > z[1] { z[1] = zi[1] }
+        map = (*map).element.next as *const turtle::Map;
+    }
+    z
 }
 
 impl Drop for Grid {
