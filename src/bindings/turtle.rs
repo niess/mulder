@@ -51,6 +51,11 @@ pub struct Stack {
     pub list: List,
 }
 
+#[repr(C)]
+pub struct Stepper {
+    _unused: [u8; 0]
+}
+
 pub type ErrorHandler = Option<
     unsafe extern "C" fn(rc: c_uint, function: Function, message: *const c_char)
 >;
@@ -206,4 +211,35 @@ extern "C" {
 
     #[link_name="turtle_stack_load"]
     pub fn stack_load(stack: *mut Stack) -> c_uint;
+
+    #[link_name="turtle_stepper_add_flat"]
+    pub fn stepper_add_flat(stepper: *mut Stepper, ground_level: f64) -> c_uint;
+
+    #[link_name="turtle_stepper_add_layer"]
+    pub fn stepper_add_layer(stepper: *mut Stepper) -> c_uint;
+
+    #[link_name="turtle_stepper_add_map"]
+    pub fn stepper_add_map(stepper: *mut Stepper, map: *mut Map, offset: f64) -> c_uint;
+
+    #[link_name="turtle_stepper_add_stack"]
+    pub fn stepper_add_stack(stepper: *mut Stepper, stack: *mut Stack, offset: f64) -> c_uint;
+
+    #[link_name="turtle_stepper_create"]
+    pub fn stepper_create(stepper: *mut *mut Stepper) -> c_uint;
+
+    #[link_name="turtle_stepper_destroy"]
+    pub fn stepper_destroy(stepper: *mut *mut Stepper) -> c_uint;
+
+    #[link_name="turtle_stepper_step"]
+    pub fn stepper_step(
+        stepper: *mut Stepper,
+        position: *mut f64,
+        direction: *const f64,
+        latitude: *mut f64,
+        longitude: *mut f64,
+        altitude: *mut f64,
+        elevation: *mut f64,
+        step: *mut f64,
+        index: *mut c_int,
+    ) -> c_uint;
 }
