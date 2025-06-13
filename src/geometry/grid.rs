@@ -7,14 +7,16 @@ use pyo3::prelude::*;
 use ::std::ffi::{c_char, c_int, CStr, CString, OsStr};
 use ::std::path::Path;
 use ::std::ptr::{null, null_mut};
+use ::std::sync::Arc;
 
 
-#[pyclass(module="mulder")]
+#[pyclass(frozen, module="mulder")]
 pub struct Grid {
     #[pyo3(get)]
     pub z: (f64, f64),
 
-    pub data: Data,
+    pub data: Arc<Data>,
+    pub offset: f64,
 }
 
 pub enum Data {
@@ -191,14 +193,13 @@ impl Grid {
                 }
             },
         };
-        let z = (z[0], z[1]);
-        Ok(Self { data, z })
+        Ok(Self { data: Arc::new(data), z: (z[0], z[1]), offset: 0.0 })
     }
 
     /// Grid coordinates projection.
     #[getter]
     fn get_projection(&self) -> Option<String> {
-        match self.data {
+        match *self.data {
             Data::Map(map) => {
                 let mut projection: *const c_char = null_mut();
                 unsafe {
@@ -223,7 +224,7 @@ impl Grid {
     /// Grid limits along the x-coordinates.
     #[getter]
     fn get_x(&self) -> (f64, f64) {
-        match self.data {
+        match *self.data {
             Data::Map(map) => {
                 let mut info = turtle::MapInfo::default();
                 unsafe {
@@ -244,7 +245,7 @@ impl Grid {
     /// Grid limits along the y-coordinates.
     #[getter]
     fn get_y(&self) -> (f64, f64) {
-        match self.data {
+        match *self.data {
             Data::Map(map) => {
                 let mut info = turtle::MapInfo::default();
                 unsafe {
@@ -260,6 +261,21 @@ impl Grid {
                 (y[0], y[1])
             },
         }
+    }
+
+    fn __add__(&self, offset: f64) -> Self {
+        let data = Arc::clone(&self.data);
+        let z = (self.z.0 + offset, self.z.1 + offset);
+        let offset = self.offset  + offset;
+        Self { z, data, offset }
+    }
+
+    fn __radd__(&self, offset: f64) -> Self {
+        self.__add__(offset)
+    }
+
+    fn __sub__(&self, offset: f64) -> Self {
+        self.__add__(-offset)
     }
 
     /// Computes the elevation value at grid point(s).
@@ -280,7 +296,7 @@ impl Grid {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
                         let xi = x.get_item(ix)?;
-                        z[iy * nx + ix] = self.data.z(xi, yi);
+                        z[iy * nx + ix] = self.data.z(xi, yi) + self.offset;
                     }
                 }
                 array
@@ -293,7 +309,7 @@ impl Grid {
                 for i in 0..z.len() {
                     let xi = xy.get_item(2 * i)?;
                     let yi = xy.get_item(2 * i + 1)?;
-                    z[i] = self.data.z(xi, yi);
+                    z[i] = self.data.z(xi, yi) + self.offset;
                 }
                 array
             },
@@ -416,19 +432,6 @@ unsafe fn get_stack_zlim(stack: *const turtle::Stack) -> [f64; 2] {
     z
 }
 
-impl Drop for Grid {
-    fn drop(&mut self) {
-        match self.data {
-            Data::Map(mut map) => unsafe {
-                turtle::map_destroy(&mut map)
-            },
-            Data::Stack(mut stack) => unsafe {
-                turtle::stack_destroy(&mut stack)
-            },
-        }
-    }
-}
-
 impl Data {
     fn gradient(&self, x: f64, y: f64) -> [f64; 2] {
         match self {
@@ -468,3 +471,17 @@ impl Data {
         }
     }
 }
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        match self {
+            Data::Map(map) => unsafe {
+                turtle::map_destroy(map)
+            },
+            Data::Stack(stack) => unsafe {
+                turtle::stack_destroy(stack)
+            },
+        }
+    }
+}
+
