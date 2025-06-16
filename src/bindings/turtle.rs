@@ -21,6 +21,7 @@ pub struct ListElement {
 #[repr(C)]
 pub struct Map {
     pub element: ListElement,
+    pub meta: MapMeta,
 }
 
 #[repr(C)]
@@ -31,6 +32,22 @@ pub struct MapInfo {
     pub y: [f64; 2],
     pub z: [f64; 2],
     pub encoding: *const c_char,
+}
+
+#[repr(C)]
+pub struct MapMeta {
+    pub nx: c_int,
+    pub ny: c_int,
+    pub x0: f64,
+    pub y0: f64,
+    pub z0: f64,
+    pub dx: f64,
+    pub dy: f64,
+    pub dz: f64,
+    pub get_z: GetZ,
+    pub set_z: SetZ,
+    pub encoding: [c_char; 8],
+    pub projection: Projection,
 }
 
 impl Default for MapInfo {
@@ -44,6 +61,11 @@ impl Default for MapInfo {
             encoding: null(),
         }
     }
+}
+
+#[repr(C)]
+pub struct Projection {
+    _unused: [u8; 0]
 }
 
 #[repr(C)]
@@ -64,7 +86,19 @@ pub type Function = Option<
     unsafe extern "C" fn()
 >;
 
+pub type GetZ = Option<
+    unsafe extern "C" fn() -> c_int,
+>;
+
 pub type Lock = Option<
+    unsafe extern "C" fn() -> c_int,
+>;
+
+pub type SetZ = Option<
+    unsafe extern "C" fn() -> c_int,
+>;
+
+pub type Unlock = Option<
     unsafe extern "C" fn() -> c_int,
 >;
 
@@ -170,13 +204,25 @@ extern "C" {
         elevation: *mut f64,
     ) -> c_uint;
 
+    #[link_name="turtle_map_projection"]
+    pub fn map_projection(map: *const Map) -> *const Projection;
+
+    #[link_name="turtle_projection_configure"]
+    pub fn projection_configure(projection: *mut Projection, name: *const c_char) -> c_uint;
+
+    #[link_name="turtle_projection_create"]
+    pub fn projection_create(projection: *mut *mut Projection, name: *const c_char) -> c_uint;
+
+    #[link_name="turtle_projection_destroy"]
+    pub fn projection_destroy(projection: *mut *mut Projection) -> c_uint;
+
     #[link_name="turtle_stack_create"]
     pub fn stack_create(
         stack: *mut *mut Stack,
         path: *const c_char,
         size: c_int,
         lock: Lock,
-        unlock: Lock,
+        unlock: Unlock,
     ) -> c_uint;
 
     #[link_name="turtle_stack_destroy"]

@@ -4,7 +4,7 @@ use crate::utils::error::ErrorKind::{IndexError, TypeError, ValueError};
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use super::grid::{self, Grid};
+use super::grid::{self, Grid, GridLike};
 use std::ptr::{null, null_mut};
 
 
@@ -25,26 +25,43 @@ pub struct Layer {
 unsafe impl Send for Layer {}
 unsafe impl Sync for Layer {}
 
-#[derive(FromPyObject, IntoPyObject)]
+#[derive(IntoPyObject)]
 pub enum Data {
     Flat(f64),
     Grid(Py<Grid>),
 }
 
 #[derive(FromPyObject)]
-enum DataArg {
-    One(Data),
-    More(Vec<Data>),
+pub enum DataLike<'py> {
+    Flat(f64),
+    Grid(GridLike<'py>),
+}
+
+#[derive(FromPyObject)]
+enum DataArg<'py> {
+    One(DataLike<'py>),
+    More(Vec<DataLike<'py>>),
 }
 
 #[pymethods]
 impl Layer {
     #[pyo3(signature=(data, /, *, density=None, material=None))]
     #[new]
-    fn new(data: DataArg, density: Option<f64>, material: Option<String>) -> PyResult<Self> {
+    fn new(
+        py: Python,
+        data: DataArg,
+        density: Option<f64>,
+        material: Option<String>
+    ) -> PyResult<Self> {
         let data = match data {
-            DataArg::One(data) => vec![data],
-            DataArg::More(data) => data,
+            DataArg::One(data) => vec![data.into_data(py)?],
+            DataArg::More(data) => {
+                let data: PyResult<Vec<_>> = data
+                    .into_iter()
+                    .map(|d| d.into_data(py))
+                    .collect();
+                data?
+            },
         };
         let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
         let stepper = null_mut();
@@ -138,7 +155,7 @@ impl Layer {
             let mut r = [ 0.0_f64; 3 ];
             unsafe { turtle::ecef_from_geodetic(lat, lon, 0.0, r.as_mut_ptr()); }
             let mut elevation = [f64::NAN; 2];
-            let mut index = [ -1; 2 ];
+            let mut index = [ -2; 2 ];
             error::to_result(
                 unsafe {
                     turtle::stepper_step(
@@ -155,7 +172,11 @@ impl Layer {
                 },
                 None::<&str>,
             )?;
-            z[i] = elevation[0];
+            z[i] = match index[0] {
+                0 => elevation[1],
+                1 => elevation[0],
+                _ => f64::NAN,
+            };
         }
         Ok(array)
     }
@@ -168,6 +189,7 @@ impl Layer {
     fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
         if self.stepper == null_mut() {
             unsafe {
+                error::to_result(turtle::stepper_create(&mut self.stepper), None::<&str>)?;
                 self.insert(py, self.stepper)?
             }
         }
@@ -217,5 +239,20 @@ impl Data {
             Data::Flat(f) => Data::Flat(*f),
             Data::Grid(g) => Data::Grid(g.clone_ref(py)),
         }
+    }
+}
+
+impl<'py> DataLike<'py> {
+    fn into_data(self, py: Python<'py>) -> PyResult<Data> {
+        let data = match self {
+            Self::Flat(f) => Data::Flat(f),
+            Self::Grid(g) => {
+                let g = g
+                    .into_grid(py)?
+                    .unbind();
+                Data::Grid(g)
+            },
+        };
+        Ok(data)
     }
 }

@@ -33,6 +33,12 @@ pub enum DataArg<'py> {
     Path(PathString),
 }
 
+#[derive(FromPyObject)]
+pub enum GridLike<'py> {
+    Bound(Bound<'py, Grid>),
+    Path(PathString),
+}
+
 #[pymethods]
 impl Grid {
     #[new]
@@ -99,7 +105,7 @@ impl Grid {
             DataArg::Path(string) => {
                 let path = Path::new(string.as_str());
                 if path.is_file() {
-                    match path.extension().and_then(OsStr::to_str) {
+                    let map = match path.extension().and_then(OsStr::to_str) {
                         Some("asc" | "grd" | "hgt") => {
                             let mut map: *mut turtle::Map = null_mut();
                             let path = CString::new(string.0).unwrap();
@@ -110,8 +116,7 @@ impl Grid {
                                 )
                             };
                             error::to_result(rc, Some("grid"))?;
-                            let z = unsafe { get_map_zlim(map) };
-                            (Data::Map(map), z)
+                            map
                         },
                         Some("tif") => {
                             // XXX implement GeoTIFF loader.
@@ -141,7 +146,26 @@ impl Grid {
                                 .why(&why);
                             return Err(err.into())
                         },
+                    };
+                    if let Some(name) = projection {
+                        let projection = unsafe { turtle::map_projection(map) };
+                        if projection != null() {
+                            let err = Error::new(TypeError)
+                                .what("grid")
+                                .why("cannot redefine projection");
+                            return Err(err.into())
+                        }
+                        let name = CString::new(name).unwrap();
+                        let rc = unsafe {
+                            turtle::projection_configure(
+                                &mut (*map).meta.projection,
+                                name.as_c_str().as_ptr(),
+                            )
+                        };
+                        error::to_result(rc, Some("projection"))?;
                     }
+                    let z = unsafe { get_map_zlim(map) };
+                    (Data::Map(map), z)
                 } else if path.is_dir() {
                     let mut stack: *mut turtle::Stack = null_mut();
                     let path = CString::new(string.as_str()).unwrap();
@@ -472,6 +496,19 @@ impl Data {
     }
 }
 
+impl<'py> GridLike<'py> {
+    pub fn into_grid(self, py: Python<'py>) -> PyResult<Bound<'py, Grid>> {
+        let grid = match self {
+            Self::Bound(bound) => bound,
+            Self::Path(path) => {
+                let grid = Grid::new(DataArg::Path(path), None, None, None)?;
+                Bound::new(py, grid)?
+            },
+        };
+        Ok(grid)
+    }
+}
+
 impl Drop for Data {
     fn drop(&mut self) {
         match self {
@@ -484,4 +521,3 @@ impl Drop for Data {
         }
     }
 }
-

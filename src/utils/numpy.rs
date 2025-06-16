@@ -532,6 +532,8 @@ impl<'a, T: Clone> ExactSizeIterator for Iter<'a, T> {
 
 impl<'a, T: Clone> std::iter::FusedIterator for Iter<'a, T> {}
 
+static EMPTY_SLICE: [npy_intp; 0] = [];
+
 impl<T> PyArrayObject<T> {
     unsafe fn cast<'a>(ob: &'a Bound<PyAny>) -> &'a Self {
         &*(ob.as_ptr() as *const PyArrayObject<T>)
@@ -580,19 +582,31 @@ impl<T> PyArrayObject<T> {
 
     #[inline]
     fn shape(&self) -> &[npy_intp] {
-        unsafe { std::slice::from_raw_parts(self.dimensions, self.nd as usize) }
+        if self.nd == 0 {
+            &EMPTY_SLICE
+        } else {
+            unsafe { std::slice::from_raw_parts(self.dimensions, self.nd as usize) }
+        }
     }
 
     #[inline]
     fn size(&self) -> npy_intp {
-        self.shape()
-            .iter()
-            .product::<npy_intp>()
+        if self.nd == 0 {
+            1
+        } else {
+            self.shape()
+                .iter()
+                .product::<npy_intp>()
+        }
     }
 
     #[inline]
     fn strides(&self) -> &[npy_intp] {
-        unsafe { std::slice::from_raw_parts(self.strides, self.nd as usize) }
+        if self.nd == 0 {
+            &EMPTY_SLICE
+        } else {
+            unsafe { std::slice::from_raw_parts(self.strides, self.nd as usize) }
+        }
     }
 }
 
