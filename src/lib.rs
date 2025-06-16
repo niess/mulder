@@ -46,6 +46,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     simulation::materials::initialise(py)?;
 
     // Register class object(s).
+    module.add_class::<geometry::atmosphere::Atmosphere>()?;
     module.add_class::<geometry::grid::Grid>()?;
     module.add_class::<geometry::layer::Layer>()?;
     module.add_class::<simulation::Fluxmeter>()?;

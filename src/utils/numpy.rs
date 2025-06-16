@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use paste::paste;
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyIndexError, PyValueError};

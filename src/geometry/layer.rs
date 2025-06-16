@@ -118,6 +118,7 @@ impl Layer {
             })
     }
 
+    #[pyo3(signature=(/, *, latitude, longitude))]
     fn elevation<'py>(
         &mut self,
         latitude: AnyArray<'py, f64>,
