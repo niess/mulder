@@ -38,7 +38,7 @@ pub enum DataLike<'py> {
 }
 
 #[derive(FromPyObject)]
-enum DataArg<'py> {
+pub enum DataArg<'py> {
     One(DataLike<'py>),
     More(Vec<DataLike<'py>>),
 }
@@ -47,7 +47,7 @@ enum DataArg<'py> {
 impl Layer {
     #[pyo3(signature=(data, /, *, density=None, material=None))]
     #[new]
-    fn new(
+    pub fn new(
         py: Python,
         data: DataArg,
         density: Option<f64>,
@@ -197,7 +197,7 @@ impl Layer {
         Ok(())
     }
 
-    unsafe fn insert(&self, py: Python, stepper: *mut turtle::Stepper) -> PyResult<()> {
+    pub unsafe fn insert(&self, py: Python, stepper: *mut turtle::Stepper) -> PyResult<()> {
         if !self.data.is_empty() {
             error::to_result(turtle::stepper_add_layer(stepper), Self::WHAT)?;
         }

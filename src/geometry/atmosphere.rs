@@ -22,7 +22,7 @@ pub enum AtmosphereLike<'py> {
 impl Atmosphere {
     #[pyo3(signature=(model=None, /))]
     #[new]
-    fn new(model: Option<AtmosphereLike>) -> PyResult<Self> {
+    pub fn new(model: Option<AtmosphereLike>) -> PyResult<Self> {
         let model = model
             .unwrap_or_else(|| AtmosphereLike::Model(AtmosphericModel::default()));
 
