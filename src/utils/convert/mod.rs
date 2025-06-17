@@ -4,14 +4,12 @@ use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
 use std::convert::Infallible;
 
-// XXX mod array;
 mod atmosphere;
 mod materials;
 mod mdf;
 mod physics;
 mod toml;
 
-// XXX pub use array::Array;
 pub use atmosphere::AtmosphericModel;
 pub use mdf::Mdf;
 pub use physics::{Bremsstrahlung, PairProduction, Photonuclear};

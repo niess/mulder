@@ -12,6 +12,7 @@ use ::std::sync::Arc;
 
 #[pyclass(frozen, module="mulder")]
 pub struct Grid {
+    /// Grid limits along the z-coordinates.
     #[pyo3(get)]
     pub z: (f64, f64),
 
