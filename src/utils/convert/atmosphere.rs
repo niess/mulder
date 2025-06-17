@@ -6,6 +6,11 @@ use pyo3::prelude::*;
 #[derive(Clone, Copy, Default, EnumVariantsStrings, PartialEq)]
 #[enum_variants_strings_transform(transform="none")]
 pub enum AtmosphericModel {
+    MidlatitudeSummer,
+    MidlatitudeWinter,
+    SubarticSummer,
+    SubarticWinter,
+    Tropical,
     #[default]
     USStandard,
 }
