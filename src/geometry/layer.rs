@@ -51,7 +51,7 @@ impl Layer {
             vec![Data::Flat(0.0)]
         } else {
             let mut v = Vec::with_capacity(data.len());
-            for d in data.iter() {
+            for d in data.iter().rev() {
                 let d: DataLike = d.extract()?;
                 v.push(d.into_data(py)?);
             }

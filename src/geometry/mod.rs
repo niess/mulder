@@ -6,6 +6,7 @@ use crate::utils::numpy::{Dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
+use std::ffi::c_int;
 use std::ptr::{null, null_mut};
 
 pub mod atmosphere;
@@ -173,8 +174,97 @@ impl Geometry {
                 },
                 None::<&str>,
             )?;
-            layer[i] = index[0];
+            layer[i] = layer_index(index[0]);
         }
+        Ok(array)
+    }
+
+    #[pyo3(signature=(coordinates=None, /, *, **kwargs))]
+    fn scan<'py>(
+        &self,
+        py: Python<'py>,
+        coordinates: Option<&Bound<PyAny>>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let coordinates = coordinates::select_coordinates(coordinates, kwargs)?
+            .ok_or_else(|| Error::new(TypeError)
+                .what("coordinates")
+                .why("expected one argument, found zero")
+                .to_err()
+            )?;
+        let position = Position::extract_bound(coordinates)?;
+        let direction = Direction::extract_bound(coordinates)?;
+        let (size, mut shape) = position.common(&direction)?;
+        let (shape, n) = {
+            let n = self.layers.len();
+            shape.push(n);
+            (shape, n)
+        };
+
+        let mut array = NewArray::<f64>::zeros(py, shape)?;
+        let distances = array.as_slice_mut();
+        for i in 0..size {
+            // Get the starting point.
+            let geographic = position.get(i)?;
+            let mut r = geographic.to_ecef();
+            let mut index = [ -2; 2 ];
+            error::to_result(
+                unsafe {
+                    turtle::stepper_step(
+                        self.stepper,
+                        r.as_mut_ptr(),
+                        null(),
+                        null_mut(),
+                        null_mut(),
+                        null_mut(),
+                        null_mut(),
+                        null_mut(),
+                        index.as_mut_ptr(),
+                    )
+                },
+                None::<&str>,
+            )?;
+
+            // Iterate until the particle exits.
+            let horizontal = direction.get(i)?;
+            let u = horizontal.to_ecef(&geographic);
+            while (index[0] >= 1) && (index[0] as usize <= n + 1) {
+                let current = index[0];
+                let mut di = 0.0;
+                while index[0] == current {
+                    let mut step: f64 = 0.0;
+                    error::to_result(
+                        unsafe {
+                            turtle::stepper_step(
+                                self.stepper,
+                                r.as_mut_ptr(),
+                                u.as_ptr(),
+                                null_mut(),
+                                null_mut(),
+                                null_mut(),
+                                null_mut(),
+                                &mut step,
+                                index.as_mut_ptr(),
+                            )
+                        },
+                        None::<&str>,
+                    )?;
+                    di += step;
+                }
+
+                let current = current as usize;
+                if current <= n {
+                    distances[i * n + current - 1]+= di;
+                }
+
+                // Push the particle through the boundary.
+                const EPS: f64 = f32::EPSILON as f64;
+                for i in 0..3 {
+                    r[i] += EPS * u[i];
+                }
+            }
+        }
+
         Ok(array)
     }
 
@@ -257,8 +347,8 @@ impl Geometry {
                 geographic.clone()
             };
             intersections[i] = Intersection {
-                before: start_layer,
-                after: index[0],
+                before: layer_index(start_layer),
+                after: layer_index(index[0]),
                 latitude: position.latitude,
                 longitude: position.longitude,
                 altitude: position.altitude,
@@ -266,6 +356,15 @@ impl Geometry {
             };
         }
         Ok(array)
+    }
+}
+
+#[inline]
+fn layer_index(stepper_index: c_int) -> c_int {
+    if stepper_index >= 1 {
+        stepper_index - 1
+    } else {
+        stepper_index
     }
 }
 

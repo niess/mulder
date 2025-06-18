@@ -28,7 +28,7 @@ pub fn initialise(py: Python) -> PyResult<()> {
     Ok(())
 }
 
-static INSTANCES: AtomicUsize = AtomicUsize::new(0);
+static INSTANCES: AtomicUsize = AtomicUsize::new(0); // XXX needed?
 
 #[pyclass(frozen, module="mulder")]
 pub struct Materials {
