@@ -1,7 +1,8 @@
 use crate::bindings::turtle;
-use crate::utils::coordinates::{self, GeographicCoordinates, Direction, Position};
+use crate::utils::coordinates::GeographicCoordinates;
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{IndexError, TypeError};
+use crate::utils::extract::{self, Direction, Position};
 use crate::utils::numpy::{Dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -144,7 +145,7 @@ impl Geometry {
         position: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
-        let position = coordinates::select_position(position, kwargs)?
+        let position = extract::select_position(position, kwargs)?
             .ok_or_else(|| Error::new(TypeError)
                 .what("position")
                 .why("expected one argument, found zero")
@@ -186,7 +187,7 @@ impl Geometry {
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let coordinates = coordinates::select_coordinates(coordinates, kwargs)?
+        let coordinates = extract::select_coordinates(coordinates, kwargs)?
             .ok_or_else(|| Error::new(TypeError)
                 .what("coordinates")
                 .why("expected one argument, found zero")
@@ -275,7 +276,7 @@ impl Geometry {
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
-        let coordinates = coordinates::select_coordinates(coordinates, kwargs)?
+        let coordinates = extract::select_coordinates(coordinates, kwargs)?
             .ok_or_else(|| Error::new(TypeError)
                 .what("coordinates")
                 .why("expected one argument, found zero")

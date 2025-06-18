@@ -3,6 +3,7 @@ use pyo3::types::{PyDict, PyString};
 
 pub mod materials;
 pub mod physics;
+pub mod reference;
 
 
 #[pyclass(module="mulder")]

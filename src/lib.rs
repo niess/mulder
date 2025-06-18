@@ -52,6 +52,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<geometry::layer::Layer>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::physics::Physics>()?;
+    module.add_class::<simulation::reference::Reference>()?;
 
     // Register function(s).
     module.add_function(wrap_pyfunction!(simulation::physics::compile, module)?)?;
