@@ -12,7 +12,7 @@ pub mod grid;
 pub mod layer;
 
 use atmosphere::{Atmosphere, AtmosphereLike};
-use layer::{DataArg, DataLike, Layer};
+use layer::{DataLike, Layer};
 
 
 #[pyclass(module="mulder")]
@@ -35,25 +35,40 @@ enum AtmosphereArg<'py> {
 }
 
 #[derive(FromPyObject)]
-enum LayersArg<'py> {
-    Data(DataLike<'py>),
+enum LayerLike<'py> {
     Layer(Py<Layer>),
-    Layers(Vec<Py<Layer>>),
+    OneData(DataLike<'py>),
+    ManyData(Vec<DataLike<'py>>),
 }
 
 #[pymethods]
 impl Geometry {
-    #[pyo3(signature=(layers, /, *, atmosphere=None))]
+    #[pyo3(signature=(*layers, atmosphere=None))]
     #[new]
-    fn new(py: Python, layers: LayersArg, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
-        let layers = match layers {
-            LayersArg::Data(data) => {
-                let layer = Layer::new(py, DataArg::One(data), None, None)?;
-                let layer = Py::new(py, layer)?;
-                vec![layer]
-            },
-            LayersArg::Layer(layer) => vec![layer],
-            LayersArg::Layers(layers) => layers,
+    fn new(layers: &Bound<PyTuple>, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
+        let py = layers.py();
+        let layers = {
+            let mut v = Vec::with_capacity(layers.len());
+            for layer in layers.iter() {
+                let layer: LayerLike = layer.extract()?;
+                let layer = match layer {
+                    LayerLike::Layer(layer) => layer,
+                    LayerLike::OneData(data) => {
+                        let data = vec![data.into_data(py)?];
+                        let layer = Layer::new(data, None, None)?;
+                        Py::new(py, layer)?
+                    },
+                    LayerLike::ManyData(data) => {
+                        let data: PyResult<Vec<_>> = data.into_iter()
+                            .map(|data| data.into_data(py))
+                            .collect();
+                        let layer = Layer::new(data?, None, None)?;
+                        Py::new(py, layer)?
+                    },
+                };
+                v.push(layer)
+            }
+            v
         };
 
         let atmosphere = match atmosphere {

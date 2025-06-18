@@ -37,39 +37,27 @@ pub enum DataLike<'py> {
     Grid(GridLike<'py>),
 }
 
-#[derive(FromPyObject)]
-pub enum DataArg<'py> {
-    One(DataLike<'py>),
-    More(Vec<DataLike<'py>>),
-}
-
 #[pymethods]
 impl Layer {
-    #[pyo3(signature=(data, /, *, density=None, material=None))]
+    #[pyo3(signature=(*data, density=None, material=None))]
     #[new]
-    pub fn new(
-        py: Python,
-        data: DataArg,
+    pub fn py_new(
+        data: &Bound<PyTuple>,
         density: Option<f64>,
         material: Option<String>
     ) -> PyResult<Self> {
-        let data = match data {
-            DataArg::One(data) => vec![data.into_data(py)?],
-            DataArg::More(data) => {
-                let data: PyResult<Vec<_>> = data
-                    .into_iter()
-                    .map(|d| d.into_data(py))
-                    .collect();
-                data?
-            },
+        let py = data.py();
+        let data = if data.len() == 0 {
+            vec![Data::Flat(0.0)]
+        } else {
+            let mut v = Vec::with_capacity(data.len());
+            for d in data.iter() {
+                let d: DataLike = d.extract()?;
+                v.push(d.into_data(py)?);
+            }
+            v
         };
-        let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
-        let stepper = null_mut();
-        let mut layer = Self { density: None, material, data, stepper };
-        if density.is_some() {
-            layer.set_density(density)?;
-        }
-        Ok(layer)
+        Self::new(data, density, material)
     }
 
     /// The layer elevation data.
@@ -226,6 +214,22 @@ impl Layer {
     }
 }
 
+impl Layer {
+    pub fn new(
+        data: Vec<Data>,
+        density: Option<f64>,
+        material: Option<String>
+    ) -> PyResult<Self> {
+        let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
+        let stepper = null_mut();
+        let mut layer = Self { density: None, material, data, stepper };
+        if density.is_some() {
+            layer.set_density(density)?;
+        }
+        Ok(layer)
+    }
+}
+
 impl Drop for Layer {
     fn drop(&mut self) {
         unsafe {
@@ -244,7 +248,7 @@ impl Data {
 }
 
 impl<'py> DataLike<'py> {
-    fn into_data(self, py: Python<'py>) -> PyResult<Data> {
+    pub fn into_data(self, py: Python<'py>) -> PyResult<Data> {
         let data = match self {
             Self::Flat(f) => Data::Flat(f),
             Self::Grid(g) => {
