@@ -1,10 +1,11 @@
 use crate::bindings::turtle;
-use crate::utils::coordinates::{self, Direction, Position};
+use crate::utils::coordinates::{self, GeographicCoordinates, Direction, Position};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{IndexError, TypeError};
-use crate::utils::numpy::NewArray;
+use crate::utils::numpy::{Dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use pyo3::sync::GILOnceCell;
 use std::ptr::{null, null_mut};
 
 pub mod atmosphere;
@@ -39,6 +40,16 @@ enum LayerLike<'py> {
     Layer(Py<Layer>),
     OneData(DataLike<'py>),
     ManyData(Vec<DataLike<'py>>),
+}
+
+#[repr(C)]
+struct Intersection {
+    before: i32,
+    after: i32,
+    latitude: f64,
+    longitude: f64,
+    altitude: f64,
+    distance: f64,
 }
 
 #[pymethods]
@@ -173,7 +184,7 @@ impl Geometry {
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, f64>> {
+    ) -> PyResult<NewArray<'py, Intersection>> {
         let coordinates = coordinates::select_coordinates(coordinates, kwargs)?
             .ok_or_else(|| Error::new(TypeError)
                 .what("coordinates")
@@ -185,7 +196,7 @@ impl Geometry {
         let (size, shape) = position.common(&direction)?;
 
         let mut array = NewArray::empty(py, shape)?;
-        let distance = array.as_slice_mut();
+        let intersections = array.as_slice_mut();
         for i in 0..size {
             let geographic = position.get(i)?;
             let mut r = geographic.to_ecef();
@@ -208,7 +219,10 @@ impl Geometry {
             )?;
             let start_layer = index[0];
             let mut di = 0.0;
-            if (start_layer >= 1) && (start_layer as usize <= self.layers.len() + 1) {
+            let position = if (start_layer >= 1) &&
+                              (start_layer as usize <= self.layers.len() + 1) {
+
+                // Iterate until a boundary is hit.
                 let horizontal = direction.get(i)?;
                 let u = horizontal.to_ecef(&geographic);
                 let mut step = 0.0_f64;
@@ -231,8 +245,25 @@ impl Geometry {
                     )?;
                     di += step;
                 }
-            }
-            distance[i] = di;
+
+                // Push the particle through the boundary.
+                const EPS: f64 = f32::EPSILON as f64;
+                di += EPS;
+                for i in 0..3 {
+                    r[i] += EPS * u[i];
+                }
+                GeographicCoordinates::from_ecef(&r)
+            } else {
+                geographic.clone()
+            };
+            intersections[i] = Intersection {
+                before: start_layer,
+                after: index[0],
+                latitude: position.latitude,
+                longitude: position.longitude,
+                altitude: position.altitude,
+                distance: di,
+            };
         }
         Ok(array)
     }
@@ -251,5 +282,30 @@ impl Drop for Geometry {
         unsafe {
             turtle::stepper_destroy(&mut self.stepper);
         }
+    }
+}
+
+static INTERSECTION_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for Intersection {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = INTERSECTION_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
+                        ("before",    "i4"),
+                        ("after",     "i4"),
+                        ("latitude",  "f8"),
+                        ("longitude", "f8"),
+                        ("altitude",  "f8"),
+                        ("distance",  "f8")
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
     }
 }
