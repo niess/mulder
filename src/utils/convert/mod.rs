@@ -8,15 +8,17 @@ mod atmosphere;
 mod materials;
 mod mdf;
 mod physics;
+mod reference;
 mod toml;
 
 pub use atmosphere::AtmosphericModel;
 pub use mdf::Mdf;
 pub use physics::{Bremsstrahlung, PairProduction, Photonuclear};
+pub use reference::ParametricModel;
 pub use toml::ToToml;
 
 
-trait Convert {
+pub trait Convert {
     fn what() -> &'static str;
 
     #[inline]
@@ -25,6 +27,14 @@ trait Convert {
         Self: EnumVariantsStrings,
     {
         let name: String = any.extract()?;
+        Self::from_string(name)
+    }
+
+    #[inline]
+    fn from_string(name: String) -> PyResult<Self>
+    where
+        Self: EnumVariantsStrings,
+    {
         let value = Self::from_str(&name)
             .map_err(|options| {
                 let why = variant_explain(&name, options);

@@ -1,5 +1,7 @@
+use crate::utils::convert::{Convert, ParametricModel};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
+use crate::utils::extract::Extractor;
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
 use pyo3::prelude::*;
@@ -33,13 +35,14 @@ pub enum Altitude {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Flux {
     value: f64,
-    asymmetry: f64,
+    ratio: f64,
 }
 
 enum Model {
-    GCCLY,
+    Parametric(ParametricModel),
     Table(Table),
 }
 
@@ -102,52 +105,97 @@ impl Reference {
             },
             ModelArg::Path(string) => {
                 let path = Path::new(string.as_str());
-                if path.is_file() {
-                    match path.extension().and_then(OsStr::to_str) {
-                        Some("table") => Table::from_file(path)?.into(),
-                        Some(ext) => {
-                            let why = format!(
-                                "{}: unsupported format (.{})",
-                                string.as_str(),
-                                ext,
-                            );
-                            let err = Error::new(TypeError)
-                                .what("model")
-                                .why(&why);
-                            return Err(err.into())
-                        },
-                        _ => {
-                            let why = format!(
-                                "{}: missing format",
-                                string.as_str(),
-                            );
-                            let err = Error::new(TypeError)
-                                .what("model")
-                                .why(&why);
-                            return Err(err.into())
-                        },
-                    }
-                } else {
-                    unimplemented!()
+                match path.extension().and_then(OsStr::to_str) {
+                    Some("table") => Table::from_file(path)?.into(),
+                    Some(ext) => {
+                        let why = format!(
+                            "{}: unsupported format (.{})",
+                            string.as_str(),
+                            ext,
+                        );
+                        let err = Error::new(TypeError)
+                            .what("model")
+                            .why(&why);
+                        return Err(err.into())
+                    },
+                    _ => {
+                        let model = ParametricModel::from_string(string.0)?;
+                        let model = Model::Parametric(model);
+                        let altitude = Altitude::Scalar(0.0);
+                        let energy = (1E-03, 1E+12);
+                        let elevation = (0.0, 90.0);
+                        Self { altitude, elevation, energy, model }
+                    },
                 }
             },
         };
         Ok(reference)
     }
 
-    #[pyo3(signature=(state=None, /, *, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, **kwargs))]
     fn __call__<'py>(
         &self,
         py: Python<'py>,
-        state: Option<&Bound<PyAny>>,
+        states: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Flux>> {
-        unimplemented!()
+        let array = match self.altitude {
+            Altitude::Scalar(altitude) => {
+                let states = Extractor::from_args(
+                    ["energy", "elevation"],
+                    states,
+                    kwargs
+                )?;
+                let mut array = NewArray::zeros(py, states.shape())?;
+                let flux = array.as_slice_mut();
+                for i in 0..states.size() {
+                    let [energy, elevation] = states.get(i)?;
+                    flux[i] = self.flux(energy, elevation, altitude);
+                }
+                array
+            },
+            Altitude::Range(_) => {
+                let states = Extractor::from_args(
+                    ["energy", "elevation", "altitude"],
+                    states,
+                    kwargs
+                )?;
+                let mut array = NewArray::zeros(py, states.shape())?;
+                let flux = array.as_slice_mut();
+                for i in 0..states.size() {
+                    let [energy, elevation, altitude] = states.get(i)?;
+                    flux[i] = self.flux(energy, elevation, altitude);
+                }
+                array
+            },
+        };
+        Ok(array)
     }
 }
 
 impl Reference {
     const DEFAULT_ALTITUDE: f64 = 0.0;
+    const DEFAULT_RATIO: f64 = 1.2766;  // Ref: CMS (https://arxiv.org/abs/1005.5332).
+
+    pub fn flux(&self, energy: f64, elevation: f64, altitude: f64) -> Flux {
+        match &self.model {
+            Model::Table(table) => table.flux(energy, elevation, altitude)
+                .unwrap_or_else(|| Flux::ZERO),
+            Model::Parametric(model) => {
+                const RAD: f64 = std::f64::consts::PI / 180.0;
+                let cos_theta = ((90.0 - elevation) * RAD).cos();
+                let value = match model {
+                    ParametricModel::GCCLY15 => flux_gccly(cos_theta, energy),
+                    ParametricModel::Gaisser90 => flux_gaisser(cos_theta, energy),
+                };
+                if value > 0.0 {
+                    Flux { value, ratio: Self::DEFAULT_RATIO }
+                } else {
+                    Flux::ZERO
+                }
+            },
+        }
+    }
 }
 
 impl From<Table> for Reference {
@@ -166,12 +214,48 @@ impl From<Table> for Reference {
 }
 
 impl Table {
-    pub fn flux(&self, altitude: f64, elevation: f64, energy: f64) -> Option<Flux> {
+    fn check(energy: &[f64; 2], cos_theta: &[f64; 2]) -> PyResult<()> {
+        let check_energy = |value: f64| -> PyResult<()> {
+            if value <= 0.0 {
+                let why = format!("expected a strictly positive value, found '{}'", value);
+                Err(Error::new(ValueError).what("energy").why(&why).to_err())
+            } else {
+                Ok(())
+            }
+        };
+        check_energy(energy[0])?;
+        check_energy(energy[1])?;
+
+        let check_cos_theta = |value: f64| -> PyResult<()> {
+            if (value < -1.0) || (value > 1.0) {
+                let why = format!("expected a value in [-1, 1], found '{}'", value);
+                Err(Error::new(ValueError).what("cos(theta)").why(&why).to_err())
+            } else {
+                Ok(())
+            }
+        };
+        check_cos_theta(cos_theta[0])?;
+        check_cos_theta(cos_theta[1])?;
+
+        Ok(())
+    }
+
+    fn flux(&self, energy: f64, elevation: f64, altitude: f64) -> Option<Flux> {
         // Compute indices.
         #[inline]
-        fn getindex(x: f64, xmin: f64, xmax: f64, nx: usize) -> Option<(usize, f64)> {
+        fn getindex_ln(x: f64, xmin: f64, xmax: f64, nx: usize) -> Option<(usize, f64)> {
             let dlx = (xmax / xmin).ln() / ((nx - 1) as f64);
             let mut hx = (x / xmin).ln() / dlx;
+            if (hx < 0.0) || (hx > (nx - 1) as f64) { return None }
+            let ix = hx as usize;
+            hx -= ix as f64;
+            Some((ix, hx))
+        }
+
+        #[inline]
+        fn getindex_li(x: f64, xmin: f64, xmax: f64, nx: usize) -> Option<(usize, f64)> {
+            let dlx = (xmax - xmin) / ((nx - 1) as f64);
+            let mut hx = (x - xmin) / dlx;
             if (hx < 0.0) || (hx > (nx - 1) as f64) { return None }
             let ix = hx as usize;
             hx -= ix as f64;
@@ -185,10 +269,10 @@ impl Table {
         let [ c_min, c_max ] = self.cos_theta;
         let [ h_min, h_max ] = self.altitude;
 
-        let (ik, hk) = getindex(energy, k_min, k_max, n_k)?;
-        let (ic, hc) = getindex(c, c_min, c_max, n_c)?;
+        let (ik, hk) = getindex_ln(energy, k_min, k_max, n_k)?;
+        let (ic, hc) = getindex_li(c, c_min, c_max, n_c)?;
         let (ih, hh) = if n_h > 1 {
-            getindex(altitude, h_min, h_max, n_h)?
+            getindex_li(altitude, h_min, h_max, n_h)?
         } else {
             (0, 0.0)
         };
@@ -238,7 +322,7 @@ impl Table {
 
         let tmp = flux[0] + flux[1];
         let flux = if tmp > 0.0 {
-            Flux { value: tmp, asymmetry: (flux[0] - flux[1]) / tmp }
+            Flux { value: tmp, ratio: flux[1] / flux[0] }
         } else {
             Flux::ZERO
         };
@@ -267,7 +351,7 @@ impl Table {
             return Err(err)
         }
         let shape = {
-            let mut shape = array.shape();
+            let shape = array.shape();
             if ndim == 2 { [ 1, shape[0], shape[1] ] } else { shape.try_into().unwrap() }
         };
         let [ n_h, n_c, n_k ] = shape;
@@ -280,6 +364,7 @@ impl Table {
             data.push(di as f32);
         }
 
+        Self::check(&energy, &cos_theta)?;
         let table = Self { shape, energy, cos_theta, altitude, data };
         Ok(table)
     }
@@ -337,13 +422,14 @@ impl Table {
         let energy = [ k_min, k_max ];
         let cos_theta = [ c_min, c_max ];
         let altitude = [ h_min, h_max ];
+        Self::check(&energy, &cos_theta)?;
         let table = Self { shape, energy, cos_theta, altitude, data };
         Ok(table)
     }
 }
 
 impl Flux {
-    const ZERO: Self = Self { value: 0.0, asymmetry: 0.0 };
+    const ZERO: Self = Self { value: 0.0, ratio: 1.0 };
 }
 
 static FLUX_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
@@ -354,8 +440,8 @@ impl Dtype for Flux {
             let ob = PyModule::import(py, "numpy")?
                 .getattr("dtype")?
                 .call1(([
-                        ("value",     "f8"),
-                        ("asymmetry", "f8"),
+                        ("value", "f8"),
+                        ("ratio", "f8"),
                     ],
                     true,
                 ))?
@@ -365,4 +451,70 @@ impl Dtype for Flux {
         .bind(py);
         Ok(ob)
     }
+}
+
+
+// ===============================================================================================
+//
+// Gaisser's flux model (in GeV^-1 m^-2 s^-1 sr^-1).
+// Ref: see e.g. the ch.30 of the PDG (https://pdglive.lbl.gov).
+//
+// ===============================================================================================
+
+const MUON_MASS: f64 = 0.10566;
+
+fn flux_gaisser(cos_theta: f64, energy: f64) -> f64 {
+    if cos_theta < 0.0 {
+        0.0
+    } else {
+        let emu = energy + MUON_MASS;
+        let ec = 1.1 * emu * cos_theta;
+        let rpi = 1.0 + ec / 115.0;
+        let rk = 1.0 + ec / 850.0;
+        1.4E+03 * emu.powf(-2.7) * (1.0 / rpi + 0.054 / rk)
+    }
+}
+
+
+// ===============================================================================================
+//
+// Volkova's parameterization of cos(theta*).
+//
+// This is a correction for the Earth curvature, relevant for close to
+// horizontal trajectories.
+//
+// ===============================================================================================
+
+fn cos_theta_star(cos_theta: f64) -> f64 {
+    const P: [f64; 5] = [ 0.102573, -0.068287, 0.958633, 0.0407253, 0.817285 ];
+    let cs2 = (
+            cos_theta * cos_theta +
+            P[0] * P[0] +
+            P[1] * cos_theta.powf(P[2]) +
+            P[3] * cos_theta.powf(P[4])
+        ) / (
+            1.0 +
+            P[0] * P[0] +
+            P[1] +
+            P[3]
+        );
+    if cs2 > 0.0 {
+        cs2.sqrt()
+    } else {
+        0.0
+    }
+}
+
+
+// ===============================================================================================
+//
+// Guan et al. parameterization of the sea level flux of atmospheric muons.
+// Ref: https://arxiv.org/abs/1509.06176.
+//
+// ===============================================================================================
+
+fn flux_gccly(cos_theta: f64, energy: f64) -> f64 {
+    let emu = energy + MUON_MASS;
+    let cs = cos_theta_star(cos_theta);
+    (1.0 + 3.64 / (emu * cs.powf(1.29))).powf(-2.7) * flux_gaisser(cs, energy)
 }
