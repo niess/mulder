@@ -1,8 +1,8 @@
 use crate::bindings::turtle;
-use crate::utils::coordinates::GeographicCoordinates;
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{IndexError, TypeError};
-use crate::utils::extract::{self, Direction, Position};
+use crate::utils::error::ErrorKind::IndexError;
+use crate::utils::extract::Extractor;
 use crate::utils::numpy::{Dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -145,18 +145,17 @@ impl Geometry {
         position: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
-        let position = extract::select_position(position, kwargs)?
-            .ok_or_else(|| Error::new(TypeError)
-                .what("position")
-                .why("expected one argument, found zero")
-                .to_err()
-            )?;
-        let position = Position::extract_bound(position)?;
+        let position = Extractor::from_args(
+            ["latitude", "longitude", "altitude"],
+            position,
+            kwargs,
+        )?;
 
         let mut array = NewArray::empty(py, position.shape())?;
         let layer = array.as_slice_mut();
         for i in 0..position.size() {
-            let geographic = position.get(i)?;
+            let [ latitude, longitude, altitude ] = position.get(i)?;
+            let geographic = GeographicCoordinates { latitude, longitude, altitude };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -187,26 +186,25 @@ impl Geometry {
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let coordinates = extract::select_coordinates(coordinates, kwargs)?
-            .ok_or_else(|| Error::new(TypeError)
-                .what("coordinates")
-                .why("expected one argument, found zero")
-                .to_err()
-            )?;
-        let position = Position::extract_bound(coordinates)?;
-        let direction = Direction::extract_bound(coordinates)?;
-        let (size, mut shape) = position.common(&direction)?;
-        let (shape, n) = {
+        let coordinates = Extractor::from_args(
+            ["latitude", "longitude", "altitude", "azimuth", "elevation"],
+            coordinates,
+            kwargs
+        )?;
+        let (size, shape, n) = {
+            let size = coordinates.size();
+            let mut shape = coordinates.shape();
             let n = self.layers.len();
             shape.push(n);
-            (shape, n)
+            (size, shape, n)
         };
 
         let mut array = NewArray::<f64>::zeros(py, shape)?;
         let distances = array.as_slice_mut();
         for i in 0..size {
             // Get the starting point.
-            let geographic = position.get(i)?;
+            let [latitude, longitude, altitude, azimuth, elevation] = coordinates.get(i)?;
+            let geographic = GeographicCoordinates { latitude, longitude, altitude };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -227,7 +225,7 @@ impl Geometry {
             )?;
 
             // Iterate until the particle exits.
-            let horizontal = direction.get(i)?;
+            let horizontal = HorizontalCoordinates { azimuth, elevation };
             let u = horizontal.to_ecef(&geographic);
             while (index[0] >= 1) && (index[0] as usize <= n + 1) {
                 let current = index[0];
@@ -276,20 +274,19 @@ impl Geometry {
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
-        let coordinates = extract::select_coordinates(coordinates, kwargs)?
-            .ok_or_else(|| Error::new(TypeError)
-                .what("coordinates")
-                .why("expected one argument, found zero")
-                .to_err()
-            )?;
-        let position = Position::extract_bound(coordinates)?;
-        let direction = Direction::extract_bound(coordinates)?;
-        let (size, shape) = position.common(&direction)?;
+        let coordinates = Extractor::from_args(
+            ["latitude", "longitude", "altitude", "azimuth", "elevation"],
+            coordinates,
+            kwargs
+        )?;
+        let size = coordinates.size();
+        let shape = coordinates.shape();
 
         let mut array = NewArray::empty(py, shape)?;
         let intersections = array.as_slice_mut();
         for i in 0..size {
-            let geographic = position.get(i)?;
+            let [latitude, longitude, altitude, azimuth, elevation] = coordinates.get(i)?;
+            let geographic = GeographicCoordinates { latitude, longitude, altitude };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -314,7 +311,7 @@ impl Geometry {
                               (start_layer as usize <= self.layers.len() + 1) {
 
                 // Iterate until a boundary is hit.
-                let horizontal = direction.get(i)?;
+                let horizontal = HorizontalCoordinates { azimuth, elevation };
                 let u = horizontal.to_ecef(&geographic);
                 let mut step = 0.0_f64;
                 while index[0] == start_layer {
