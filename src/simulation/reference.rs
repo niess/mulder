@@ -64,10 +64,14 @@ pub enum ModelArg<'py> {
 impl Reference {
     #[new]
     #[pyo3(signature=(model, /, **kwargs))]
-    fn new(
-        model: ModelArg,
+    pub fn new(
+        model: Option<ModelArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
+        let model = match model {
+            Some(model) => model,
+            None => return  Ok(ParametricModel::default().into()),
+        };
         let reference: Self = match model {
             ModelArg::Array(array) => {
                 let missing_energy = || Error::new(TypeError)
@@ -120,11 +124,7 @@ impl Reference {
                     },
                     _ => {
                         let model = ParametricModel::from_string(string.0)?;
-                        let model = Model::Parametric(model);
-                        let altitude = Altitude::Scalar(0.0);
-                        let energy = (1E-03, 1E+12);
-                        let elevation = (0.0, 90.0);
-                        Self { altitude, elevation, energy, model }
+                        model.into()
                     },
                 }
             },
@@ -195,6 +195,16 @@ impl Reference {
                 }
             },
         }
+    }
+}
+
+impl From<ParametricModel> for Reference {
+    fn from(value: ParametricModel) -> Self {
+        let model = Model::Parametric(value);
+        let altitude = Altitude::Scalar(0.0);
+        let energy = (1E-03, 1E+12);
+        let elevation = (0.0, 90.0);
+        Self { altitude, elevation, energy, model }
     }
 }
 

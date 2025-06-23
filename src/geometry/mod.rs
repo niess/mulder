@@ -32,7 +32,7 @@ unsafe impl Send for Geometry {}
 unsafe impl Sync for Geometry {}
 
 #[derive(FromPyObject)]
-enum AtmosphereArg<'py> {
+pub enum AtmosphereArg<'py> {
     Model(AtmosphereLike<'py>),
     Object(Py<Atmosphere>),
 }
@@ -58,7 +58,7 @@ struct Intersection {
 impl Geometry {
     #[pyo3(signature=(*layers, atmosphere=None))]
     #[new]
-    fn new(layers: &Bound<PyTuple>, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
+    pub fn new(layers: &Bound<PyTuple>, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
         let py = layers.py();
         let layers = {
             let mut v = Vec::with_capacity(layers.len());
