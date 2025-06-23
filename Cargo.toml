@@ -10,10 +10,13 @@ cc = "1.2"
 [dependencies]
 console = "0.15"
 enum-variants-strings = "0.3"
+getrandom = "0.3"
 indicatif = "0.17"
 libc = "0.2"
 paste = "1.0"
 process_path = "0.1"
+rand = "0.9"
+rand_pcg = "0.9"
 regex = "1.11"
 temp-dir = "0.1"
 

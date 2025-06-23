@@ -1,3 +1,5 @@
+use crate::utils::error::Error;
+use crate::utils::error::ErrorKind::TypeError;
 use crate::geometry::Geometry;
 use crate::utils::io::PathString;
 use pyo3::prelude::*;
@@ -5,6 +7,7 @@ use pyo3::types::{PyDict, PyString, PyTuple};
 
 pub mod materials;
 pub mod physics;
+pub mod random;
 pub mod reference;
 
 
@@ -17,6 +20,10 @@ pub struct Fluxmeter {
     /// The Monte Carlo physics.
     #[pyo3(get, set)]
     physics: Py<physics::Physics>,
+
+    /// The pseudo-random stream.
+    #[pyo3(get, set)]
+    random: Py<random::Random>,
 
     /// The reference flux.
     #[pyo3(get)]
@@ -79,7 +86,11 @@ impl Fluxmeter {
                     let geometry: Bound<Geometry> = geometry.extract()?;
                     geometry
                 } else {
-                    unimplemented!()
+                    let err = Error::new(TypeError)
+                        .what("geometry argument(s)")
+                        .why("geometry already provided as **kwargs")
+                        .to_err();
+                    return Err(err)
                 },
                 None => {
                     let geometry = Geometry::new(layers, None)?;
@@ -120,16 +131,31 @@ impl Fluxmeter {
                     let physics: Py<physics::Physics> = physics.extract()?;
                     physics
                 } else {
-                    unimplemented!()
+                    let err = Error::new(TypeError)
+                        .what("physics argument(s)")
+                        .why("physics already provided as **kwargs")
+                        .to_err();
+                    return Err(err)
                 },
                 None => physics::Physics::new(py, physics_kwargs.as_ref())?,
             }
         };
 
+        let random = match extract_field("random")? {
+            Some(random) => {
+                let random: Py<random::Random> = random.extract()?;
+                random
+            },
+            None => {
+                let random = random::Random::new(None, None)?;
+                Py::new(py, random)?
+            },
+        };
+
         let reference = reference::Reference::new(None, None)?;
         let reference = Py::new(py, reference)?;
 
-        let fluxmeter = Self { geometry, physics, reference };
+        let fluxmeter = Self { geometry, physics, random, reference };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
         if let Some(kwargs) = kwargs {
