@@ -463,6 +463,22 @@ impl Dtype for Flux {
     }
 }
 
+impl Altitude {
+    pub fn min(&self) -> f64 {
+        match self {
+            Self::Scalar(s) => *s,
+            Self::Range(r) => r.0,
+        }
+    }
+
+    pub fn to_range(&self) -> (f64, f64) {
+        match self {
+            Self::Scalar(s) => (*s, *s),
+            Self::Range(r) => *r,
+        }
+    }
+}
+
 
 // ===============================================================================================
 //

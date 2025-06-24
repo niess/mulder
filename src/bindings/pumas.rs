@@ -132,6 +132,7 @@ pub struct Recorder {
 }
 
 #[repr(C)]
+#[derive(Default)]
 pub struct State {
     pub charge: f64,
     pub energy: f64,
@@ -199,6 +200,14 @@ extern "C" {
     #[link_name="pumas_context_destroy"]
     pub fn context_destroy(context: *mut *mut Context);
 
+    #[link_name="pumas_context_transport"]
+    pub fn context_transport(
+        context: *mut Context,
+        state: *mut State,
+        event: *mut c_uint,
+        media: *mut *mut Medium,
+    ) -> c_uint;
+
     #[link_name="pumas_error_handler_set"]
     pub fn error_handler_set(handler: ErrorHandler);
 
@@ -245,5 +254,14 @@ extern "C" {
         particle: *mut c_uint,
         ctau: *mut f64,
         mass: *mut f64
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_stopping_power"]
+    pub fn physics_property_stopping_power(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        energy: f64,
+        dedx: *mut f64,
     ) -> c_uint;
 }

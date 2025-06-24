@@ -18,6 +18,12 @@ pub enum AtmosphereLike<'py> {
     Data(AnyArray<'py, f64>),
 }
 
+#[derive(Clone, Copy)]
+pub struct Density {
+    pub value: f64,
+    pub lambda: f64,
+}
+
 #[pymethods]
 impl Atmosphere {
     #[pyo3(signature=(model=None, /))]
@@ -173,26 +179,26 @@ impl Atmosphere {
         let rho = array.as_slice_mut();
         for i in 0..z.size() {
             let zi = z.get_item(i)?;
-            rho[i] = self.compute_density(zi).0;
+            rho[i] = self.compute_density(zi).value;
         }
         Ok(array)
     }
 }
 
 impl Atmosphere {
-    pub fn compute_density(&self, z: f64) -> (f64, f64) {
+    pub fn compute_density(&self, z: f64) -> Density {
         if z < self.z[0] {
-            return (self.rho[0], self.lambda[0])
+            return Density { value: self.rho[0], lambda: self.lambda[0] }
         } else {
             let n = self.z.len();
             for i in 1..n {
                 if z < self.z[i] {
                     let lbd = self.lambda[i - 1];
                     let u = (z - self.z[i - 1]) / lbd;
-                    return (self.rho[i - 1] * u.exp(), lbd)
+                    return Density { value: self.rho[i - 1] * u.exp(), lambda: lbd }
                 }
             }
-            return (self.rho[n - 1], self.lambda[n - 1])
+            return Density { value: self.rho[n - 1], lambda: self.lambda[n - 1] }
         }
     }
 }

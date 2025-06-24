@@ -8,6 +8,7 @@ use crate::bindings::turtle;
 // ===============================================================================================
 
 #[derive(Clone, Copy)]
+#[derive(Default)]
 pub struct GeographicCoordinates {
     pub latitude: f64,
     pub longitude: f64,
@@ -52,6 +53,7 @@ impl GeographicCoordinates {
 // ===============================================================================================
 
 #[derive(Clone, Copy)]
+#[derive(Default)]
 pub struct HorizontalCoordinates {
     pub azimuth: f64,
     pub elevation: f64,

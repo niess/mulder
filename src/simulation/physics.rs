@@ -33,9 +33,9 @@ pub struct Physics {
     /// The materials definition.
     materials: Py<Materials>,
 
-    physics: *mut pumas::Physics,
+    pub physics: *mut pumas::Physics,
     pub context: *mut pumas::Context,
-    materials_indices: HashMap<String, c_int>,
+    materials_indices: HashMap<String, c_int>, // XXX Use this.
 }
 
 unsafe impl Send for Physics {}

@@ -4,6 +4,7 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::IndexError;
 use crate::utils::extract::Extractor;
 use crate::utils::numpy::{Dtype, NewArray};
+use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
@@ -58,6 +59,17 @@ struct Intersection {
     distance: f64,
 }
 
+pub struct GeometryStepper {
+    pub stepper: *mut turtle::Stepper,
+    pub zlim: f64,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Doublet<T> {
+    pub layers: T,
+    pub opensky: T,
+}
+
 #[pymethods]
 impl Geometry {
     #[pyo3(signature=(*layers, atmosphere=None))]
@@ -85,8 +97,8 @@ impl Geometry {
                     },
                 };
                 let lz = layer.bind(py).borrow().z;
-                if lz.0 < z.0 { z.0 = lz.0; }
-                if lz.1 > z.1 { z.1 = lz.1; }
+                if lz.min() < z.min() { *z.mut_min() = lz.min(); }
+                if lz.max() > z.max() { *z.mut_max() = lz.max(); }
                 v.push(layer)
             }
             (v, z)
@@ -379,14 +391,14 @@ impl Geometry {
         &self,
         py: Python,
         zref: Option<(f64, f64)>,
-    ) -> PyResult<(*mut turtle::Stepper, *mut turtle::Stepper)> {
-        let zref = zref.map(|zref| {
-            if self.z.1 <= zref.0 {
-                (zref.0, zref.0)
-            } else if self.z.1 <= zref.1 {
-                (self.z.1, self.z.1)
+    ) -> PyResult<Doublet<GeometryStepper>> {
+        let zlim = zref.map(|zref| {
+            if self.z.max() <= zref.min() {
+                Doublet { layers: zref.min(), opensky: zref.min() }
+            } else if self.z.max() <= zref.max() {
+                Doublet { layers: self.z.max(), opensky: self.z.max() }
             } else {
-                (self.z.1, zref.1)
+                Doublet { layers: self.z.max(), opensky: zref.max() }
             }
         });
 
@@ -398,28 +410,36 @@ impl Geometry {
             let layer = layer.bind(py).borrow();
             unsafe { layer.insert(py, stepper)?; }
         }
-        if let Some(zref) = zref {
+        if let Some(zlim) = zlim {
             error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
-            error::to_result(unsafe { turtle::stepper_add_flat(stepper, zref.0) }, WHAT)?;
+            error::to_result(unsafe { turtle::stepper_add_flat(stepper, zlim.layers) }, WHAT)?;
         }
         error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
+        let stepper = match zlim {
+            Some(zlim) => GeometryStepper { stepper, zlim: zlim.layers },
+            None => GeometryStepper { stepper, zlim: 0.0 },
+        };
 
-        let mut sky_stepper = null_mut();
-        if let Some(zref) = zref {
-            error::to_result(unsafe { turtle::stepper_create(&mut sky_stepper) }, WHAT)?;
-            error::to_result(unsafe { turtle::stepper_add_flat(sky_stepper, zref.1) }, WHAT)?;
+        let opensky_stepper = match zlim {
+            Some(zlim) => {
+                let mut stepper = null_mut();
+                error::to_result(unsafe { turtle::stepper_create(&mut stepper) }, WHAT)?;
+                error::to_result(unsafe { turtle::stepper_add_flat(stepper, zlim.opensky) }, WHAT)?;
 
-            error::to_result(unsafe { turtle::stepper_add_layer(sky_stepper) }, WHAT)?;
-            error::to_result(unsafe { turtle::stepper_add_flat(sky_stepper, Self::ZMAX) }, WHAT)?;
-        }
+                error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
+                error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
+                GeometryStepper { stepper, zlim: zlim.opensky }
+            },
+            None => GeometryStepper { stepper: null_mut(), zlim: 0.0 },
+        };
 
-        Ok((stepper, sky_stepper))
+        Ok(Doublet { layers: stepper, opensky: opensky_stepper })
     }
 
     fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
         if self.stepper == null_mut() {
-            self.stepper = self.create_steppers(py, None)?.0;
+            self.stepper = self.create_steppers(py, None)?.layers.stepper;
         }
         Ok(())
     }
@@ -455,5 +475,11 @@ impl Dtype for Intersection {
         })?
         .bind(py);
         Ok(ob)
+    }
+}
+
+impl Default for GeometryStepper {
+    fn default() -> Self {
+        Self { stepper: null_mut(), zlim: 0.0 }
     }
 }

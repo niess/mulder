@@ -1,12 +1,17 @@
 use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
-use crate::utils::error::Error;
-use crate::utils::error::ErrorKind::TypeError;
-use crate::geometry::Geometry;
+use crate::utils::error::{self, Error};
+use crate::utils::error::ErrorKind::{TypeError, ValueError};
+use crate::utils::extract::Extractor;
+use crate::utils::numpy::{Dtype, NewArray};
+use crate::utils::traits::MinMax;
+use crate::geometry::{Doublet, Geometry, GeometryStepper};
 use crate::geometry::atmosphere::Atmosphere;
 use crate::geometry::layer::Layer;
+use crate::utils::convert::TransportMode;
 use crate::utils::io::PathString;
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use std::ffi::{c_uint, c_void};
 use std::ops::DerefMut;
@@ -25,6 +30,10 @@ pub struct Fluxmeter {
     #[pyo3(get)]
     geometry: Py<Geometry>,
 
+    /// The transport mode.
+    #[pyo3(get, set)]
+    mode: TransportMode,
+
     /// The Monte Carlo physics.
     #[pyo3(get)]
     physics: Py<physics::Physics>,
@@ -37,11 +46,10 @@ pub struct Fluxmeter {
     #[pyo3(get)]
     reference: Py<reference::Reference>,
 
-    layers_stepper: *mut turtle::Stepper,
-    opensky_stepper: *mut turtle::Stepper,
+    steppers: Doublet<GeometryStepper>,
     atmosphere_medium: Medium,
     layers_media: Vec<Medium>,
-    use_external_layer: bool, // XXX initialise this field.
+    use_external_layer: bool,
 }
 
 unsafe impl Send for Fluxmeter {}
@@ -55,14 +63,34 @@ struct MediumData {
     density: f64,
 }
 
-struct State (Pin<Box<StateData>>);
+#[repr(C)]
+struct Agent<'a> {
+    state: pumas::State,
+    geographic: GeographicCoordinates,
+    horizontal: HorizontalCoordinates,
+    atmosphere: &'a Atmosphere,
+    fluxmeter: &'a mut Fluxmeter,
+    geometry: &'a Geometry,
+    physics: &'a physics::Physics,
+    reference: &'a reference::Reference,
+    context: &'a mut pumas::Context,
+}
 
 #[repr(C)]
-struct StateData {
-    state: pumas::State,
-    geographic: GeographicCoordinates, // XXX Update in medium callback.
-    atmosphere: *const Atmosphere,
-    fluxmeter: *mut Fluxmeter,
+struct State {
+    pid: f64,
+    energy: f64,
+    latitude: f64,
+    longitude: f64,
+    altitude: f64,
+    azimuth: f64,
+    elevation: f64,
+    weight: f64,
+}
+
+enum GeometryTag {
+    Layers,
+    Opensky,
 }
 
 #[derive(FromPyObject)]
@@ -185,18 +213,19 @@ impl Fluxmeter {
             },
         };
 
+        let mode = TransportMode::default();
+
         let reference = reference::Reference::new(None, None)?;
         let reference = Py::new(py, reference)?;
 
-        let layers_stepper = null_mut();
-        let opensky_stepper = null_mut();
+        let steppers = Default::default();
         let layers_media = Vec::new();
         let atmosphere_medium = Medium::default();
         let use_external_layer = false;
 
         let fluxmeter = Self {
-            geometry, physics, random, reference, layers_stepper, opensky_stepper,
-            atmosphere_medium, layers_media, use_external_layer,
+            geometry, mode, physics, random, reference, steppers, atmosphere_medium, layers_media,
+            use_external_layer,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -244,24 +273,52 @@ impl Fluxmeter {
     }
 
     /// Transport state(s) to the reference flux.
-    #[pyo3(signature=(states, /))]
-    fn transport(&mut self, states: &Bound<PyAny>) -> PyResult<()> {
+    #[pyo3(signature=(states=None, /, **kwargs))]
+    fn transport<'py>(
+        &mut self,
+        py: Python<'py>,
+        states: Option<&Bound<PyAny>>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, State>> {
+        let states = Extractor::from_args(
+            [
+                "pid", "energy", "latitude", "longitude", "altitude", "azimuth", "elevation",
+                "weight",
+            ],
+            states,
+            kwargs
+        )?;
+        let size = states.size();
+        let shape = states.shape();
+
         // Configure physics, geometry, samplers etc.
-        let py = states.py();
-        let mut physics = self.physics.bind(py).borrow_mut();
-        physics.compile(py, None)?;
-
         let geometry = self.geometry.bind(py).borrow();
-        let reference = self.reference.bind(py).borrow();
-        self.create_geometry(py, &geometry, &physics, &reference)?;
-
+        let atmosphere = geometry.atmosphere.bind(py).borrow();
+        let mut physics = self.physics.bind(py).borrow_mut();
         let mut random = self.random.bind(py).borrow_mut();
-        let context = unsafe { &mut *physics.context };
-        context.user_data = random.deref_mut() as *mut random::Random as *mut c_void;
-        context.random = Some(uniform01);
-        context.medium = Some(layers_geometry);
+        let reference = self.reference.bind(py).borrow();
+        let mut pinned = Box::pin(Agent::new(
+            py,
+            &atmosphere,
+            self,
+            &geometry,
+            &mut physics,
+            &mut random,
+            &reference,
+        )?);
+        let agent: &mut Agent = &mut pinned.deref_mut();
 
-        Ok(())
+        let mut array = NewArray::empty(py, shape)?;
+        let result = array.as_slice_mut();
+        for i in 0..size {
+            agent.set_state(i, &states)?;
+            if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
+                agent.transport()?;
+            }
+            result[i] = agent.get_state();
+        }
+
+        Ok(array)
     }
 }
 
@@ -275,7 +332,7 @@ impl Fluxmeter {
         physics: &physics::Physics,
         reference: &reference::Reference,
     ) -> PyResult<()> {
-        if self.layers_stepper == null_mut() {
+        if self.steppers.layers.stepper == null_mut() {
             // Map media.
             for layer in &geometry.layers {
                 let layer = layer.bind(py).borrow();
@@ -285,25 +342,19 @@ impl Fluxmeter {
             self.atmosphere_medium = Medium::atmosphere(physics)?;
 
             // Create steppers.
-            let zref = match reference.altitude {
-                reference::Altitude::Scalar(z) => (z, z),
-                reference::Altitude::Range(z) => z,
-            };
-            let steppers = geometry.create_steppers(py, Some(zref))?;
-            self.layers_stepper = steppers.0;
-            self.opensky_stepper = steppers.1;
+            let zref = reference.altitude.to_range();
+            self.steppers = geometry.create_steppers(py, Some(zref))?;
         }
         Ok(())
     }
 
     fn reset(&mut self) {
-        if self.layers_stepper != null_mut() {
+        if self.steppers.layers.stepper != null_mut() {
             unsafe {
-                turtle::stepper_destroy(&mut self.layers_stepper); 
-                turtle::stepper_destroy(&mut self.opensky_stepper); 
+                turtle::stepper_destroy(&mut self.steppers.layers.stepper); 
+                turtle::stepper_destroy(&mut self.steppers.opensky.stepper); 
             }
             self.layers_media.clear();
-            self.use_external_layer = false;
         }
     }
 }
@@ -320,20 +371,20 @@ extern "C" fn atmosphere_locals(
     state: *mut pumas::State,
     locals: *mut pumas::Locals,
 ) -> f64 {
-    let state = unsafe { &*(state as *const State) };
-    let atmosphere = unsafe { &*state.0.atmosphere };
-    let locals = unsafe { &mut*locals };
-    let r = atmosphere.compute_density(state.0.geographic.altitude);
-    locals.density = r.0;
+    let agent: &Agent = state.into();
+    let density = agent.atmosphere.compute_density(agent.geographic.altitude);
+    unsafe {
+        (*locals).density = density.value;
+    }
 
     const LAMBDA_MAX: f64 = 1E+09;
-    if r.1 < LAMBDA_MAX {
+    if density.lambda < LAMBDA_MAX {
         let direction = HorizontalCoordinates::from_ecef(
-            &state.0.state.direction,
-            &state.0.geographic,
+            &agent.state.direction,
+            &agent.geographic,
         );
         let c = (direction.elevation.abs() * std::f64::consts::PI / 180.0).sin().max(0.1);
-        (r.1 / c).min(LAMBDA_MAX)
+        (density.lambda / c).min(LAMBDA_MAX)
     } else {
         LAMBDA_MAX
     }
@@ -345,16 +396,16 @@ extern "C" fn uniform_locals(
     _state: *mut pumas::State,
     locals: *mut pumas::Locals,
 ) -> f64 {
-    let medium = unsafe { &*(medium as *const Medium) };
-    let locals = unsafe { &mut*locals };
-    locals.density = medium.0.density;
+    let medium: &MediumData = medium.into();
+    unsafe {
+        (*locals).density = medium.density;
+    }
     0.0
 }
 
 #[no_mangle]
 extern "C" fn uniform01(context: *mut pumas::Context) -> f64 {
-    let context = unsafe { &*context };
-    let random = unsafe { &mut*(context.user_data as *mut random::Random) };
+    let random = unsafe { &mut*((*context).user_data as *mut random::Random) };
     random.open01()
 }
 
@@ -365,39 +416,48 @@ extern "C" fn layers_geometry(
     medium_ptr: *mut *mut pumas::Medium,
     step_ptr: *mut f64,
 ) -> c_uint {
-    let state = unsafe { &mut *(state as *mut State) };
-    let fluxmeter = unsafe { &mut *state.0.fluxmeter };
+    let agent: &mut Agent = state.into();
+    let (step, layer) = agent.step(GeometryTag::Layers);
 
-    let mut step = 0.0;
-    let mut index = [ -1; 2 ];
-    unsafe {
-        turtle::stepper_step(
-            fluxmeter.layers_stepper,
-            state.0.state.position.as_mut_ptr(),
-            null(),
-            &mut state.0.geographic.latitude,
-            &mut state.0.geographic.longitude,
-            &mut state.0.geographic.altitude,
-            null_mut(),
-            &mut step,
-            index.as_mut_ptr(),
-        );
-    }
-
-    const EPS: f64 = f32::EPSILON as f64;
     if step_ptr != null_mut() {
         let step_ptr = unsafe { &mut*step_ptr };
-        *step_ptr = if step <= EPS { EPS } else { step };
+        *step_ptr = if step <= Agent::EPSILON { Agent::EPSILON } else { step };
     }
 
     if medium_ptr != null_mut() {
         let medium_ptr = unsafe { &mut*medium_ptr };
-        let n = fluxmeter.layers_media.len();
-        let i = index[0] as usize;
-        if (i >= 1) && (i <= n) {
-            *medium_ptr = &mut fluxmeter.layers_media[i - 1].0.medium as *mut pumas::Medium;
-        } else if (i == n + 1) || (fluxmeter.use_external_layer && (i == n + 2)) {
-            *medium_ptr = &mut fluxmeter.atmosphere_medium.0.medium as *mut pumas::Medium;
+        let n = agent.fluxmeter.layers_media.len();
+        if (layer >= 1) && (layer <= n) {
+            *medium_ptr = agent.fluxmeter.layers_media[layer - 1].as_mut_ptr();
+        } else if (layer == n + 1) || (agent.fluxmeter.use_external_layer && (layer == n + 2)) {
+            *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
+        } else {
+            *medium_ptr = null_mut();
+        }
+    }
+
+    pumas::STEP_CHECK
+}
+
+#[no_mangle]
+extern "C" fn opensky_geometry(
+    _context: *mut pumas::Context,
+    state: *mut pumas::State,
+    medium_ptr: *mut *mut pumas::Medium,
+    step_ptr: *mut f64,
+) -> c_uint {
+    let agent: &mut Agent = state.into();
+    let (step, layer) = agent.step(GeometryTag::Opensky);
+
+    if step_ptr != null_mut() {
+        let step_ptr = unsafe { &mut*step_ptr };
+        *step_ptr = if step <= Agent::EPSILON { Agent::EPSILON } else { step };
+    }
+
+    if medium_ptr != null_mut() {
+        let medium_ptr = unsafe { &mut*medium_ptr };
+        if layer == 1 {
+            *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
         }
@@ -407,6 +467,11 @@ extern "C" fn layers_geometry(
 }
 
 impl Medium {
+    #[inline]
+    fn as_mut_ptr(&mut self) -> *mut pumas::Medium {
+        &mut self.0.medium
+    }
+
     fn atmosphere(physics: &physics::Physics) -> PyResult<Self> {
         Self::new(Fluxmeter::TOP_MATERIAL, None, Some(atmosphere_locals), physics)
     }
@@ -430,11 +495,310 @@ impl Medium {
     }
 }
 
+impl From<*mut pumas::Medium> for &MediumData {
+    #[inline]
+    fn from(value: *mut pumas::Medium) -> Self {
+        unsafe { &*(value as *const MediumData) }
+    }
+}
+
 impl Default for Medium {
     fn default() -> Self {
         let medium = pumas::Medium { material: -1, locals: None };
         let density = 0.0;
         let data = MediumData { medium, density };
         Self(Box::pin(data))
+    }
+}
+
+impl<'a> Agent<'a> {
+    const EPSILON: f64 = f32::EPSILON as f64;
+
+    fn get_state(&self) -> State {
+        State {
+            pid: if self.state.charge > 0.0 { -13.0 } else { 13.0 },
+            energy: self.state.energy,
+            latitude: self.geographic.latitude,
+            longitude: self.geographic.longitude,
+            altitude: self.geographic.altitude,
+            azimuth: self.horizontal.azimuth,
+            elevation: self.horizontal.elevation,
+            weight: self.state.weight,
+        }
+    }
+
+    fn new(
+        py: Python,
+        atmosphere: &'a Atmosphere,
+        fluxmeter: &'a mut Fluxmeter,
+        geometry: &'a Geometry,
+        physics: &'a mut physics::Physics,
+        mut random: &'a mut random::Random,
+        reference: &'a reference::Reference,
+    ) -> PyResult<Self> {
+        // Configure physics and geometry.
+        physics.compile(py, None)?;
+        fluxmeter.create_geometry(py, &geometry, &physics, &reference)?;
+
+        // Configure Pumas context.
+        let context = unsafe { &mut *physics.context };
+        context.user_data = random.deref_mut() as *mut random::Random as *mut c_void;
+        context.random = Some(uniform01);
+        context.event = pumas::EVENT_LIMIT_ENERGY;
+
+        // Initialise particles state.
+        let state = pumas::State::default();
+        let geographic = GeographicCoordinates::default();
+        let horizontal = HorizontalCoordinates::default();
+
+        let agent = Self {
+            state, geographic, horizontal, atmosphere, fluxmeter, geometry, physics, reference,
+            context
+        };
+        Ok(agent)
+    }
+
+    fn set_state<'py>(
+        &mut self,
+        index: usize,
+        extractor: &Extractor<'py, 8>,
+    ) -> PyResult<()> {
+        let [ pid, energy, latitude, longitude, altitude, azimuth, elevation, weight ] =
+            extractor.get(index)?;
+        self.state.charge = if pid == 13.0 { -1.0 } else if pid == -13.0 { 1.0 } else {
+            let why = format!("expected '13' or '-13', found {}", pid);
+            let err = Error::new(ValueError).what("pid").why(&why).to_err();
+            return Err(err)
+        };
+        self.state.energy = energy;
+        self.geographic = GeographicCoordinates { latitude, longitude, altitude };
+        self.state.position = self.geographic.to_ecef();
+        self.horizontal = HorizontalCoordinates { azimuth, elevation };
+        let direction = self.horizontal.to_ecef(&self.geographic);
+        for i in 0..3 { self.state.direction[i] = -direction[i]; }  // Obsever convention.
+        self.state.weight = weight;
+        self.state.distance = 0.0;
+        self.state.grammage = 0.0;
+        self.state.time = 0.0;
+        self.state.decayed = 0;
+        self.fluxmeter.use_external_layer =
+            self.geographic.altitude >= self.fluxmeter.steppers.layers.zlim + Self::EPSILON;
+        Ok(())
+    }
+
+    fn step(&mut self, tag: GeometryTag) -> (f64, usize) {
+        let stepper = match tag {
+            GeometryTag::Layers => self.fluxmeter.steppers.layers.stepper,
+            GeometryTag::Opensky => self.fluxmeter.steppers.opensky.stepper,
+        };
+        let mut step = 0.0;
+        let mut index = [ -1; 2 ];
+        unsafe {
+            turtle::stepper_step(
+                stepper,
+                self.state.position.as_mut_ptr(),
+                null(),
+                &mut self.geographic.latitude,
+                &mut self.geographic.longitude,
+                &mut self.geographic.altitude,
+                null_mut(),
+                &mut step,
+                index.as_mut_ptr(),
+            );
+        }
+        (step, index[0] as usize)
+    }
+
+    fn transport(&mut self) -> PyResult<()> {
+        const LOW_ENERGY: f64 = 1E+01;
+        const HIGH_ENERGY: f64 = 1E+02;
+
+        let zlim = self.fluxmeter.steppers.layers.zlim;
+        if self.geographic.altitude < zlim - Self::EPSILON {
+            // Transport backward with Pumas.
+            self.context.limit.energy = self.reference.energy.max();
+            match self.fluxmeter.mode {
+                TransportMode::Continuous => {
+                    self.context.mode.energy_loss = pumas::MODE_CSDA;
+                    self.context.mode.scattering = pumas::MODE_DISABLED;
+                },
+                TransportMode::Mixed => {
+                    self.context.mode.energy_loss = pumas::MODE_MIXED;
+                    self.context.mode.scattering = pumas::MODE_DISABLED;
+                },
+                TransportMode::Discrete => {
+                    if self.state.energy <= LOW_ENERGY - Self::EPSILON {
+                        self.context.mode.energy_loss = pumas::MODE_STRAGGLED;
+                        self.context.mode.scattering = pumas::MODE_MIXED;
+                        self.context.limit.energy = LOW_ENERGY;
+                    } else if self.state.energy <= HIGH_ENERGY - Self::EPSILON {
+                        self.context.mode.energy_loss = pumas::MODE_MIXED;
+                        self.context.mode.scattering = pumas::MODE_MIXED;
+                        self.context.limit.energy = HIGH_ENERGY;
+                    } else {
+                        // use mixed mode.
+                        self.context.mode.energy_loss = pumas::MODE_MIXED;
+                        self.context.mode.scattering = pumas::MODE_DISABLED;
+                    }
+                },
+            }
+            self.context.medium = Some(layers_geometry);
+            self.context.mode.direction = pumas::MODE_BACKWARD;
+
+            let mut event: c_uint = 0;
+            loop {
+                let rc = unsafe {
+                    pumas::context_transport(
+                        self.context, &mut self.state, &mut event, null_mut(),
+                    )
+                };
+                error::to_result(rc, None::<&str>)?;
+
+                if (self.fluxmeter.mode == TransportMode::Discrete) &&
+                    (event == pumas::EVENT_LIMIT_ENERGY) {
+                    if self.state.energy >= self.reference.energy.max() - Self::EPSILON {
+                        self.state.weight = 0.0;
+                        return Ok(())
+                    } else if self.state.energy >= HIGH_ENERGY - Self::EPSILON {
+                        self.context.mode.energy_loss = pumas::MODE_MIXED;
+                        self.context.mode.scattering = pumas::MODE_DISABLED;
+                        self.context.limit.energy = self.reference.energy.max();
+                        continue
+                    } else {
+                        self.context.mode.energy_loss = pumas::MODE_MIXED;
+                        self.context.mode.scattering = pumas::MODE_MIXED;
+                        self.context.limit.energy = HIGH_ENERGY;
+                        continue
+                    }
+                } else if event != pumas::EVENT_MEDIUM {
+                    self.state.weight = 0.0;
+                    return Ok(());
+                } else {
+                    break;
+                }
+            }
+
+            // Compute the coordinates at the end location (expected to be at zlim).
+            self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+            if (self.geographic.altitude - zlim).abs() > 1E-04 {
+                self.state.weight = 0.0;
+                return Ok(())
+            }
+        }
+
+        let zlim = self.fluxmeter.steppers.opensky.zlim;
+        if self.geographic.altitude > self.reference.altitude.min() + Self::EPSILON {
+            // Backup proper time and kinetic energy.
+            let t0 = self.state.time;
+            let e0 = self.state.energy;
+            self.state.time = 0.0; // XXX Add time to managed properties?
+
+            // Transport forward to the reference height using CSDA.
+            self.context.mode.energy_loss = pumas::MODE_CSDA;
+            self.context.mode.scattering = pumas::MODE_DISABLED;
+            self.context.medium = Some(opensky_geometry);
+            self.context.mode.direction = pumas::MODE_FORWARD;
+            self.context.limit.energy = self.reference.energy.0;
+
+            let mut event: c_uint = 0;
+            let rc = unsafe {
+                pumas::context_transport(self.context, &mut self.state, &mut event, null_mut())
+            };
+            error::to_result(rc, None::<&str>)?;
+            if event != pumas::EVENT_MEDIUM {
+                self.state.weight = 0.0;
+                return Ok(())
+            }
+
+            // Compute the coordinates at end location (expected to be at zlim).
+            self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+            if (self.geographic.altitude - zlim).abs() > 1E-04 {
+                self.state.weight = 0.0;
+                return Ok(())
+            } else {
+                self.geographic.altitude = zlim;
+                // due to potential rounding errors.
+            }
+
+            // Update the proper time and the Jacobian weight */
+            self.state.time = t0 - self.state.time;
+
+            let material = self.fluxmeter.atmosphere_medium.0.medium.material;
+            let mut dedx0 = 0.0;
+            let mut dedx1 = 0.0;
+            unsafe {
+                pumas::physics_property_stopping_power(
+                    self.physics.physics, pumas::MODE_CSDA, material, e0, &mut dedx0,
+                );
+                pumas::physics_property_stopping_power(
+                    self.physics.physics, pumas::MODE_CSDA, material, self.state.energy,
+                    &mut dedx1,
+                );
+            }
+            if (dedx0 <= 0.0) || (dedx1 <= 0.0) {
+                self.state.weight = 0.0;
+                return Ok(())
+            }
+            self.state.weight *= dedx1 / dedx0;
+        } else if (self.geographic.altitude - zlim).abs() <= 10.0 * Self::EPSILON {
+            self.geographic.altitude = zlim;  // due to rounding errors.
+        }
+
+
+        // Compute the direction at the reference height.
+        let direction = [
+            -self.state.direction[0],
+            -self.state.direction[1],
+            -self.state.direction[2],
+        ];
+        self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
+
+        // Apply the decay probability.
+        const MUON_C_TAU: f64 = 658.654;
+        let pdec = (-self.state.time / MUON_C_TAU).exp();
+        self.state.weight *= pdec;
+
+        Ok(())
+    }
+}
+
+impl<'a> From<*mut pumas::State> for &Agent<'a> {
+    #[inline]
+    fn from(value: *mut pumas::State) -> Self {
+        unsafe { &*(value as *const Agent) }
+    }
+}
+
+impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
+    #[inline]
+    fn from(value: *mut pumas::State) -> Self {
+        unsafe { &mut*(value as *mut Agent) }
+    }
+}
+
+static STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for State {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
+                        ("pid",       "f8"),
+                        ("energy",    "f8"),
+                        ("latitude",  "f8"),
+                        ("longitude", "f8"),
+                        ("altitude",  "f8"),
+                        ("azimuth",   "f8"),
+                        ("elevation", "f8"),
+                        ("weight",    "f8"),
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
     }
 }

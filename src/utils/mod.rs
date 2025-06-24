@@ -6,3 +6,4 @@ pub mod extract;
 pub mod io;
 pub mod namespace;
 pub mod numpy;
+pub mod traits;
