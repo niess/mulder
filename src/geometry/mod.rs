@@ -24,6 +24,10 @@ pub struct Geometry {
     #[pyo3(get)]
     pub atmosphere: Py<Atmosphere>,
 
+    /// Geometry limits along the z-coordinates.
+    #[pyo3(get)]
+    pub z: (f64, f64),
+
     pub layers: Vec<Py<Layer>>,
     pub stepper: *mut turtle::Stepper,
 }
@@ -60,7 +64,8 @@ impl Geometry {
     #[new]
     pub fn new(layers: &Bound<PyTuple>, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
         let py = layers.py();
-        let layers = {
+        let (layers, z) = {
+            let mut z = (f64::INFINITY, -f64::INFINITY);
             let mut v = Vec::with_capacity(layers.len());
             for layer in layers.iter() {
                 let layer: LayerLike = layer.extract()?;
@@ -68,20 +73,23 @@ impl Geometry {
                     LayerLike::Layer(layer) => layer,
                     LayerLike::OneData(data) => {
                         let data = vec![data.into_data(py)?];
-                        let layer = Layer::new(data, None, None)?;
+                        let layer = Layer::new(py, data, None, None)?;
                         Py::new(py, layer)?
                     },
                     LayerLike::ManyData(data) => {
                         let data: PyResult<Vec<_>> = data.into_iter()
                             .map(|data| data.into_data(py))
                             .collect();
-                        let layer = Layer::new(data?, None, None)?;
+                        let layer = Layer::new(py, data?, None, None)?;
                         Py::new(py, layer)?
                     },
                 };
+                let lz = layer.bind(py).borrow().z;
+                if lz.0 < z.0 { z.0 = lz.0; }
+                if lz.1 > z.1 { z.1 = lz.1; }
                 v.push(layer)
             }
-            v
+            (v, z)
         };
 
         let atmosphere = match atmosphere {
@@ -109,7 +117,7 @@ impl Geometry {
         error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
 
-        Ok(Self { layers, atmosphere, stepper })
+        Ok(Self { layers, z, atmosphere, stepper })
     }
 
     /// The geometry layers.
