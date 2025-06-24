@@ -15,15 +15,15 @@ use std::path::Path;
 pub struct Reference {
     /// Altitude (range) of the reference flux.
     #[pyo3(get)]
-    altitude: Altitude,
+    pub altitude: Altitude,
 
     /// Elevation range of the reference flux.
     #[pyo3(get)]
-    elevation: (f64, f64),
+    pub elevation: (f64, f64),
 
     /// Energy range of the reference flux.
     #[pyo3(get)]
-    energy: (f64, f64),
+    pub energy: (f64, f64),
 
     model: Model,
 }

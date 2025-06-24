@@ -111,7 +111,7 @@ impl Random {
     }
 
     #[inline]
-    pub(super) fn open01(&mut self) -> f64 {
+    pub fn open01(&mut self) -> f64 {
         self.index += 1;
         self.rng.sample::<f64, Open01>(Open01)
     }

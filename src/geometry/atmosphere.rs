@@ -173,25 +173,26 @@ impl Atmosphere {
         let rho = array.as_slice_mut();
         for i in 0..z.size() {
             let zi = z.get_item(i)?;
-            rho[i] = self.compute_density(zi);
+            rho[i] = self.compute_density(zi).0;
         }
         Ok(array)
     }
 }
 
 impl Atmosphere {
-    pub fn compute_density(&self, z: f64) -> f64 {
+    pub fn compute_density(&self, z: f64) -> (f64, f64) {
         if z < self.z[0] {
-            return self.rho[0]
+            return (self.rho[0], self.lambda[0])
         } else {
             let n = self.z.len();
             for i in 1..n {
                 if z < self.z[i] {
-                    let u = (z - self.z[i - 1]) / self.lambda[i - 1];
-                    return self.rho[i - 1] * u.exp()
+                    let lbd = self.lambda[i - 1];
+                    let u = (z - self.z[i - 1]) / lbd;
+                    return (self.rho[i - 1] * u.exp(), lbd)
                 }
             }
-            return self.rho[n - 1]
+            return (self.rho[n - 1], self.lambda[n - 1])
         }
     }
 }

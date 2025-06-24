@@ -34,7 +34,7 @@ pub struct Physics {
     materials: Py<Materials>,
 
     physics: *mut pumas::Physics,
-    context: *mut pumas::Context,
+    pub context: *mut pumas::Context,
     materials_indices: HashMap<String, c_int>,
 }
 
@@ -254,6 +254,23 @@ impl Physics {
             pumas::physics_destroy(&mut self.physics);
         }
         self.materials_indices.clear();
+    }
+
+    pub fn material_index(&self, name: &str) -> PyResult<c_int> {
+        let name = CString::new(name)?;
+        let mut index = 0;
+        let rc = unsafe {
+            pumas::physics_material_index(
+                self.physics,
+                name.as_c_str().as_ptr(),
+                &mut index,
+            )
+        };
+        if rc == pumas::SUCCESS {
+            Ok(index)
+        } else {
+            unimplemented!()
+        }
     }
 
     fn load_pumas(&self, materials: &str) -> Option<*mut pumas::Physics> {

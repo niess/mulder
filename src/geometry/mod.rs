@@ -106,16 +106,7 @@ impl Geometry {
             },
         };
 
-        const WHAT: Option<&str> = Some("geometry");
-        let mut stepper = null_mut();
-        error::to_result(unsafe { turtle::stepper_create(&mut stepper) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMIN) }, WHAT)?;
-        for layer in layers.iter() {
-            let layer = layer.bind(py).borrow();
-            unsafe { layer.insert(py, stepper)?; }
-        }
-        error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
+        let stepper = null_mut();
 
         Ok(Self { layers, z, atmosphere, stepper })
     }
@@ -148,7 +139,7 @@ impl Geometry {
 
     #[pyo3(signature=(position=None, /, **kwargs))]
     fn locate<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
@@ -159,6 +150,7 @@ impl Geometry {
             kwargs,
         )?;
 
+        self.ensure_stepper(py)?;
         let mut array = NewArray::empty(py, position.shape())?;
         let layer = array.as_slice_mut();
         for i in 0..position.size() {
@@ -277,7 +269,7 @@ impl Geometry {
 
     #[pyo3(signature=(coordinates=None, /, **kwargs))]
     fn trace<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
@@ -290,6 +282,7 @@ impl Geometry {
         let size = coordinates.size();
         let shape = coordinates.shape();
 
+        self.ensure_stepper(py)?;
         let mut array = NewArray::empty(py, shape)?;
         let intersections = array.as_slice_mut();
         for i in 0..size {
@@ -380,6 +373,56 @@ impl Geometry {
 
     // Top most height, in m.
     const ZMAX: f64 = 120E+03;
+
+
+    pub fn create_steppers(
+        &self,
+        py: Python,
+        zref: Option<(f64, f64)>,
+    ) -> PyResult<(*mut turtle::Stepper, *mut turtle::Stepper)> {
+        let zref = zref.map(|zref| {
+            if self.z.1 <= zref.0 {
+                (zref.0, zref.0)
+            } else if self.z.1 <= zref.1 {
+                (self.z.1, self.z.1)
+            } else {
+                (self.z.1, zref.1)
+            }
+        });
+
+        const WHAT: Option<&str> = Some("geometry");
+        let mut stepper = null_mut();
+        error::to_result(unsafe { turtle::stepper_create(&mut stepper) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMIN) }, WHAT)?;
+        for layer in self.layers.iter() {
+            let layer = layer.bind(py).borrow();
+            unsafe { layer.insert(py, stepper)?; }
+        }
+        if let Some(zref) = zref {
+            error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
+            error::to_result(unsafe { turtle::stepper_add_flat(stepper, zref.0) }, WHAT)?;
+        }
+        error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
+
+        let mut sky_stepper = null_mut();
+        if let Some(zref) = zref {
+            error::to_result(unsafe { turtle::stepper_create(&mut sky_stepper) }, WHAT)?;
+            error::to_result(unsafe { turtle::stepper_add_flat(sky_stepper, zref.1) }, WHAT)?;
+
+            error::to_result(unsafe { turtle::stepper_add_layer(sky_stepper) }, WHAT)?;
+            error::to_result(unsafe { turtle::stepper_add_flat(sky_stepper, Self::ZMAX) }, WHAT)?;
+        }
+
+        Ok((stepper, sky_stepper))
+    }
+
+    fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
+        if self.stepper == null_mut() {
+            self.stepper = self.create_steppers(py, None)?.0;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Geometry {
