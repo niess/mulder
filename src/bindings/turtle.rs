@@ -276,6 +276,9 @@ extern "C" {
     #[link_name="turtle_stepper_destroy"]
     pub fn stepper_destroy(stepper: *mut *mut Stepper) -> c_uint;
 
+    #[link_name="turtle_stepper_reset"]
+    pub fn stepper_reset(stepper: *mut Stepper);
+
     #[link_name="turtle_stepper_step"]
     pub fn stepper_step(
         stepper: *mut Stepper,

@@ -677,6 +677,10 @@ impl<'a> Agent<'a> {
             self.context.medium = Some(layers_geometry);
             self.context.mode.direction = pumas::MODE_BACKWARD;
 
+            unsafe {
+                turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+            }
+
             let mut event: c_uint = 0;
             loop {
                 let rc = unsafe {
@@ -732,6 +736,10 @@ impl<'a> Agent<'a> {
             self.context.medium = Some(opensky_geometry);
             self.context.mode.direction = pumas::MODE_FORWARD;
             self.context.limit.energy = self.reference.energy.0;
+
+            unsafe {
+                turtle::stepper_reset(self.fluxmeter.steppers.opensky.stepper);
+            }
 
             let mut event: c_uint = 0;
             let rc = unsafe {

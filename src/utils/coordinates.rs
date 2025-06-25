@@ -60,9 +60,6 @@ pub struct HorizontalCoordinates {
 }
 
 impl HorizontalCoordinates {
-    const DEG: f64 = 180.0 / ::std::f64::consts::PI;
-    const RAD: f64 = ::std::f64::consts::PI / 180.0;
-
     pub fn from_ecef(
         direction: &[f64; 3],
         origin: &GeographicCoordinates
