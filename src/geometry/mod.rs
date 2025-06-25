@@ -2,7 +2,7 @@ use crate::bindings::turtle;
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::IndexError;
-use crate::utils::extract::Extractor;
+use crate::utils::extract::{Field, Extractor};
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
@@ -157,7 +157,11 @@ impl Geometry {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
         let position = Extractor::from_args(
-            ["latitude", "longitude", "altitude"],
+            [
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::float("altitude"),
+            ],
             position,
             kwargs,
         )?;
@@ -167,7 +171,11 @@ impl Geometry {
         let layer = array.as_slice_mut();
         for i in 0..position.size() {
             let [ latitude, longitude, altitude ] = position.get(i)?;
-            let geographic = GeographicCoordinates { latitude, longitude, altitude };
+            let geographic = GeographicCoordinates {
+                latitude: latitude.into_f64(),
+                longitude: longitude.into_f64(),
+                altitude: altitude.into_f64(),
+            };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -199,7 +207,13 @@ impl Geometry {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         let coordinates = Extractor::from_args(
-            ["latitude", "longitude", "altitude", "azimuth", "elevation"],
+            [
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::float("altitude"),
+                Field::float("azimuth"),
+                Field::float("elevation"),
+            ],
             coordinates,
             kwargs
         )?;
@@ -216,7 +230,11 @@ impl Geometry {
         for i in 0..size {
             // Get the starting point.
             let [latitude, longitude, altitude, azimuth, elevation] = coordinates.get(i)?;
-            let geographic = GeographicCoordinates { latitude, longitude, altitude };
+            let geographic = GeographicCoordinates {
+                latitude: latitude.into_f64(),
+                longitude: longitude.into_f64(),
+                altitude: altitude.into_f64(),
+            };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -237,7 +255,10 @@ impl Geometry {
             )?;
 
             // Iterate until the particle exits.
-            let horizontal = HorizontalCoordinates { azimuth, elevation };
+            let horizontal = HorizontalCoordinates {
+                azimuth: azimuth.into_f64(),
+                elevation: elevation.into_f64(),
+            };
             let u = horizontal.to_ecef(&geographic);
             while (index[0] >= 1) && (index[0] as usize <= n + 1) {
                 let current = index[0];
@@ -287,7 +308,13 @@ impl Geometry {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
         let coordinates = Extractor::from_args(
-            ["latitude", "longitude", "altitude", "azimuth", "elevation"],
+            [
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::float("altitude"),
+                Field::float("azimuth"),
+                Field::float("elevation"),
+            ],
             coordinates,
             kwargs
         )?;
@@ -299,7 +326,11 @@ impl Geometry {
         let intersections = array.as_slice_mut();
         for i in 0..size {
             let [latitude, longitude, altitude, azimuth, elevation] = coordinates.get(i)?;
-            let geographic = GeographicCoordinates { latitude, longitude, altitude };
+            let geographic = GeographicCoordinates {
+                latitude: latitude.into_f64(),
+                longitude: longitude.into_f64(),
+                altitude: altitude.into_f64(),
+            };
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -324,7 +355,10 @@ impl Geometry {
                               (start_layer as usize <= self.layers.len() + 1) {
 
                 // Iterate until a boundary is hit.
-                let horizontal = HorizontalCoordinates { azimuth, elevation };
+                let horizontal = HorizontalCoordinates {
+                    azimuth: azimuth.into_f64(),
+                    elevation: elevation.into_f64(),
+                };
                 let u = horizontal.to_ecef(&geographic);
                 let mut step = 0.0_f64;
                 while index[0] == start_layer {

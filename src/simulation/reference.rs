@@ -1,7 +1,7 @@
 use crate::utils::convert::{Convert, ParametricModel};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
-use crate::utils::extract::Extractor;
+use crate::utils::extract::{Extractor, Field};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
 use pyo3::prelude::*;
@@ -142,21 +142,30 @@ impl Reference {
         let array = match self.altitude {
             Altitude::Scalar(altitude) => {
                 let states = Extractor::from_args(
-                    ["energy", "elevation"],
+                    [
+                        Field::float("energy"),
+                        Field::float("elevation"),
+                        Field::maybe_float("altitude"),
+                    ],
                     states,
                     kwargs
                 )?;
                 let mut array = NewArray::zeros(py, states.shape())?;
                 let flux = array.as_slice_mut();
                 for i in 0..states.size() {
-                    let [energy, elevation] = states.get(i)?;
-                    flux[i] = self.flux(energy, elevation, altitude);
+                    let [energy, elevation, z] = states.get(i)?;
+                    let z = z.into_f64_opt().unwrap_or_else(|| altitude);
+                    flux[i] = self.flux(energy.into_f64(), elevation.into_f64(), z);
                 }
                 array
             },
             Altitude::Range(_) => {
                 let states = Extractor::from_args(
-                    ["energy", "elevation", "altitude"],
+                    [
+                        Field::float("energy"),
+                        Field::float("elevation"),
+                        Field::float("altitude"),
+                    ],
                     states,
                     kwargs
                 )?;
@@ -164,7 +173,11 @@ impl Reference {
                 let flux = array.as_slice_mut();
                 for i in 0..states.size() {
                     let [energy, elevation, altitude] = states.get(i)?;
-                    flux[i] = self.flux(energy, elevation, altitude);
+                    flux[i] = self.flux(
+                        energy.into_f64(),
+                        elevation.into_f64(),
+                        altitude.into_f64(),
+                    );
                 }
                 array
             },

@@ -2,7 +2,7 @@ use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
-use crate::utils::extract::Extractor;
+use crate::utils::extract::{Extractor, Field};
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{Doublet, Geometry, GeometryStepper};
@@ -282,8 +282,14 @@ impl Fluxmeter {
     ) -> PyResult<NewArray<'py, State>> {
         let states = Extractor::from_args(
             [
-                "pid", "energy", "latitude", "longitude", "altitude", "azimuth", "elevation",
-                "weight",
+                Field::maybe_int("pid"),
+                Field::float("energy"),
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::float("altitude"),
+                Field::float("azimuth"),
+                Field::float("elevation"),
+                Field::maybe_float("weight"),
             ],
             states,
             kwargs
@@ -572,18 +578,26 @@ impl<'a> Agent<'a> {
     ) -> PyResult<()> {
         let [ pid, energy, latitude, longitude, altitude, azimuth, elevation, weight ] =
             extractor.get(index)?;
-        self.state.charge = if pid == 13.0 { -1.0 } else if pid == -13.0 { 1.0 } else {
+        let pid = pid.into_i32_opt().unwrap_or_else(|| 13);
+        self.state.charge = if pid == 13 { -1.0 } else if pid == -13 { 1.0 } else {
             let why = format!("expected '13' or '-13', found {}", pid);
             let err = Error::new(ValueError).what("pid").why(&why).to_err();
             return Err(err)
         };
-        self.state.energy = energy;
-        self.geographic = GeographicCoordinates { latitude, longitude, altitude };
+        self.state.energy = energy.into_f64();
+        self.geographic = GeographicCoordinates {
+            latitude: latitude.into_f64(),
+            longitude: longitude.into_f64(),
+            altitude: altitude.into_f64(),
+        };
         self.state.position = self.geographic.to_ecef();
-        self.horizontal = HorizontalCoordinates { azimuth, elevation };
+        self.horizontal = HorizontalCoordinates {
+            azimuth: azimuth.into_f64(),
+            elevation: elevation.into_f64(),
+        };
         let direction = self.horizontal.to_ecef(&self.geographic);
-        for i in 0..3 { self.state.direction[i] = -direction[i]; }  // Obsever convention.
-        self.state.weight = weight;
+        for i in 0..3 { self.state.direction[i] = -direction[i]; }  // Observer convention.
+        self.state.weight = weight.into_f64_opt().unwrap_or_else(|| 1.0);
         self.state.distance = 0.0;
         self.state.grammage = 0.0;
         self.state.time = 0.0;
