@@ -273,11 +273,12 @@ impl Fluxmeter {
     }
 
     /// Transport state(s) to the reference flux.
-    #[pyo3(signature=(states=None, /, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, repeats=None, **kwargs))]
     fn transport<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
+        repeats: Option<usize>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, State>> {
         let states = Extractor::from_args(
@@ -315,19 +316,29 @@ impl Fluxmeter {
         )?);
         let agent: &mut Agent = &mut pinned.deref_mut();
 
-        let mut array = NewArray::empty(py, shape)?;
+        let (repeats, mut array) = match repeats {
+            Some(repeats) => {
+                let mut shape = shape.clone();
+                shape.push(repeats);
+                (repeats, NewArray::empty(py, shape)?)
+            },
+            None => (1, NewArray::empty(py, shape)?),
+        };
         let result = array.as_slice_mut();
         for i in 0..size {
-            agent.set_state(i, &states)?;
-            if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
-                agent.transport()?;
-            }
-            result[i] = agent.get_state();
-            if ((i % 100) == 0) && error::ctrlc_catched() {
-                error::clear();
-                let err = Error::new(KeyboardInterrupt)
-                    .why("while transporting muon(s)");
-                return Err(err.to_err())
+            for j in 0..repeats {
+                agent.set_state(i, &states)?;
+                if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
+                    agent.transport()?;
+                }
+                let index = i * repeats + j;
+                result[index] = agent.get_state();
+                if ((index % 100) == 0) && error::ctrlc_catched() {
+                    error::clear();
+                    let err = Error::new(KeyboardInterrupt)
+                        .why("while transporting muon(s)");
+                    return Err(err.to_err())
+                }
             }
         }
 
