@@ -1,0 +1,139 @@
+use crate::bindings::gull;
+use crate::utils::error;
+use crate::utils::extract::{Field, Extractor};
+use crate::utils::io::PathString;
+use crate::utils::numpy::NewArray;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use ::std::ffi::{c_int, CString};
+use std::ptr::null_mut;
+
+
+#[pyclass(module="mulder")]
+pub struct Magnet {
+    /// The calendar day.
+    #[pyo3(get)]
+    day: usize,
+
+    /// The calendar month.
+    #[pyo3(get)]
+    month: usize,
+
+    /// The calendar year.
+    #[pyo3(get)]
+    year: usize,
+
+    /// The model limits along the z-coordinates.
+    #[pyo3(get)]
+    altitude: (f64, f64),
+
+    snapshot: *mut gull::Snapshot,
+    workspace: *mut f64,
+}
+
+unsafe impl Send for Magnet {}
+unsafe impl Sync for Magnet {}
+
+#[pymethods]
+impl Magnet {
+    #[pyo3(signature=(model=None, /, *, day=None, month=None, year=None))]
+    #[new]
+    fn new(
+        model: Option<PathString>,
+        day: Option<usize>,
+        month: Option<usize>,
+        year: Option<usize>,
+    ) -> PyResult<Self> {
+        const WHAT: Option<&str> = Some("model");
+
+        let model = model.unwrap(); // XXX Implement default case and check file ext.
+        let day = day.unwrap_or_else(|| 21);
+        let month = month.unwrap_or_else(|| 6);
+        let year = year.unwrap_or_else(|| 2025);
+
+        let workspace: *mut f64 = null_mut();
+        let mut snapshot: *mut gull::Snapshot = null_mut();
+        let model = CString::new(model.as_str()).unwrap();
+        let rc = unsafe {
+            gull::snapshot_create(
+                &mut snapshot,
+                model.as_c_str().as_ptr(),
+                day as c_int,
+                month as c_int,
+                year as c_int,
+            )
+        };
+        error::to_result(rc, WHAT)?;
+
+        let altitude = {
+            let mut zmin = 0.0;
+            let mut zmax = 0.0;
+            unsafe {
+                gull::snapshot_info(
+                    snapshot,
+                    null_mut(),
+                    &mut zmin,
+                    &mut zmax,
+                );
+            }
+            (zmin, zmax)
+        };
+
+        Ok(Self { day, month, year, altitude, snapshot, workspace })
+    }
+
+    fn __call__<'py>(
+        &mut self,
+        py: Python<'py>,
+        position: Option<&Bound<PyAny>>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let position = Extractor::from_args(
+            [
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::maybe_float("altitude"),
+            ],
+            position,
+            kwargs,
+        )?;
+
+        let shape = {
+            let mut shape = position.shape();
+            shape.push(3);
+            shape
+        };
+        let mut array = NewArray::empty(py, shape)?;
+        let fields = array.as_slice_mut();
+        for i in 0..position.size() {
+            let [ latitude, longitude, altitude ] = position.get(i)?;
+            let fi = self.field(
+                latitude.into_f64(),
+                longitude.into_f64(),
+                altitude.into_f64_opt().unwrap_or_else(|| 0.0),
+            )?;
+            for j in 0..3 {
+                fields[3 * i + j] = fi[j];
+            }
+        }
+        Ok(array)
+    }
+}
+
+impl Magnet {
+    pub fn field(&mut self, latitude: f64, longitude: f64, altitude: f64) -> PyResult<[f64; 3]> {
+        let mut field = [ 0.0_f64; 3 ];
+        let rc = unsafe {
+            gull::snapshot_field(
+                self.snapshot,
+                latitude,
+                longitude,
+                altitude,
+                field.as_mut_ptr(),
+                &mut self.workspace
+            )
+        };
+        error::to_result(rc, Some("field"))?;
+        Ok(field)
+    }
+}

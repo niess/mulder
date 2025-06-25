@@ -14,6 +14,7 @@ use std::ptr::{null, null_mut};
 pub mod atmosphere;
 pub mod grid;
 pub mod layer;
+pub mod magnet;
 
 use atmosphere::{Atmosphere, AtmosphereLike};
 use layer::{DataLike, Layer};
