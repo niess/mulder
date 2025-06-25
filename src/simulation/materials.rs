@@ -10,7 +10,6 @@ use ::std::borrow::Cow;
 use ::std::collections::HashMap;
 use ::std::ffi::OsStr;
 use ::std::path::Path;
-use ::std::sync::atomic::{AtomicUsize, Ordering};
 
 
 // ===============================================================================================
@@ -28,13 +27,10 @@ pub fn initialise(py: Python) -> PyResult<()> {
     Ok(())
 }
 
-static INSTANCES: AtomicUsize = AtomicUsize::new(0); // XXX needed?
-
 #[pyclass(frozen, module="mulder")]
 pub struct Materials {
     pub tag: String,
     pub data: MaterialsData,
-    pub instance: usize,
 }
 
 #[derive(FromPyObject)]
@@ -111,8 +107,7 @@ impl Materials {
             },
         };
 
-        let instance = INSTANCES.fetch_add(1, Ordering::SeqCst);
-        let materials = Self { tag, data, instance };
+        let materials = Self { tag, data };
         Ok(materials)
     }
 
@@ -131,7 +126,7 @@ impl Materials {
 
 impl Materials {
     pub(crate) fn empty() -> Self {
-        Self { tag: String::new(), data: MaterialsData::new(), instance: 0 }
+        Self { tag: String::new(), data: MaterialsData::new() }
     }
 
     pub(crate) fn from_arg<'py>(

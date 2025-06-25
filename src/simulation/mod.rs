@@ -691,7 +691,7 @@ impl<'a> Agent<'a> {
             // Backup proper time and kinetic energy.
             let t0 = self.state.time;
             let e0 = self.state.energy;
-            self.state.time = 0.0; // XXX Add time to managed properties?
+            self.state.time = 0.0;
 
             // Transport forward to the reference height using CSDA.
             self.context.mode.energy_loss = pumas::MODE_CSDA;

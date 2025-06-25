@@ -4,7 +4,7 @@ use crate::simulation::materials::{Materials, MaterialsArg, MaterialsData};
 use crate::utils::cache;
 use crate::utils::convert::{Bremsstrahlung, Mdf, PairProduction, Photonuclear};
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::KeyboardInterrupt;
+use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::io::PathString;
 use indicatif::{ProgressBar, ProgressStyle};
 use pyo3::prelude::*;
@@ -35,7 +35,7 @@ pub struct Physics {
 
     pub physics: *mut pumas::Physics,
     pub context: *mut pumas::Context,
-    materials_indices: HashMap<String, c_int>, // XXX Use this.
+    materials_indices: HashMap<String, c_int>,
 }
 
 unsafe impl Send for Physics {}
@@ -139,7 +139,6 @@ impl Physics {
             let rc = unsafe { pumas::context_create(&mut context, self.physics, 0) };
             Self::check_pumas(rc)?;
             unsafe {
-                (*context).mode.scattering = pumas::MODE_DISABLED; // XXX needed?
                 (*context).mode.decay = pumas::MODE_DISABLED;
             }
             self.context = context;
@@ -257,20 +256,15 @@ impl Physics {
     }
 
     pub fn material_index(&self, name: &str) -> PyResult<c_int> {
-        let name = CString::new(name)?;
-        let mut index = 0;
-        let rc = unsafe {
-            pumas::physics_material_index(
-                self.physics,
-                name.as_c_str().as_ptr(),
-                &mut index,
-            )
-        };
-        if rc == pumas::SUCCESS {
-            Ok(index)
-        } else {
-            unimplemented!()
-        }
+        self.materials_indices.get(name)
+            .ok_or_else(|| {
+                let why = format!("undefined material '{}'", name);
+                Error::new(ValueError)
+                    .what("material")
+                    .why(&why)
+                    .to_err()
+            })
+            .copied()
     }
 
     fn load_pumas(&self, materials: &str) -> Option<*mut pumas::Physics> {
