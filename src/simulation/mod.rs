@@ -1,7 +1,7 @@
 use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{TypeError, ValueError};
+use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
 use crate::utils::extract::Extractor;
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
@@ -292,6 +292,7 @@ impl Fluxmeter {
         let shape = states.shape();
 
         // Configure physics, geometry, samplers etc.
+        error::clear();
         let geometry = self.geometry.bind(py).borrow();
         let atmosphere = geometry.atmosphere.bind(py).borrow();
         let mut physics = self.physics.bind(py).borrow_mut();
@@ -316,6 +317,12 @@ impl Fluxmeter {
                 agent.transport()?;
             }
             result[i] = agent.get_state();
+            if ((i % 100) == 0) && error::ctrlc_catched() {
+                error::clear();
+                let err = Error::new(KeyboardInterrupt)
+                    .why("while transporting muon(s)");
+                return Err(err.to_err())
+            }
         }
 
         Ok(array)
@@ -686,6 +693,7 @@ impl<'a> Agent<'a> {
             }
         }
 
+        // XXX Check feasability.
         let zlim = self.fluxmeter.steppers.opensky.zlim;
         if self.geographic.altitude > self.reference.altitude.min() + Self::EPSILON {
             // Backup proper time and kinetic energy.
