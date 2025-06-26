@@ -10,7 +10,7 @@ pub struct Snapshot {
 }
 
 pub type ErrorHandler = Option<
-    unsafe extern "C" fn(rc: c_uint, function: Function, file: *const c_char, line: c_int)
+    unsafe extern "C" fn(rc: c_uint, function: Function, file: *const c_char)
 >;
 
 pub type Function = Option<

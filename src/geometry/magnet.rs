@@ -1,11 +1,13 @@
 use crate::bindings::gull;
-use crate::utils::error;
+use crate::utils::error::{self, Error};
+use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::extract::{Field, Extractor};
 use crate::utils::io::PathString;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use ::std::ffi::{c_int, CString};
+use std::ffi::{c_int, CString, OsStr};
+use std::path::Path;
 use std::ptr::null_mut;
 
 
@@ -39,14 +41,43 @@ impl Magnet {
     #[pyo3(signature=(model=None, /, *, day=None, month=None, year=None))]
     #[new]
     fn new(
-        model: Option<PathString>,
+        py: Python,
+        model: Option<PathString>, // XXX Accept a uniform value?
         day: Option<usize>,
         month: Option<usize>,
         year: Option<usize>,
     ) -> PyResult<Self> {
-        const WHAT: Option<&str> = Some("model");
+        let model = match model {
+            None => {
+                Path::new(crate::PREFIX.get(py).unwrap())
+                    .join(format!("data/magnet/{}", Self::DEFAULT_MODEL))
+                    .into_os_string()
+                    .into_string()
+                    .unwrap()
+            },
+            Some(model) => {
+                const WHAT: &str = "model";
+                let path = Path::new(model.as_str());
+                if !path.is_file() {
+                    let why = if !path.exists() { // XXX Generic check (as trait?)
+                        format!("no such file '{}'", path.display())
+                    } else {
+                        format!("not a file '{}'", path.display())
+                    };
+                    let err = Error::new(ValueError).what(WHAT).why(&why);
+                    return Err(err.to_err())
+                }
+                match path.extension().and_then(OsStr::to_str) {
+                    Some("COF" | "cof") => model.0,
+                    _ => {
+                        let why = format!("invalid file format '{}'", path.display());
+                        let err = Error::new(ValueError).what(WHAT).why(&why);
+                        return Err(err.to_err())
+                    },
+                }
+            },
+        };
 
-        let model = model.unwrap(); // XXX Implement default case and check file ext.
         let day = day.unwrap_or_else(|| 21);
         let month = month.unwrap_or_else(|| 6);
         let year = year.unwrap_or_else(|| 2025);
@@ -63,7 +94,7 @@ impl Magnet {
                 year as c_int,
             )
         };
-        error::to_result(rc, WHAT)?;
+        error::to_result(rc, Some("magnet"))?;
 
         let altitude = {
             let mut zmin = 0.0;
@@ -82,6 +113,7 @@ impl Magnet {
         Ok(Self { day, month, year, altitude, snapshot, workspace })
     }
 
+    #[pyo3(signature=(position=None, /, **kwargs))]
     fn __call__<'py>(
         &mut self,
         py: Python<'py>,
@@ -121,6 +153,8 @@ impl Magnet {
 }
 
 impl Magnet {
+    const DEFAULT_MODEL: &str = "IGRF14.COF";
+
     pub fn field(&mut self, latitude: f64, longitude: f64, altitude: f64) -> PyResult<[f64; 3]> {
         let mut field = [ 0.0_f64; 3 ];
         let rc = unsafe {

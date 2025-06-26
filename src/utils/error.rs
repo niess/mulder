@@ -7,8 +7,7 @@ use pyo3::exceptions::{
     PyMemoryError, PyNotImplementedError, PySystemError, PyTypeError, PyValueError
 };
 use pyo3::ffi::PyErr_CheckSignals;
-use ::std::ffi::{c_char, c_int, c_uint, CStr};
-use ::std::ptr::null;
+use ::std::ffi::{c_char, c_uint, CStr};
 use ::std::sync::RwLock;
 
 
@@ -176,55 +175,20 @@ pub fn initialise() {
     }
 }
 
-#[no_mangle]
-unsafe extern "C" fn gull_error(
-    code: c_uint,
-    function: gull::Function,
-    file: *const c_char,
-    line: c_int,
-) {
-    if code != gull::SUCCESS {
-        let code = code as u32;
-        let function = gull::error_function(function);
-        let function = Some(CStr::from_ptr(function)
-            .to_string_lossy()
-            .into_owned());
-        let message = if file == null() {
-            None
-        } else {
-            let file = CStr::from_ptr(file)
-                .to_string_lossy();
-            let message = if line == 0 {
-                file.into_owned()
-            } else {
-                format!("{}:{}", file, line)
-            };
-            Some(message)
-        };
-        let err = CError { code, function, message };
-        ERROR_BUFFER.write().unwrap().push(err);
-    }
-}
-
 macro_rules! define_error_handler {
     ($lib:ident) => {
         paste! {
             #[no_mangle]
             unsafe extern "C" fn [<$lib _error>](
                 code: c_uint,
-                function: $lib::Function,
+                _function: $lib::Function,
                 message: *const c_char,
             ) {
                 if code != $lib::SUCCESS {
-                    let code = code as u32;
-                    let function = $lib::error_function(function);
-                    let function = Some(CStr::from_ptr(function)
+                    let message = CStr::from_ptr(message)
                         .to_string_lossy()
-                        .into_owned());
-                    let message = Some(CStr::from_ptr(message)
-                        .to_string_lossy()
-                        .into_owned());
-                    let err = CError { code, function, message };
+                        .into_owned();
+                    let err = CError { message };
                     ERROR_BUFFER.write().unwrap().push(err);
                 }
             }
@@ -232,15 +196,14 @@ macro_rules! define_error_handler {
     }
 }
 
+define_error_handler!(gull);
 define_error_handler!(pumas);
 define_error_handler!(turtle);
 
 static ERROR_BUFFER: RwLock<Vec<CError>> = RwLock::new(Vec::new());
 
 struct CError {
-    code: u32,
-    function: Option<String>,
-    message: Option<String>,
+    message: String,
 }
 
 create_exception!(mulder, CLibraryException, PyException, "A C-library exception.");
@@ -254,20 +217,7 @@ pub fn to_result<T: AsRef<str>>(rc: c_uint, what: Option<T>) -> Result<(), PyErr
         Ok(())
     } else {
         let err = ERROR_BUFFER.write().unwrap().pop().unwrap();
-        let why = match err.message {
-            Some(message) => format!(
-                "{}/{}: {}",
-                err.function.unwrap(),
-                err.code,
-                message,
-            ),
-            None => format!(
-                "{}/{}",
-                err.function.unwrap(),
-                err.code,
-            ),
-        };
-        let mut err = Error::new(ErrorKind::CLibraryException).why(&why);
+        let mut err = Error::new(ErrorKind::CLibraryException).why(&err.message);
         if let Some(what) = what.as_ref() {
             err = err.what(what.as_ref());
         }
