@@ -50,11 +50,6 @@ pub struct Fluxmeter {
     steppers: Doublet<GeometryStepper>,
     atmosphere_medium: Medium,
     layers_media: Vec<Medium>,
-    use_external_layer: bool,
-
-    magnet_field: [f64; 3],
-    magnet_position: [f64; 3],
-    use_magnet: bool,
 }
 
 unsafe impl Send for Fluxmeter {}
@@ -66,6 +61,7 @@ struct Medium (Pin<Box<MediumData>>);
 struct MediumData {
     medium: pumas::Medium,
     density: f64,
+    layer: usize,
 }
 
 #[repr(C)]
@@ -73,6 +69,7 @@ struct Agent<'a> {
     state: pumas::State,
     geographic: GeographicCoordinates,
     horizontal: HorizontalCoordinates,
+
     atmosphere: &'a Atmosphere,
     fluxmeter: &'a mut Fluxmeter,
     geometry: &'a Geometry,
@@ -80,11 +77,16 @@ struct Agent<'a> {
     physics: &'a physics::Physics,
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
+
+    use_external_layer: bool,
+    magnet_field: [f64; 3],
+    magnet_position: [f64; 3],
+    use_magnet: bool,
 }
 
 #[repr(C)]
 struct State {
-    pid: f64,
+    pid: i32,
     energy: f64,
     latitude: f64,
     longitude: f64,
@@ -227,15 +229,9 @@ impl Fluxmeter {
         let steppers = Default::default();
         let layers_media = Vec::new();
         let atmosphere_medium = Medium::default();
-        let use_external_layer = false;
-
-        let magnet_field = [0.0; 3];
-        let magnet_position = [0.0; 3];
-        let use_magnet = false;
 
         let fluxmeter = Self {
             geometry, mode, physics, random, reference, steppers, atmosphere_medium, layers_media,
-            use_external_layer, magnet_field, magnet_position, use_magnet,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -280,6 +276,81 @@ impl Fluxmeter {
             }
         }
         Ok(())
+    }
+
+    /// Compute grammage(s) along line of sight(s).
+    #[pyo3(signature=(states=None, /, *, sum=None, **kwargs))]
+    fn grammage<'py>(
+        &mut self,
+        py: Python<'py>,
+        states: Option<&Bound<PyAny>>,
+        sum: Option<bool>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let states = Extractor::from_args(
+            [
+                Field::float("latitude"),
+                Field::float("longitude"),
+                Field::float("altitude"),
+                Field::float("azimuth"),
+                Field::float("elevation"),
+            ],
+            states,
+            kwargs
+        )?;
+        let size = states.size();
+        let shape = states.shape();
+        let sum = sum.unwrap_or_else(|| false);
+
+        // Configure physics, geometry, samplers etc.
+        error::clear();
+        let n = self.layers_media.len() + 1;
+        let mut geometry = self.geometry.bind(py).borrow_mut();
+        let atmosphere = geometry.atmosphere.bind(py).borrow();
+        let mut magnet = geometry.magnet.as_mut().map(|magnet| magnet.bind(py).borrow_mut());
+        let mut physics = self.physics.bind(py).borrow_mut();
+        let mut random = self.random.bind(py).borrow_mut();
+        let reference = self.reference.bind(py).borrow();
+        let mut pinned = Box::pin(Agent::new(
+            py,
+            &atmosphere,
+            self,
+            &geometry,
+            magnet.as_deref_mut(),
+            &mut physics,
+            &mut random,
+            &reference,
+        )?);
+        let agent: &mut Agent = &mut pinned.deref_mut();
+
+        let mut array = if sum {
+            NewArray::empty(py, shape)?
+        } else {
+            let mut shape = shape.clone();
+            shape.push(n);
+            NewArray::empty(py, shape)?
+        };
+        let result = array.as_slice_mut();
+        for i in 0..size {
+            let state = State::from_grammage(&states, i)?;
+            agent.set_state(&state)?;
+            let grammage = agent.grammage()?;
+            if sum {
+                result[i] = grammage.iter().sum();
+            } else {
+                for j in 0..n {
+                    result[i * n + j] = grammage[j];
+                }
+            }
+            if ((i % 100) == 0) && error::ctrlc_catched() {
+                error::clear();
+                let err = Error::new(KeyboardInterrupt)
+                    .why("while computing grammage(s)");
+                return Err(err.to_err())
+            }
+        }
+
+        Ok(array)
     }
 
     /// Transport state(s) to the reference flux.
@@ -338,8 +409,9 @@ impl Fluxmeter {
         };
         let result = array.as_slice_mut();
         for i in 0..size {
+            let state = State::from_transport(&states, i)?;
             for j in 0..repeats {
-                agent.set_state(i, &states)?;
+                agent.set_state(&state)?;
                 if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
                     agent.transport()?;
                 }
@@ -370,12 +442,12 @@ impl Fluxmeter {
     ) -> PyResult<()> {
         if self.steppers.layers.stepper == null_mut() {
             // Map media.
-            for layer in &geometry.layers {
+            for (index, layer) in geometry.layers.iter().enumerate() {
                 let layer = layer.bind(py).borrow();
-                let medium = Medium::uniform(&layer, physics)?;
+                let medium = Medium::uniform(&layer, index, physics)?;
                 self.layers_media.push(medium);
             }
-            self.atmosphere_medium = Medium::atmosphere(physics)?;
+            self.atmosphere_medium = Medium::atmosphere(geometry.layers.len(), physics)?;
 
             // Create steppers.
             let zref = reference.altitude.to_range();
@@ -425,7 +497,7 @@ extern "C" fn atmosphere_locals(
         LAMBDA_MAX
     };
 
-    if !agent.fluxmeter.use_magnet {
+    if !agent.use_magnet {
         return lambda
     }
 
@@ -434,7 +506,7 @@ extern "C" fn atmosphere_locals(
     let d2 = {
         let mut d2 = 0.0;
         for i in 0..3 {
-            let tmp = agent.state.position[i] - agent.fluxmeter.magnet_position[i];
+            let tmp = agent.state.position[i] - agent.magnet_position[i];
             d2 += tmp * tmp;
         }
         d2
@@ -448,13 +520,13 @@ extern "C" fn atmosphere_locals(
         ).unwrap();
 
         let frame = LocalFrame::new(&agent.geographic, 0.0, 0.0);
-        agent.fluxmeter.magnet_field = frame.to_ecef_direction(&enu);
-        agent.fluxmeter.magnet_position = agent.state.position;
+        agent.magnet_field = frame.to_ecef_direction(&enu);
+        agent.magnet_position = agent.state.position;
     }
 
     // Update the local magnetic field.
     unsafe {
-        (*locals).magnet = agent.fluxmeter.magnet_field;
+        (*locals).magnet = agent.magnet_field;
     }
 
     let lambda_magnet = UPDATE_RADIUS / agent.context.accuracy;
@@ -500,7 +572,7 @@ extern "C" fn layers_geometry(
         let n = agent.fluxmeter.layers_media.len();
         if (layer >= 1) && (layer <= n) {
             *medium_ptr = agent.fluxmeter.layers_media[layer - 1].as_mut_ptr();
-        } else if (layer == n + 1) || (agent.fluxmeter.use_external_layer && (layer == n + 2)) {
+        } else if (layer == n + 1) || (agent.use_external_layer && (layer == n + 2)) {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -543,26 +615,29 @@ impl Medium {
         &mut self.0.medium
     }
 
-    fn atmosphere(physics: &physics::Physics) -> PyResult<Self> {
-        Self::new(Fluxmeter::TOP_MATERIAL, None, Some(atmosphere_locals), physics)
+    fn atmosphere(layer: usize, physics: &physics::Physics) -> PyResult<Self> {
+        Self::new(Fluxmeter::TOP_MATERIAL, None, layer, Some(atmosphere_locals), physics)
     }
 
     fn new(
         material: &str,
         density: Option<f64>,
+        layer: usize,
         locals: pumas::LocalsCallback,
         physics: &physics::Physics,
     ) -> PyResult<Self> {
         let material = physics.material_index(material)?;
         let density = density.unwrap_or(-1.0);
         let medium = pumas::Medium { material, locals };
-        let data = MediumData { medium, density };
+        let data = MediumData { medium, density, layer };
         let medium = Self(Box::pin(data));
         Ok(medium)
     }
 
-    fn uniform(layer: &Layer, physics: &physics::Physics) -> PyResult<Self> {
-        Self::new(layer.material.as_str(), layer.density, Some(uniform_locals), physics)
+    fn uniform(layer: &Layer, layer_index: usize, physics: &physics::Physics) -> PyResult<Self> {
+        Self::new(
+            layer.material.as_str(), layer.density, layer_index, Some(uniform_locals), physics,
+        )
     }
 }
 
@@ -577,7 +652,8 @@ impl Default for Medium {
     fn default() -> Self {
         let medium = pumas::Medium { material: -1, locals: None };
         let density = 0.0;
-        let data = MediumData { medium, density };
+        let layer = 0;
+        let data = MediumData { medium, density, layer };
         Self(Box::pin(data))
     }
 }
@@ -587,7 +663,7 @@ impl<'a> Agent<'a> {
 
     fn get_state(&self) -> State {
         State {
-            pid: if self.state.charge > 0.0 { -13.0 } else { 13.0 },
+            pid: if self.state.charge > 0.0 { -13 } else { 13 },
             energy: self.state.energy,
             latitude: self.geographic.latitude,
             longitude: self.geographic.longitude,
@@ -596,6 +672,51 @@ impl<'a> Agent<'a> {
             elevation: self.horizontal.elevation,
             weight: self.state.weight,
         }
+    }
+
+    fn grammage(&mut self) -> PyResult<Vec<f64>> {
+        // Disable any magnetic field.
+        self.use_magnet = false;
+
+        // Configure the transport with Pumas.
+        self.context.medium = Some(layers_geometry);
+        self.context.mode.direction = pumas::MODE_BACKWARD;
+        self.context.mode.energy_loss = pumas::MODE_DISABLED;
+        self.context.mode.scattering = pumas::MODE_DISABLED;
+        self.context.event = pumas::EVENT_MEDIUM;
+
+        unsafe {
+            turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+        }
+
+        // Compute the grammage.
+        let n = self.fluxmeter.layers_media.len();
+        let mut grammage = vec![0.0; n + 1];
+        let mut last_grammage = 0.0;
+        loop {
+            let mut event = 0;
+            let mut media: [*mut pumas::Medium; 2] = [null_mut(); 2];
+            let rc = unsafe {
+                pumas::context_transport(
+                    self.context,
+                    &mut self.state,
+                    &mut event,
+                    media.as_mut_ptr(),
+                )
+            };
+            error::to_result(rc, None::<&str>)?;
+            if media[0] == null_mut() { break }
+
+            let medium: &MediumData = media[0].into();
+            grammage[medium.layer] += self.state.grammage - last_grammage;
+            last_grammage = self.state.grammage;
+
+            if (event != pumas::EVENT_MEDIUM) || (media[1] == null_mut()) {
+                break
+            }
+        }
+
+        Ok(grammage)
     }
 
     fn new(
@@ -616,52 +737,46 @@ impl<'a> Agent<'a> {
         let context = unsafe { &mut *physics.context };
         context.user_data = random.deref_mut() as *mut random::Random as *mut c_void;
         context.random = Some(uniform01);
-        context.event = pumas::EVENT_LIMIT_ENERGY;
 
         // Initialise particles state.
         let state = pumas::State::default();
         let geographic = GeographicCoordinates::default();
         let horizontal = HorizontalCoordinates::default();
 
+        let use_external_layer = false;
+        let magnet_field = [0.0; 3];
+        let magnet_position = [0.0; 3];
+        let use_magnet = false;
+
         let agent = Self {
             state, geographic, horizontal, atmosphere, fluxmeter, geometry, magnet,
-            physics, reference, context
+            physics, reference, context, use_external_layer, magnet_field, magnet_position,
+            use_magnet,
         };
         Ok(agent)
     }
 
-    fn set_state<'py>(
-        &mut self,
-        index: usize,
-        extractor: &Extractor<'py, 8>,
-    ) -> PyResult<()> {
-        let [ pid, energy, latitude, longitude, altitude, azimuth, elevation, weight ] =
-            extractor.get(index)?;
-        let pid = pid.into_i32_opt().unwrap_or_else(|| 13);
+    fn set_state<'py>(&mut self, state: &State) -> PyResult<()> {
+        let State {
+            pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
+        } = *state;
         self.state.charge = if pid == 13 { -1.0 } else if pid == -13 { 1.0 } else {
             let why = format!("expected '13' or '-13', found {}", pid);
             let err = Error::new(ValueError).what("pid").why(&why).to_err();
             return Err(err)
         };
-        self.state.energy = energy.into_f64();
-        self.geographic = GeographicCoordinates {
-            latitude: latitude.into_f64(),
-            longitude: longitude.into_f64(),
-            altitude: altitude.into_f64(),
-        };
+        self.state.energy = energy;
+        self.geographic = GeographicCoordinates { latitude, longitude, altitude };
         self.state.position = self.geographic.to_ecef();
-        self.horizontal = HorizontalCoordinates {
-            azimuth: azimuth.into_f64(),
-            elevation: elevation.into_f64(),
-        };
+        self.horizontal = HorizontalCoordinates { azimuth, elevation };
         let direction = self.horizontal.to_ecef(&self.geographic);
         for i in 0..3 { self.state.direction[i] = -direction[i]; }  // Observer convention.
-        self.state.weight = weight.into_f64_opt().unwrap_or_else(|| 1.0);
+        self.state.weight = weight;
         self.state.distance = 0.0;
         self.state.grammage = 0.0;
         self.state.time = 0.0;
         self.state.decayed = 0;
-        self.fluxmeter.use_external_layer =
+        self.use_external_layer =
             self.geographic.altitude >= self.fluxmeter.steppers.layers.zlim + Self::EPSILON;
         Ok(())
     }
@@ -694,9 +809,11 @@ impl<'a> Agent<'a> {
         const HIGH_ENERGY: f64 = 1E+02;
 
         if self.magnet.is_some() {
-            self.fluxmeter.use_magnet = true;
-            self.fluxmeter.magnet_position = [0.0; 3];
+            self.use_magnet = true;
+            self.magnet_position = [0.0; 3];
         }
+
+        self.context.event = pumas::EVENT_LIMIT_ENERGY;
 
         let zlim = self.fluxmeter.steppers.layers.zlim;
         if self.geographic.altitude < zlim - Self::EPSILON {
@@ -870,6 +987,35 @@ impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
     }
 }
 
+impl State {
+    fn from_grammage(extractor: &Extractor<5>, index: usize) -> PyResult<Self> {
+        let [ latitude, longitude, altitude, azimuth, elevation ] = extractor.get(index)?;
+        let pid = 13;
+        let energy = 1E+03;
+        let latitude = latitude.into_f64();
+        let longitude = longitude.into_f64();
+        let altitude = altitude.into_f64();
+        let azimuth = azimuth.into_f64();
+        let elevation = elevation.into_f64();
+        let weight = 1.0;
+        Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
+    }
+
+    fn from_transport(extractor: &Extractor<8>, index: usize) -> PyResult<Self> {
+        let [ pid, energy, latitude, longitude, altitude, azimuth, elevation, weight ] =
+            extractor.get(index)?;
+        let pid = pid.into_i32_opt().unwrap_or_else(|| 13);
+        let energy = energy.into_f64();
+        let latitude = latitude.into_f64();
+        let longitude = longitude.into_f64();
+        let altitude = altitude.into_f64();
+        let azimuth = azimuth.into_f64();
+        let elevation = elevation.into_f64();
+        let weight = weight.into_f64_opt().unwrap_or_else(|| 1.0);
+        Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
+    }
+}
+
 static STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
 
 impl Dtype for State {
@@ -878,7 +1024,7 @@ impl Dtype for State {
             let ob = PyModule::import(py, "numpy")?
                 .getattr("dtype")?
                 .call1(([
-                        ("pid",       "f8"),
+                        ("pid",       "i4"),
                         ("energy",    "f8"),
                         ("latitude",  "f8"),
                         ("longitude", "f8"),
