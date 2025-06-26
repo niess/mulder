@@ -3,6 +3,7 @@ use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::IndexError;
 use crate::utils::extract::{Field, Extractor};
+use crate::utils::io::PathString;
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
@@ -18,6 +19,7 @@ pub mod magnet;
 
 use atmosphere::{Atmosphere, AtmosphereLike};
 use layer::{DataLike, Layer};
+use magnet::Magnet;
 
 
 #[pyclass(module="mulder")]
@@ -25,6 +27,10 @@ pub struct Geometry {
     /// The geometry atmosphere.
     #[pyo3(get)]
     pub atmosphere: Py<Atmosphere>,
+
+    /// The geomagnetic field.
+    #[pyo3(get)]
+    pub magnet: Option<Py<Magnet>>,
 
     /// Geometry limits along the z-coordinates.
     #[pyo3(get)]
@@ -41,6 +47,13 @@ unsafe impl Sync for Geometry {}
 pub enum AtmosphereArg<'py> {
     Model(AtmosphereLike<'py>),
     Object(Py<Atmosphere>),
+}
+
+#[derive(FromPyObject)]
+pub enum MagnetArg {
+    Flag(bool),
+    Model(PathString),
+    Object(Py<Magnet>),
 }
 
 #[derive(FromPyObject)]
@@ -73,9 +86,13 @@ pub struct Doublet<T> {
 
 #[pymethods]
 impl Geometry {
-    #[pyo3(signature=(*layers, atmosphere=None))]
+    #[pyo3(signature=(*layers, atmosphere=None, magnet=None))]
     #[new]
-    pub fn new(layers: &Bound<PyTuple>, atmosphere: Option<AtmosphereArg>) -> PyResult<Self> {
+    pub fn new(
+        layers: &Bound<PyTuple>,
+        atmosphere: Option<AtmosphereArg>,
+        magnet: Option<MagnetArg>,
+    ) -> PyResult<Self> {
         let py = layers.py();
         let (layers, z) = {
             let mut z = (f64::INFINITY, -f64::INFINITY);
@@ -106,22 +123,15 @@ impl Geometry {
         };
 
         let atmosphere = match atmosphere {
-            Some(atmosphere) => match atmosphere {
-                AtmosphereArg::Model(model) => {
-                    let atmosphere = Atmosphere::new(Some(model))?;
-                    Py::new(py, atmosphere)?
-                },
-                AtmosphereArg::Object(atmosphere) => atmosphere,
-            },
-            None => {
-                let atmosphere = Atmosphere::new(None)?;
-                Py::new(py, atmosphere)?
-            },
+            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
+            None => Py::new(py, Atmosphere::new(None)?)?,
         };
+
+        let magnet = magnet.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
 
         let stepper = null_mut();
 
-        Ok(Self { layers, z, atmosphere, stepper })
+        Ok(Self { layers, z, atmosphere, magnet, stepper })
     }
 
     /// The geometry layers.
@@ -131,6 +141,21 @@ impl Geometry {
             .iter()
             .map(|data| data.clone_ref(py));
         PyTuple::new(py, elements)
+    }
+
+    #[setter]
+    fn set_atmosphere(&mut self, py: Python, value: Option<AtmosphereArg>) -> PyResult<()> {
+        self.atmosphere = match value {
+            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
+            None => Py::new(py, Atmosphere::new(None)?)?,
+        };
+        Ok(())
+    }
+
+    #[setter]
+    fn set_magnet(&mut self, py: Python, value: Option<MagnetArg>) -> PyResult<()> {
+        self.magnet = value.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
+        Ok(())
     }
 
     fn __getitem__(&self, py: Python, index: usize) -> PyResult<Py<Layer>> {
@@ -484,6 +509,33 @@ impl Drop for Geometry {
     fn drop(&mut self) {
         unsafe {
             turtle::stepper_destroy(&mut self.stepper);
+        }
+    }
+}
+
+impl<'py> AtmosphereArg<'py> {
+    fn into_atmosphere(self, py: Python<'py>) -> PyResult<Py<Atmosphere>> {
+        match self {
+            Self::Model(model) => Py::new(py, Atmosphere::new(Some(model))?),
+            Self::Object(atmosphere) => Ok(atmosphere),
+        }
+    }
+}
+
+impl MagnetArg {
+    fn into_magnet(self, py: Python) -> Option<PyResult<Py<Magnet>>> {
+        match self {
+            Self::Flag(b) => if b {
+                Some(Magnet::new(py, None, None, None, None)
+                    .and_then(|magnet| Py::new(py, magnet)))
+            } else {
+                None
+            },
+            Self::Model(model) => {
+                Some(Magnet::new(py, Some(model), None, None, None)
+                    .and_then(|magnet| Py::new(py, magnet)))
+            },
+            Self::Object(ob) => Some(Ok(ob.clone_ref(py))),
         }
     }
 }

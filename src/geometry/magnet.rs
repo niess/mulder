@@ -6,7 +6,7 @@ use crate::utils::io::PathString;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::ffi::{c_int, CString, OsStr};
+use std::ffi::{c_int, CString, c_void, OsStr};
 use std::path::Path;
 use std::ptr::null_mut;
 
@@ -40,7 +40,7 @@ unsafe impl Sync for Magnet {}
 impl Magnet {
     #[pyo3(signature=(model=None, /, *, day=None, month=None, year=None))]
     #[new]
-    fn new(
+    pub fn new(
         py: Python,
         model: Option<PathString>, // XXX Accept a uniform value?
         day: Option<usize>,
@@ -169,5 +169,15 @@ impl Magnet {
         };
         error::to_result(rc, Some("field"))?;
         Ok(field)
+    }
+}
+
+impl Drop for Magnet {
+    fn drop(&mut self) {
+        unsafe {
+            gull::snapshot_destroy(&mut self.snapshot);
+            libc::free(self.workspace as *mut c_void);
+        }
+        self.workspace = null_mut();
     }
 }

@@ -95,3 +95,70 @@ impl HorizontalCoordinates {
         direction
     }
 }
+
+
+// ===============================================================================================
+//
+// Local frame (ENU like).
+//
+// ===============================================================================================
+
+#[derive(Clone, Default)]
+pub struct LocalFrame {
+    rotation: [[f64; 3]; 3],
+    #[allow(unused)] // XXX needed?
+    translation: [f64; 3],
+}
+
+impl LocalFrame {
+    pub fn to_ecef_direction(&self, enu: &[f64; 3]) -> [f64; 3] {
+        let mut ecef = [0.0; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                ecef[i] += self.rotation[j][i] * enu[j];
+            }
+        }
+        ecef
+    }
+
+    #[allow(unused)] // XXX needed?
+    pub fn to_ecef_position(&self, enu: &[f64; 3]) -> [f64; 3] {
+        let mut ecef = self.to_ecef_direction(enu);
+        for i in 0..3 {
+            ecef[i] += self.translation[i];
+        }
+        ecef
+    }
+
+    pub fn new(origin: &GeographicCoordinates, declination: f64, inclination: f64) -> Self {
+        // Compute transform from ECEF to ENU.
+        let mut rotation = [[0.0; 3]; 3];
+        unsafe {
+            turtle::ecef_from_horizontal(
+                 origin.latitude,
+                 origin.longitude,
+                 90.0 + declination,
+                 0.0,
+                 rotation[0].as_mut_ptr(),
+            );
+
+            turtle::ecef_from_horizontal(
+                origin.latitude,
+                origin.longitude,
+                declination,
+                -inclination,
+                rotation[1].as_mut_ptr(),
+            );
+
+            turtle::ecef_from_horizontal(
+                origin.latitude,
+                origin.longitude,
+                0.0,
+                90.0 - inclination,
+                rotation[2].as_mut_ptr(),
+            );
+        }
+        let translation = origin.to_ecef();
+        Self { rotation, translation }
+    }
+}

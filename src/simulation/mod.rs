@@ -1,5 +1,5 @@
 use crate::bindings::{turtle, pumas};
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
 use crate::utils::extract::{Extractor, Field};
@@ -7,6 +7,7 @@ use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{Doublet, Geometry, GeometryStepper};
 use crate::geometry::atmosphere::Atmosphere;
+use crate::geometry::magnet::Magnet;
 use crate::geometry::layer::Layer;
 use crate::utils::convert::TransportMode;
 use crate::utils::io::PathString;
@@ -50,6 +51,10 @@ pub struct Fluxmeter {
     atmosphere_medium: Medium,
     layers_media: Vec<Medium>,
     use_external_layer: bool,
+
+    magnet_field: [f64; 3],
+    magnet_position: [f64; 3],
+    use_magnet: bool,
 }
 
 unsafe impl Send for Fluxmeter {}
@@ -71,6 +76,7 @@ struct Agent<'a> {
     atmosphere: &'a Atmosphere,
     fluxmeter: &'a mut Fluxmeter,
     geometry: &'a Geometry,
+    magnet: Option<&'a mut Magnet>,
     physics: &'a physics::Physics,
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
@@ -140,7 +146,7 @@ impl Fluxmeter {
 
         let geometry = {
             let geometry_kwargs = extract_kwargs(
-                &["atmosphere",]
+                &["atmosphere", "magnet"]
             )?;
             let geometry = match extract_field("geometry")? {
                 Some(geometry) => if layers.is_empty() && geometry_kwargs.is_none() {
@@ -154,7 +160,7 @@ impl Fluxmeter {
                     return Err(err)
                 },
                 None => {
-                    let geometry = Geometry::new(layers, None)?;
+                    let geometry = Geometry::new(layers, None, None)?;
                     let geometry = Bound::new(py, geometry)?;
                     if let Some(kwargs) = geometry_kwargs {
                         for (key, value) in kwargs.iter() {
@@ -223,9 +229,13 @@ impl Fluxmeter {
         let atmosphere_medium = Medium::default();
         let use_external_layer = false;
 
+        let magnet_field = [0.0; 3];
+        let magnet_position = [0.0; 3];
+        let use_magnet = false;
+
         let fluxmeter = Self {
             geometry, mode, physics, random, reference, steppers, atmosphere_medium, layers_media,
-            use_external_layer,
+            use_external_layer, magnet_field, magnet_position, use_magnet,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -300,8 +310,9 @@ impl Fluxmeter {
 
         // Configure physics, geometry, samplers etc.
         error::clear();
-        let geometry = self.geometry.bind(py).borrow();
+        let mut geometry = self.geometry.bind(py).borrow_mut();
         let atmosphere = geometry.atmosphere.bind(py).borrow();
+        let mut magnet = geometry.magnet.as_mut().map(|magnet| magnet.bind(py).borrow_mut());
         let mut physics = self.physics.bind(py).borrow_mut();
         let mut random = self.random.bind(py).borrow_mut();
         let reference = self.reference.bind(py).borrow();
@@ -310,6 +321,7 @@ impl Fluxmeter {
             &atmosphere,
             self,
             &geometry,
+            magnet.as_deref_mut(),
             &mut physics,
             &mut random,
             &reference,
@@ -395,14 +407,14 @@ extern "C" fn atmosphere_locals(
     state: *mut pumas::State,
     locals: *mut pumas::Locals,
 ) -> f64 {
-    let agent: &Agent = state.into();
+    let agent: &mut Agent = state.into();
     let density = agent.atmosphere.compute_density(agent.geographic.altitude);
     unsafe {
         (*locals).density = density.value;
     }
 
     const LAMBDA_MAX: f64 = 1E+09;
-    if density.lambda < LAMBDA_MAX {
+    let lambda = if density.lambda < LAMBDA_MAX {
         let direction = HorizontalCoordinates::from_ecef(
             &agent.state.direction,
             &agent.geographic,
@@ -411,7 +423,42 @@ extern "C" fn atmosphere_locals(
         (density.lambda / c).min(LAMBDA_MAX)
     } else {
         LAMBDA_MAX
+    };
+
+    if !agent.fluxmeter.use_magnet {
+        return lambda
     }
+
+    // Get the local magnetic field.
+    const UPDATE_RADIUS: f64 = 1E+03;
+    let d2 = {
+        let mut d2 = 0.0;
+        for i in 0..3 {
+            let tmp = agent.state.position[i] - agent.fluxmeter.magnet_position[i];
+            d2 += tmp * tmp;
+        }
+        d2
+    };
+    if d2 > UPDATE_RADIUS.powi(2) {
+        // Get the local magnetic field (in ENU frame).
+        let enu = agent.magnet.as_mut().unwrap().field(
+            agent.geographic.latitude,
+            agent.geographic.longitude,
+            agent.geographic.altitude,
+        ).unwrap();
+
+        let frame = LocalFrame::new(&agent.geographic, 0.0, 0.0);
+        agent.fluxmeter.magnet_field = frame.to_ecef_direction(&enu);
+        agent.fluxmeter.magnet_position = agent.state.position;
+    }
+
+    // Update the local magnetic field.
+    unsafe {
+        (*locals).magnet = agent.fluxmeter.magnet_field;
+    }
+
+    let lambda_magnet = UPDATE_RADIUS / agent.context.accuracy;
+    lambda.min(lambda_magnet)
 }
 
 #[no_mangle]
@@ -556,6 +603,7 @@ impl<'a> Agent<'a> {
         atmosphere: &'a Atmosphere,
         fluxmeter: &'a mut Fluxmeter,
         geometry: &'a Geometry,
+        magnet: Option<&'a mut Magnet>,
         physics: &'a mut physics::Physics,
         mut random: &'a mut random::Random,
         reference: &'a reference::Reference,
@@ -576,8 +624,8 @@ impl<'a> Agent<'a> {
         let horizontal = HorizontalCoordinates::default();
 
         let agent = Self {
-            state, geographic, horizontal, atmosphere, fluxmeter, geometry, physics, reference,
-            context
+            state, geographic, horizontal, atmosphere, fluxmeter, geometry, magnet,
+            physics, reference, context
         };
         Ok(agent)
     }
@@ -644,6 +692,11 @@ impl<'a> Agent<'a> {
     fn transport(&mut self) -> PyResult<()> {
         const LOW_ENERGY: f64 = 1E+01;
         const HIGH_ENERGY: f64 = 1E+02;
+
+        if self.magnet.is_some() {
+            self.fluxmeter.use_magnet = true;
+            self.fluxmeter.magnet_position = [0.0; 3];
+        }
 
         let zlim = self.fluxmeter.steppers.layers.zlim;
         if self.geographic.altitude < zlim - Self::EPSILON {
