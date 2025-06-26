@@ -37,8 +37,8 @@ pub enum Altitude {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Flux {
-    muon: f64,
-    anti: f64,
+    pub muon: f64,
+    pub anti: f64,
 }
 
 enum Model {

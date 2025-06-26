@@ -126,6 +126,13 @@ enum ReferenceLike {
     Object(Py<reference::Reference>)
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Particle {
+    Anti,
+    Any,
+    Muon,
+}
+
 #[pymethods]
 impl Fluxmeter {
     #[pyo3(signature=(*layers, **kwargs))]
@@ -297,6 +304,129 @@ impl Fluxmeter {
         Ok(())
     }
 
+    /// Compute flux estimate(s).
+    #[pyo3(signature=(states=None, /, *, events=None, **kwargs))]
+    fn __call__<'py>(
+        &mut self,
+        py: Python<'py>,
+        states: Option<&Bound<PyAny>>,
+        events: Option<usize>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        // Extract states.
+        let states = Extractor::from_args(
+            [
+                Field::maybe_int(Name::Pid),
+                Field::float(Name::Energy),
+                Field::float(Name::Latitude),
+                Field::float(Name::Longitude),
+                Field::float(Name::Altitude),
+                Field::float(Name::Azimuth),
+                Field::float(Name::Elevation),
+                Field::maybe_float(Name::Weight),
+            ],
+            states,
+            kwargs
+        )?;
+        let size = states.size();
+        let mut shape = states.shape();
+
+        // Uniformise the events parameter.
+        let events = events.filter(|events| match self.mode {
+            TransportMode::Continuous => false,
+            _ => if *events > 1  {
+                shape.push(2);
+                true
+            } else {
+                false
+            },
+        });
+
+        // Configure physics, geometry, samplers etc. (XXX pack with a macro?)
+        error::clear();
+        let mut geometry = self.geometry.bind(py).borrow_mut();
+        let atmosphere = geometry.atmosphere.bind(py).borrow();
+        let mut magnet = geometry.magnet.as_mut().map(|magnet| magnet.bind(py).borrow_mut());
+        let mut physics = self.physics.bind(py).borrow_mut();
+        let mut random = self.random.bind(py).borrow_mut();
+        let reference = self.reference.bind(py).borrow();
+        let mut pinned = Box::pin(Agent::new(
+            py,
+            &atmosphere,
+            self,
+            &geometry,
+            magnet.as_deref_mut(),
+            &mut physics,
+            &mut random,
+            &reference,
+        )?);
+        let agent: &mut Agent = &mut pinned.deref_mut();
+        let mut array = NewArray::zeros(py, shape)?;
+        let flux = array.as_slice_mut();
+
+        // Loop over states.
+        for i in 0..size {
+            const WHY: &str = "while computing flux(es)";
+            if (i % 100) == 0 { Self::check_ctrlc(WHY)? }
+
+            let state = FlavouredState::from_transport(&states, i)?;
+            if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
+
+            match &agent.fluxmeter.mode {
+                TransportMode::Continuous => {
+                    const HIGH_ENERGY: f64 = 1E+02; // XXX Disable in locals as well?
+                    flux[i] = if agent.magnet.is_none() || (state.energy >= HIGH_ENERGY) {
+                        let particle = if states.contains(Name::Pid) {
+                            Particle::from_pid(state.pid)?
+                        } else {
+                            Particle::Any
+                        };
+                        agent.set_state(&state)?;
+                        agent.flux(particle)?
+                    } else {
+                        let mut fi = 0.0;
+                        for particle in [Particle::Muon, Particle::Anti] {
+                            agent.set_state(&state)?;
+                            agent.state.charge = particle.charge();
+                            fi += agent.flux(particle)?;
+                        }
+                        fi
+                    };
+                },
+                _ => match events {
+                    Some(events) => {
+                        let mut s1 = 0.0;
+                        let mut s2 = 0.0;
+                        for j in 0..events {
+                            agent.set_state(&state)?;
+                            if !states.contains(Name::Pid) { agent.randomise_charge(); }
+                            let particle = Particle::from_charge(agent.state.charge);
+                            let fij = agent.flux(particle)?;
+                            s1 += fij;
+                            s2 += fij.powi(2);
+
+                            let index = i * events + j;
+                            if (index % 100) == 0 { Self::check_ctrlc(WHY)? }
+                        }
+                        let n = events as f64;
+                        s1 /= n;
+                        s2 /= n;
+                        flux[2 * i] = s1;
+                        flux[2 * i + 1] = ((s2 - s1.powi(2)).max(0.0) / n).sqrt();
+                    },
+                    None => {
+                        agent.set_state(&state)?;
+                        if !states.contains(Name::Pid) { agent.randomise_charge(); }
+                        let particle = Particle::from_charge(agent.state.charge);
+                        flux[i] = agent.flux(particle)?;
+                    },
+                },
+            }
+        }
+
+        Ok(array)
+    }
+
     /// Compute grammage(s) along line of sight(s).
     #[pyo3(signature=(states=None, /, *, sum=None, **kwargs))]
     fn grammage<'py>(
@@ -351,6 +481,8 @@ impl Fluxmeter {
         };
         let result = array.as_slice_mut();
         for i in 0..size {
+            if (i % 100) == 0 { Self::check_ctrlc("while computing grammage(s)")?; }
+
             let state = FlavouredState::from_grammage(&states, i)?;
             agent.set_state(&state)?;
             let grammage = agent.grammage()?;
@@ -360,12 +492,6 @@ impl Fluxmeter {
                 for j in 0..n {
                     result[i * n + j] = grammage[j];
                 }
-            }
-            if ((i % 100) == 0) && error::ctrlc_catched() {
-                error::clear();
-                let err = Error::new(KeyboardInterrupt)
-                    .why("while computing grammage(s)");
-                return Err(err.to_err())
             }
         }
 
@@ -439,12 +565,14 @@ impl Fluxmeter {
 
         for i in 0..size {
             let state = FlavouredState::from_transport(&states, i)?;
+            if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
             for j in 0..events {
-                agent.set_state(&state)?;
-                if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
-                    agent.transport()?;
-                }
                 let index = i * events + j;
+                if (index % 100) == 0 { Self::check_ctrlc("while transporting muon(s)")?; }
+
+                agent.set_state(&state)?;
+                agent.transport()?;
+
                 match &array {
                     StatesArray::Flavoured(array) => array.set_item(
                         index,
@@ -455,12 +583,6 @@ impl Fluxmeter {
                         agent.get_unflavoured_state()
                     )?,
                 }
-                if ((index % 100) == 0) && error::ctrlc_catched() {
-                    error::clear();
-                    let err = Error::new(KeyboardInterrupt)
-                        .why("while transporting muon(s)");
-                    return Err(err.to_err())
-                }
             }
         }
 
@@ -470,6 +592,16 @@ impl Fluxmeter {
 
 impl Fluxmeter {
     const TOP_MATERIAL: &str = "Air";
+
+    fn check_ctrlc(why: &str) -> PyResult<()> {
+        if error::ctrlc_catched() {
+            error::clear();
+            let err = Error::new(KeyboardInterrupt).why(why);
+            Err(err.to_err())
+        } else {
+            Ok(())
+        }
+    }
 
     fn create_geometry(
         &mut self,
@@ -699,9 +831,27 @@ impl Default for Medium {
 impl<'a> Agent<'a> {
     const EPSILON: f64 = f32::EPSILON as f64;
 
+    fn flux(&mut self, particle: Particle) -> PyResult<f64> {
+        self.transport()?;
+        let f = if self.state.weight <= 0.0 {
+            0.0
+        } else {
+            let f = self.reference.flux(
+                self.state.energy, self.horizontal.elevation, self.geographic.altitude
+            );
+            let f = match particle {
+                Particle::Muon => f.muon,
+                Particle::Anti => f.anti,
+                Particle::Any => f.muon + f.anti,
+            };
+            f * self.state.weight
+        };
+        Ok(f)
+    }
+
     fn get_flavoured_state(&self) -> FlavouredState {
         FlavouredState {
-            pid: if self.state.charge > 0.0 { -13 } else { 13 },
+            pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
             latitude: self.geographic.latitude,
             longitude: self.geographic.longitude,
@@ -806,15 +956,21 @@ impl<'a> Agent<'a> {
         Ok(agent)
     }
 
+    fn random(&mut self) -> &mut random::Random {
+        unsafe { &mut*((*self.context).user_data as *mut random::Random) }
+    }
+
+    #[inline]
+    fn randomise_charge(&mut self) {
+        self.state.charge = if self.random().open01() <= 0.5 { -1.0 } else { 1.0 };
+        self.state.weight *= 2.0;
+    }
+
     fn set_state<'py>(&mut self, state: &FlavouredState) -> PyResult<()> {
         let FlavouredState {
             pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
         } = *state;
-        self.state.charge = if pid == 13 { -1.0 } else if pid == -13 { 1.0 } else {
-            let why = format!("expected '13' or '-13', found {}", pid);
-            let err = Error::new(ValueError).what("pid").why(&why).to_err();
-            return Err(err)
-        };
+        self.state.charge = Particle::from_pid(pid)?.charge();
         self.state.energy = energy;
         self.geographic = GeographicCoordinates { latitude, longitude, altitude };
         self.state.position = self.geographic.to_ecef();
@@ -1039,7 +1195,7 @@ impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
 
 impl FlavouredState {
     fn from_grammage(states: &Extractor<5>, index: usize) -> PyResult<Self> {
-        let pid = 13;
+        let pid = Particle::Muon.pid();
         let energy = 1E+03;
         let latitude = states.get_f64(Name::Latitude, index)?;
         let longitude = states.get_f64(Name::Longitude, index)?;
@@ -1051,7 +1207,7 @@ impl FlavouredState {
     }
 
     fn from_transport(states: &Extractor<8>, index: usize) -> PyResult<Self> {
-        let pid = states.get_i32_opt(Name::Pid, index)?.unwrap_or_else(|| 13);
+        let pid = states.get_i32_opt(Name::Pid, index)?.unwrap_or_else(|| Particle::Muon.pid());
         let energy = states.get_f64(Name::Energy, index)?;
         let latitude = states.get_f64(Name::Latitude, index)?;
         let longitude = states.get_f64(Name::Longitude, index)?;
@@ -1113,5 +1269,47 @@ impl Dtype for UnflavouredState {
         })?
         .bind(py);
         Ok(ob)
+    }
+}
+
+impl Particle {
+    #[inline]
+    const fn charge(&self) -> f64 {
+        match self {
+            Self::Anti => 1.0,
+            Self::Muon => -1.0,
+            Self::Any => unreachable!(),
+        }
+    }
+
+    #[inline]
+    fn from_charge(value: f64) -> Self {
+        if value > 0.0 { Self::Anti }
+        else { Self::Muon }
+    }
+
+    #[inline]
+    fn from_pid(value: i32) -> PyResult<Self> {
+        match value {
+            13 => Ok(Self::Muon),
+            -13 => Ok(Self::Anti),
+            _ => {
+                let why = format!("expected '13' or '-13', found {}", value);
+                let err = Error::new(ValueError)
+                    .what("pid")
+                    .why(&why)
+                    .to_err();
+                Err(err)
+            },
+        }
+    }
+
+    #[inline]
+    const fn pid(&self) -> i32 {
+        match self {
+            Self::Anti => -13,
+            Self::Muon => 13,
+            Self::Any => unreachable!(),
+        }
     }
 }
