@@ -1,7 +1,7 @@
 use crate::bindings::gull;
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::ValueError;
-use crate::utils::extract::{Field, Extractor};
+use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::io::PathString;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
@@ -122,9 +122,9 @@ impl Magnet {
     ) -> PyResult<NewArray<'py, f64>> {
         let position = Extractor::from_args(
             [
-                Field::float("latitude"),
-                Field::float("longitude"),
-                Field::maybe_float("altitude"),
+                Field::float(Name::Latitude),
+                Field::float(Name::Longitude),
+                Field::maybe_float(Name::Altitude),
             ],
             position,
             kwargs,
@@ -138,11 +138,11 @@ impl Magnet {
         let mut array = NewArray::empty(py, shape)?;
         let fields = array.as_slice_mut();
         for i in 0..position.size() {
-            let [ latitude, longitude, altitude ] = position.get(i)?;
             let fi = self.field(
-                latitude.into_f64(),
-                longitude.into_f64(),
-                altitude.into_f64_opt().unwrap_or_else(|| 0.0),
+                position.get_f64(Name::Latitude, i)?,
+                position.get_f64(Name::Longitude, i)?,
+                position.get_f64_opt(Name::Altitude, i)?
+                    .unwrap_or_else(|| 0.0),
             )?;
             for j in 0..3 {
                 fields[3 * i + j] = fi[j];

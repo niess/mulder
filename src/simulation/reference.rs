@@ -1,7 +1,7 @@
 use crate::utils::convert::{Convert, ParametricModel};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
-use crate::utils::extract::{Extractor, Field};
+use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
 use pyo3::prelude::*;
@@ -37,8 +37,8 @@ pub enum Altitude {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Flux {
-    value: f64,
-    ratio: f64,
+    muon: f64,
+    anti: f64,
 }
 
 enum Model {
@@ -132,56 +132,47 @@ impl Reference {
         Ok(reference)
     }
 
-    #[pyo3(signature=(states=None, /, *, **kwargs))]
+    #[pyo3(signature=(states=None, /, **kwargs))]
     fn __call__<'py>(
         &self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, Flux>> {
-        let array = match self.altitude {
-            Altitude::Scalar(altitude) => {
-                let states = Extractor::from_args(
-                    [
-                        Field::float("energy"),
-                        Field::float("elevation"),
-                        Field::maybe_float("altitude"),
-                    ],
-                    states,
-                    kwargs
-                )?;
-                let mut array = NewArray::zeros(py, states.shape())?;
-                let flux = array.as_slice_mut();
-                for i in 0..states.size() {
-                    let [energy, elevation, z] = states.get(i)?;
-                    let z = z.into_f64_opt().unwrap_or_else(|| altitude);
-                    flux[i] = self.flux(energy.into_f64(), elevation.into_f64(), z);
-                }
-                array
-            },
-            Altitude::Range(_) => {
-                let states = Extractor::from_args(
-                    [
-                        Field::float("energy"),
-                        Field::float("elevation"),
-                        Field::float("altitude"),
-                    ],
-                    states,
-                    kwargs
-                )?;
-                let mut array = NewArray::zeros(py, states.shape())?;
-                let flux = array.as_slice_mut();
-                for i in 0..states.size() {
-                    let [energy, elevation, altitude] = states.get(i)?;
-                    flux[i] = self.flux(
-                        energy.into_f64(),
-                        elevation.into_f64(),
-                        altitude.into_f64(),
-                    );
-                }
-                array
-            },
-        };
+    ) -> PyResult<NewArray<'py, f64>> {
+        let states = Extractor::from_args(
+            [
+                Field::maybe_int(Name::Pid),
+                Field::float(Name::Energy),
+                Field::float(Name::Elevation),
+                Field::maybe_float(Name::Altitude),
+            ],
+            states,
+            kwargs
+        )?;
+
+        let mut array = NewArray::zeros(py, states.shape())?;
+        let flux = array.as_slice_mut();
+
+        for i in 0..states.size() {
+            let pid = states.get_i32_opt(Name::Pid, i)?;
+            let energy = states.get_f64(Name::Energy, i)?;
+            let elevation = states.get_f64(Name::Elevation, i)?;
+            let altitude = states.get_f64_opt(Name::Altitude, i)?
+                .unwrap_or_else(|| self.altitude.min());
+            let f = self.flux(energy, elevation, altitude);
+            flux[i] = match pid {
+                Some(pid) => if pid == 13 {
+                    f.muon
+                } else if pid == -13 {
+                    f.anti
+                } else {
+                    let why = format!("expected '13' or '-13', found {}", pid);
+                    let err = Error::new(ValueError).what("pid").why(&why).to_err();
+                    return Err(err)
+                },
+                None => f.muon + f.anti,
+            };
+        }
         Ok(array)
     }
 }
@@ -202,7 +193,10 @@ impl Reference {
                     ParametricModel::Gaisser90 => flux_gaisser(cos_theta, energy),
                 };
                 if value > 0.0 {
-                    Flux { value, ratio: Self::DEFAULT_RATIO }
+                    Flux {
+                        muon: value / (1.0 + Self::DEFAULT_RATIO),
+                        anti: value * Self::DEFAULT_RATIO / (1.0 + Self::DEFAULT_RATIO),
+                    }
                 } else {
                     Flux::ZERO
                 }
@@ -343,13 +337,7 @@ impl Table {
             };
         }
 
-        let tmp = flux[0] + flux[1];
-        let flux = if tmp > 0.0 {
-            Flux { value: tmp, ratio: flux[1] / flux[0] }
-        } else {
-            Flux::ZERO
-        };
-        Some(flux)
+        Some(Flux { muon: flux[0].max(0.0), anti: flux[1].max(0.0) })
     }
 
     fn from_array(
@@ -452,7 +440,7 @@ impl Table {
 }
 
 impl Flux {
-    const ZERO: Self = Self { value: 0.0, ratio: 1.0 };
+    const ZERO: Self = Self { muon: 0.0, anti: 0.0 };
 }
 
 static FLUX_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();

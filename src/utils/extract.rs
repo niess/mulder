@@ -1,6 +1,7 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::TypeError;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype};
+use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -12,16 +13,32 @@ use pyo3::types::PyDict;
 // ===============================================================================================
 
 pub struct Extractor<'py, const N: usize> {
-    pub data: Vec<FieldArray<'py>>,
+    data: Vec<FieldArray<'py>>,
+    map: [usize; NUMBER_OF_NAMES],
     size: Size,
 }
 
-pub struct Field<'a> {
-    pub name: &'a str,
-    pub kind: FieldKind,
+pub struct Field {
+    name: Name,
+    kind: Kind,
 }
 
-pub enum FieldKind {
+#[derive(Clone, Copy, EnumVariantsStrings, PartialEq)]
+#[enum_variants_strings_transform(transform="lower_case")]
+pub enum Name {
+    Altitude = 0,
+    Azimuth,
+    Elevation,
+    Energy,
+    Latitude,
+    Longitude,
+    Pid,
+    Weight,
+}
+
+const NUMBER_OF_NAMES: usize = (Name::Weight as usize) + 1;
+
+enum Kind {
     Float,
     #[allow(unused)] // XXX needed?
     Int,
@@ -29,28 +46,21 @@ pub enum FieldKind {
     MaybeInt,
 }
 
-pub enum FieldArray<'py> {
+enum FieldArray<'py> {
     Float(AnyArray<'py, f64>),
     Int(AnyArray<'py, i32>),
     MaybeFloat(Option<AnyArray<'py, f64>>),
     MaybeInt(Option<AnyArray<'py, i32>>),
 }
 
-#[derive(Clone, Copy)]
-pub enum FieldValue {
-    Float(f64),
-    #[allow(unused)] // XXX needed?
-    Int(i32),
-    MaybeFloat(Option<f64>),
-    MaybeInt(Option<i32>),
-}
-
 impl<'a, 'py, const N: usize> Extractor<'py, N> {
-    pub fn new(fields: [Field<'a>; N], ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+    pub fn new(fields: [Field; N], ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
+        let mut map = [0; NUMBER_OF_NAMES];
         let mut data = Vec::with_capacity(N);
-        for field in &fields {
-            data.push(field.kind.extract(py, ob, field.name)?);
+        for (i, field) in fields.iter().enumerate() {
+            map[field.name as usize] = i;
+            data.push(field.extract(py, ob)?);
         }
         let mut size = Size::new(&data[0]);
         for i in 1..N {
@@ -61,11 +71,11 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
                 )?.clone();
         }
 
-        Ok(Self { data, size })
+        Ok(Self { data, map, size })
     }
 
     pub fn from_args(
-        fields: [Field<'a>; N],
+        fields: [Field; N],
         array: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
     ) -> PyResult<Self> {
@@ -83,7 +93,7 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
                 Some(kwargs) => {
                     for key in kwargs.keys() {
                         let key: String = key.extract()?;
-                        if !fields.iter().any(|field| field.name.eq(key.as_str())) {
+                        if !fields.iter().any(|field| field.name.to_str().eq(key.as_str())) {
                             let why = format!("invalid keyword argument '{}'", key);
                             let err = Error::new(TypeError)
                                 .what("kwargs")
@@ -94,7 +104,7 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
                     kwargs.as_any()
                 },
                 None => {
-                    let why = format!("missing '{}'", fields[0].name);
+                    let why = format!("missing '{}'", fields[0].name.to_str());
                     let err = Error::new(TypeError).why(&why);
                     return Err(err.to_err())
                 },
@@ -103,21 +113,52 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
         Self::new(fields, ob)
     }
 
-    pub fn get(&self, i: usize) -> PyResult<[FieldValue; N]> {
-        let mut data = [FieldValue::default(); N];
-        for j in 0..N {
-            data[j] = match &self.data[j] {
-                FieldArray::Float(array) => FieldValue::Float(array.get_item(i)?),
-                FieldArray::Int(array) => FieldValue::Int(array.get_item(i)?),
-                FieldArray::MaybeFloat(array) => FieldValue::MaybeFloat(
-                    array.as_ref().map(|array| array.get_item(i)).transpose()?
-                ),
-                FieldArray::MaybeInt(array) => FieldValue::MaybeInt(
-                    array.as_ref().map(|array| array.get_item(i)).transpose()?
-                ),
-            };
+    pub fn contains(&self, name: Name) -> bool {
+        let j = self.map[name as usize];
+        match &self.data[j] {
+            FieldArray::MaybeFloat(opt) => opt.is_some(),
+            FieldArray::MaybeInt(opt) => opt.is_some(),
+            _ => true,
         }
-        Ok(data)
+    }
+
+    #[allow(unused)] // XXX needed?
+    pub fn get_i32(&self, name: Name, i: usize) -> PyResult<i32> {
+        let j = self.map[name as usize];
+        match &self.data[j] {
+            FieldArray::Int(array) => array.get_item(i),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn get_i32_opt(&self, name: Name, i: usize) -> PyResult<Option<i32>> {
+        let j = self.map[name as usize];
+        match &self.data[j] {
+            FieldArray::MaybeInt(array) => array
+                .as_ref()
+                .map(|array| array.get_item(i))
+                .transpose(),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn get_f64(&self, name: Name, i: usize) -> PyResult<f64> {
+        let j = self.map[name as usize];
+        match &self.data[j] {
+            FieldArray::Float(array) => array.get_item(i),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn get_f64_opt(&self, name: Name, i: usize) -> PyResult<Option<f64>> {
+        let j = self.map[name as usize];
+        match &self.data[j] {
+            FieldArray::MaybeFloat(array) => array
+                .as_ref()
+                .map(|array| array.get_item(i))
+                .transpose(),
+            _ => unreachable!(),
+        }
     }
 
     pub fn shape(&self) -> Vec<usize> {
@@ -135,51 +176,37 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
     }
 }
 
-impl<'a> Field<'a> {
-    pub fn float(name: &'a str) -> Self {
-        Self { name, kind: FieldKind::Float }
+impl Field {
+    fn extract<'py>(
+        &self,
+        py: Python<'py>,
+        ob: &Bound<'py, PyAny>,
+    ) -> PyResult<FieldArray<'py>> {
+        let key = self.name.to_str();
+        let array = match self.kind {
+            Kind::Float => FieldArray::Float(require::<f64>(py, ob, key)?),
+            Kind::Int => FieldArray::Int(require::<i32>(py, ob, key)?),
+            Kind::MaybeFloat => FieldArray::MaybeFloat(extract::<f64>(py, ob, key)?),
+            Kind::MaybeInt => FieldArray::MaybeInt(extract::<i32>(py, ob, key)?),
+        };
+        Ok(array)
+    }
+
+    pub fn float(name: Name) -> Self {
+        Self { name, kind: Kind::Float }
     }
 
     #[allow(unused)] // XXX needed?
-    pub fn int(name: &'a str) -> Self {
-        Self { name, kind: FieldKind::Int }
+    pub fn int(name: Name) -> Self {
+        Self { name, kind: Kind::Int }
     }
 
-    pub fn maybe_float(name: &'a str) -> Self {
-        Self { name, kind: FieldKind::MaybeFloat }
+    pub fn maybe_float(name: Name) -> Self {
+        Self { name, kind: Kind::MaybeFloat }
     }
 
-    pub fn maybe_int(name: &'a str) -> Self {
-        Self { name, kind: FieldKind::MaybeInt }
-    }
-}
-
-impl FieldValue {
-    pub fn into_f64(self) -> f64 {
-        match self {
-            Self::Float(value) => value,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn into_f64_opt(self) -> Option<f64> {
-        match self {
-            Self::MaybeFloat(value) => value,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn into_i32_opt(self) -> Option<i32> {
-        match self {
-            Self::MaybeInt(value) => value,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Default for FieldValue {
-    fn default() -> Self {
-        Self::MaybeInt(None)
+    pub fn maybe_int(name: Name) -> Self {
+        Self { name, kind: Kind::MaybeInt }
     }
 }
 
@@ -266,21 +293,4 @@ fn require<'py, T: Copy + Dtype>(
             let why = format!("missing '{}'", key);
             Error::new(TypeError).why(&why).to_err()
         })
-}
-
-impl FieldKind {
-    fn extract<'py>(
-        &self,
-        py: Python<'py>,
-        ob: &Bound<'py, PyAny>,
-        key: &str,
-    ) -> PyResult<FieldArray<'py>> {
-        let array = match self {
-            Self::Float => FieldArray::Float(require::<f64>(py, ob, key)?),
-            Self::Int => FieldArray::Int(require::<i32>(py, ob, key)?),
-            Self::MaybeFloat => FieldArray::MaybeFloat(extract::<f64>(py, ob, key)?),
-            Self::MaybeInt => FieldArray::MaybeInt(extract::<i32>(py, ob, key)?),
-        };
-        Ok(array)
-    }
 }

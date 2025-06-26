@@ -2,7 +2,7 @@ use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
-use crate::utils::extract::{Extractor, Field};
+use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{Doublet, Geometry, GeometryStepper};
@@ -289,11 +289,11 @@ impl Fluxmeter {
     ) -> PyResult<NewArray<'py, f64>> {
         let states = Extractor::from_args(
             [
-                Field::float("latitude"),
-                Field::float("longitude"),
-                Field::float("altitude"),
-                Field::float("azimuth"),
-                Field::float("elevation"),
+                Field::float(Name::Latitude),
+                Field::float(Name::Longitude),
+                Field::float(Name::Altitude),
+                Field::float(Name::Azimuth),
+                Field::float(Name::Elevation),
             ],
             states,
             kwargs
@@ -364,14 +364,14 @@ impl Fluxmeter {
     ) -> PyResult<NewArray<'py, State>> {
         let states = Extractor::from_args(
             [
-                Field::maybe_int("pid"),
-                Field::float("energy"),
-                Field::float("latitude"),
-                Field::float("longitude"),
-                Field::float("altitude"),
-                Field::float("azimuth"),
-                Field::float("elevation"),
-                Field::maybe_float("weight"),
+                Field::maybe_int(Name::Pid),
+                Field::float(Name::Energy),
+                Field::float(Name::Latitude),
+                Field::float(Name::Longitude),
+                Field::float(Name::Altitude),
+                Field::float(Name::Azimuth),
+                Field::float(Name::Elevation),
+                Field::maybe_float(Name::Weight),
             ],
             states,
             kwargs
@@ -988,30 +988,27 @@ impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
 }
 
 impl State {
-    fn from_grammage(extractor: &Extractor<5>, index: usize) -> PyResult<Self> {
-        let [ latitude, longitude, altitude, azimuth, elevation ] = extractor.get(index)?;
+    fn from_grammage(states: &Extractor<5>, index: usize) -> PyResult<Self> {
         let pid = 13;
         let energy = 1E+03;
-        let latitude = latitude.into_f64();
-        let longitude = longitude.into_f64();
-        let altitude = altitude.into_f64();
-        let azimuth = azimuth.into_f64();
-        let elevation = elevation.into_f64();
+        let latitude = states.get_f64(Name::Latitude, index)?;
+        let longitude = states.get_f64(Name::Longitude, index)?;
+        let altitude = states.get_f64(Name::Altitude, index)?;
+        let azimuth = states.get_f64(Name::Azimuth, index)?;
+        let elevation = states.get_f64(Name::Elevation, index)?;
         let weight = 1.0;
         Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
     }
 
-    fn from_transport(extractor: &Extractor<8>, index: usize) -> PyResult<Self> {
-        let [ pid, energy, latitude, longitude, altitude, azimuth, elevation, weight ] =
-            extractor.get(index)?;
-        let pid = pid.into_i32_opt().unwrap_or_else(|| 13);
-        let energy = energy.into_f64();
-        let latitude = latitude.into_f64();
-        let longitude = longitude.into_f64();
-        let altitude = altitude.into_f64();
-        let azimuth = azimuth.into_f64();
-        let elevation = elevation.into_f64();
-        let weight = weight.into_f64_opt().unwrap_or_else(|| 1.0);
+    fn from_transport(states: &Extractor<8>, index: usize) -> PyResult<Self> {
+        let pid = states.get_i32_opt(Name::Pid, index)?.unwrap_or_else(|| 13);
+        let energy = states.get_f64(Name::Energy, index)?;
+        let latitude = states.get_f64(Name::Latitude, index)?;
+        let longitude = states.get_f64(Name::Longitude, index)?;
+        let altitude = states.get_f64(Name::Altitude, index)?;
+        let azimuth = states.get_f64(Name::Azimuth, index)?;
+        let elevation = states.get_f64(Name::Elevation, index)?;
+        let weight = states.get_f64_opt(Name::Weight, index)?.unwrap_or_else(|| 1.0);
         Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
     }
 }
