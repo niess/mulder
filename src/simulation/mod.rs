@@ -3,7 +3,7 @@ use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, Lo
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
 use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{Dtype, NewArray};
+use crate::utils::numpy::{ArrayMethods, Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{Doublet, Geometry, GeometryStepper};
 use crate::geometry::atmosphere::Atmosphere;
@@ -84,9 +84,28 @@ struct Agent<'a> {
     use_magnet: bool,
 }
 
+#[derive(IntoPyObject)]
+enum StatesArray<'py> {
+    Flavoured(NewArray<'py, FlavouredState>),
+    Unflavoured(NewArray<'py, UnflavouredState>),
+}
+
 #[repr(C)]
-struct State {
+#[derive(Clone)]
+struct FlavouredState {
     pid: i32,
+    energy: f64,
+    latitude: f64,
+    longitude: f64,
+    altitude: f64,
+    azimuth: f64,
+    elevation: f64,
+    weight: f64,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+struct UnflavouredState {
     energy: f64,
     latitude: f64,
     longitude: f64,
@@ -332,7 +351,7 @@ impl Fluxmeter {
         };
         let result = array.as_slice_mut();
         for i in 0..size {
-            let state = State::from_grammage(&states, i)?;
+            let state = FlavouredState::from_grammage(&states, i)?;
             agent.set_state(&state)?;
             let grammage = agent.grammage()?;
             if sum {
@@ -354,14 +373,14 @@ impl Fluxmeter {
     }
 
     /// Transport state(s) to the reference flux.
-    #[pyo3(signature=(states=None, /, *, repeats=None, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, events=None, **kwargs))]
     fn transport<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
-        repeats: Option<usize>,
+        events: Option<usize>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, State>> {
+    ) -> PyResult<StatesArray<'py>> {
         let states = Extractor::from_args(
             [
                 Field::maybe_int(Name::Pid),
@@ -377,13 +396,20 @@ impl Fluxmeter {
             kwargs
         )?;
         let size = states.size();
-        let shape = states.shape();
+        let mut shape = states.shape();
 
         // Configure physics, geometry, samplers etc.
         error::clear();
         let mut geometry = self.geometry.bind(py).borrow_mut();
         let atmosphere = geometry.atmosphere.bind(py).borrow();
         let mut magnet = geometry.magnet.as_mut().map(|magnet| magnet.bind(py).borrow_mut());
+        if magnet.is_some() && !states.contains(Name::Pid) {
+            let err = Error::new(TypeError)
+                .what("states")
+                .why("a pid is required for a magnetized geometry")
+                .to_err();
+            return Err(err)
+        }
         let mut physics = self.physics.bind(py).borrow_mut();
         let mut random = self.random.bind(py).borrow_mut();
         let reference = self.reference.bind(py).borrow();
@@ -399,24 +425,36 @@ impl Fluxmeter {
         )?);
         let agent: &mut Agent = &mut pinned.deref_mut();
 
-        let (repeats, mut array) = match repeats {
-            Some(repeats) => {
-                let mut shape = shape.clone();
-                shape.push(repeats);
-                (repeats, NewArray::empty(py, shape)?)
-            },
-            None => (1, NewArray::empty(py, shape)?),
+        let events = events
+            .map(|events| {
+                shape.push(events);
+                events
+            })
+            .unwrap_or_else(|| 1);
+        let array = if states.contains(Name::Pid) {
+            StatesArray::Flavoured(NewArray::empty(py, shape)?)
+        } else {
+            StatesArray::Unflavoured(NewArray::empty(py, shape)?)
         };
-        let result = array.as_slice_mut();
+
         for i in 0..size {
-            let state = State::from_transport(&states, i)?;
-            for j in 0..repeats {
+            let state = FlavouredState::from_transport(&states, i)?;
+            for j in 0..events {
                 agent.set_state(&state)?;
                 if (agent.state.weight > 0.0) & (agent.state.energy > 0.0) {
                     agent.transport()?;
                 }
-                let index = i * repeats + j;
-                result[index] = agent.get_state();
+                let index = i * events + j;
+                match &array {
+                    StatesArray::Flavoured(array) => array.set_item(
+                        index,
+                        agent.get_flavoured_state()
+                    )?,
+                    StatesArray::Unflavoured(array) => array.set_item(
+                        index,
+                        agent.get_unflavoured_state()
+                    )?,
+                }
                 if ((index % 100) == 0) && error::ctrlc_catched() {
                     error::clear();
                     let err = Error::new(KeyboardInterrupt)
@@ -661,9 +699,21 @@ impl Default for Medium {
 impl<'a> Agent<'a> {
     const EPSILON: f64 = f32::EPSILON as f64;
 
-    fn get_state(&self) -> State {
-        State {
+    fn get_flavoured_state(&self) -> FlavouredState {
+        FlavouredState {
             pid: if self.state.charge > 0.0 { -13 } else { 13 },
+            energy: self.state.energy,
+            latitude: self.geographic.latitude,
+            longitude: self.geographic.longitude,
+            altitude: self.geographic.altitude,
+            azimuth: self.horizontal.azimuth,
+            elevation: self.horizontal.elevation,
+            weight: self.state.weight,
+        }
+    }
+
+    fn get_unflavoured_state(&self) -> UnflavouredState {
+        UnflavouredState {
             energy: self.state.energy,
             latitude: self.geographic.latitude,
             longitude: self.geographic.longitude,
@@ -756,8 +806,8 @@ impl<'a> Agent<'a> {
         Ok(agent)
     }
 
-    fn set_state<'py>(&mut self, state: &State) -> PyResult<()> {
-        let State {
+    fn set_state<'py>(&mut self, state: &FlavouredState) -> PyResult<()> {
+        let FlavouredState {
             pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
         } = *state;
         self.state.charge = if pid == 13 { -1.0 } else if pid == -13 { 1.0 } else {
@@ -987,7 +1037,7 @@ impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
     }
 }
 
-impl State {
+impl FlavouredState {
     fn from_grammage(states: &Extractor<5>, index: usize) -> PyResult<Self> {
         let pid = 13;
         let energy = 1E+03;
@@ -1013,15 +1063,41 @@ impl State {
     }
 }
 
-static STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+static FLAVOURED_STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
 
-impl Dtype for State {
+impl Dtype for FlavouredState {
     fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+        let ob = FLAVOURED_STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
             let ob = PyModule::import(py, "numpy")?
                 .getattr("dtype")?
                 .call1(([
                         ("pid",       "i4"),
+                        ("energy",    "f8"),
+                        ("latitude",  "f8"),
+                        ("longitude", "f8"),
+                        ("altitude",  "f8"),
+                        ("azimuth",   "f8"),
+                        ("elevation", "f8"),
+                        ("weight",    "f8"),
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
+    }
+}
+
+static UNFLAVOURED_STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for UnflavouredState {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = UNFLAVOURED_STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
                         ("energy",    "f8"),
                         ("latitude",  "f8"),
                         ("longitude", "f8"),
