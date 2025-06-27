@@ -1,10 +1,13 @@
 use crate::bindings::turtle;
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{NotImplementedError, TypeError};
+use crate::utils::error::ErrorKind::{IOError, NotImplementedError, TypeError};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
+use geotiff::GeoTiff;
+use geo_types::geometry::Coord;
 use pyo3::prelude::*;
 use ::std::ffi::{c_char, c_int, CStr, CString, OsStr};
+use ::std::fs::File;
 use ::std::path::Path;
 use ::std::ptr::{null, null_mut};
 use ::std::sync::Arc;
@@ -46,7 +49,7 @@ impl Grid {
     #[pyo3(signature=(data, /, *, x=None, y=None, projection=None))]
     fn new(
         data: DataArg,
-        x: Option<[f64; 2]>,
+        x: Option<[f64; 2]>, // XXX Check for any redefiniation.
         y: Option<[f64; 2]>,
         projection: Option<&str>,
     ) -> PyResult<Self> {
@@ -65,48 +68,15 @@ impl Grid {
                 let nx = shape[1];
                 let x = x.unwrap_or_else(|| [0.0, 1.0]);
                 let y = y.unwrap_or_else(|| [0.0, 1.0]);
-                let mut z = [ f64::INFINITY, -f64::INFINITY ];
-                for iy in 0..ny {
-                    for ix in 0..nx {
-                        let zij = array.get_item(iy * nx + ix)?;
-                        if zij < z[0] { z[0] = zij }
-                        if zij > z[1] { z[1] = zij }
-                    }
-                }
-                let info = turtle::MapInfo {
-                    nx: nx as c_int,
-                    ny: ny as c_int,
-                    x,
-                    y,
-                    z,
-                    encoding: null(),
-                };
-                let projection = projection.map(|projection| CString::new(projection).unwrap());
-                let mut map: *mut turtle::Map = null_mut();
-                let rc = unsafe {
-                    turtle::map_create(
-                        &mut map,
-                        &info,
-                        projection
-                            .map(|p| p.as_c_str().as_ptr())
-                            .unwrap_or_else(|| null()),
-                    )
-                };
-                error::to_result(rc, Some("grid"))?;
 
-                for iy in 0..ny {
-                    for ix in 0..nx {
-                        let zij = array.get_item(iy * nx + ix)?;
-                        let rc = unsafe { turtle::map_fill(map, ix as c_int, iy as c_int, zij) };
-                        error::to_result(rc, Some("grid"))?;
-                    }
-                }
+                let converter = ArrayConverter { array: &array, nx };
+                let (map, z) = converter.convert(nx, ny, x, y, projection)?;
                 (Data::Map(map), z)
             },
             DataArg::Path(string) => {
                 let path = Path::new(string.as_str());
                 if path.is_file() {
-                    let map = match path.extension().and_then(OsStr::to_str) {
+                    let (map, z) = match path.extension().and_then(OsStr::to_str) {
                         Some("asc" | "grd" | "hgt") => {
                             let mut map: *mut turtle::Map = null_mut();
                             let path = CString::new(string.0).unwrap();
@@ -117,14 +87,54 @@ impl Grid {
                                 )
                             };
                             error::to_result(rc, Some("grid"))?;
-                            map
+                            (map, None)
                         },
                         Some("tif") => {
-                            // XXX implement GeoTIFF loader.
-                            let err = Error::new(NotImplementedError)
-                                .what("grid")
-                                .why(".tif");
-                            return Err(err.into())
+                            let geotiff = GeoTiff::read(File::open(path)?)
+                                .map_err(|err| Error::new(IOError)
+                                    .what("GeoTiff file")
+                                    .why(&err.to_string())
+                                    .to_err()
+                                )?;
+                            let projection = match geotiff.geo_key_directory.projected_type {
+                                Some(crs) => if (crs >= 32601) && (crs <= 32660) {
+                                    Some(format!("UTM {}N", crs - 32600))
+                                } else if (crs >= 32701) && (crs <= 32760) {
+                                    Some(format!("UTM {}S", crs - 32700))
+                                } else {
+                                    match crs {
+                                        2154 => Some("Lambert 93".to_owned()),
+                                        4326 => None,
+                                        27571 => Some("Lambert I".to_owned()),
+                                        27572 => Some("Lambert II".to_owned()),
+                                        27573 => Some("Lambert III".to_owned()),
+                                        27574 => Some("Lambert IV".to_owned()),
+                                        _ => {
+                                            let why = format!("EPSG:{}", crs);
+                                            let err = Error::new(NotImplementedError)
+                                                .what("crs")
+                                                .why(&why)
+                                                .to_err();
+                                            return Err(err)
+                                        },
+                                    }
+                                },
+                                None => None,
+                            };
+
+                            let nx = geotiff.raster_width;
+                            let ny = geotiff.raster_height;
+                            let (x, y) = {
+                                let extent = geotiff.model_extent();
+                                let min = extent.min();
+                                let max = extent.max();
+                                let x = [ min.x, max.x ];
+                                let y = [ min.y, max.y ];
+                                (x, y)
+                            };
+                            let converter = GeotiffConverter::new(nx, ny, &x, &y, &geotiff);
+                            let (map, z) = converter.convert(nx, ny, x, y, projection.as_deref())?;
+                            (map, Some(z))
                         },
                         Some(ext) => {
                             let why = format!(
@@ -165,7 +175,7 @@ impl Grid {
                         };
                         error::to_result(rc, Some("projection"))?;
                     }
-                    let z = unsafe { get_map_zlim(map) };
+                    let z = z.unwrap_or_else(|| unsafe { get_map_zlim(map) });
                     (Data::Map(map), z)
                 } else if path.is_dir() {
                     let mut stack: *mut turtle::Stack = null_mut();
@@ -207,10 +217,11 @@ impl Grid {
                     let z = unsafe { get_stack_zlim(stack) };
                     (Data::Stack(stack), z)
                 } else {
-                    let why = format!(
-                        "{}: not a file or directory",
-                        string.as_str(),
-                    );
+                    let why = if path.exists() {
+                        format!("{}: not a file or directory", string.as_str())
+                    } else {
+                        format!("{}: no such file or directory", string.as_str())
+                    };
                     let err = Error::new(TypeError)
                         .what("grid")
                         .why(&why);
@@ -520,5 +531,102 @@ impl Drop for Data {
                 turtle::stack_destroy(stack)
             },
         }
+    }
+}
+
+trait Convert {
+    fn get_z(&self, ix: usize, iy: usize) -> PyResult<f64>;
+
+    fn convert(
+        &self,
+        nx: usize,
+        ny: usize,
+        x: [f64; 2],
+        y: [f64; 2],
+        projection: Option<&str>,
+    ) -> PyResult<(*mut turtle::Map, [f64; 2])> {
+        let mut z = [ f64::INFINITY, -f64::INFINITY ];
+        for iy in 0..ny {
+            for ix in 0..nx {
+                let zij = self.get_z(ix, iy)?;
+                if zij < z[0] { z[0] = zij }
+                if zij > z[1] { z[1] = zij }
+            }
+        }
+        let info = turtle::MapInfo {
+            nx: nx as c_int,
+            ny: ny as c_int,
+            x,
+            y,
+            z,
+            encoding: null(),
+        };
+        let binding;
+        let projection = match projection {
+            Some(projection) => {
+                binding = CString::new(projection).unwrap();
+                binding.as_c_str().as_ptr()
+            },
+            None => null_mut(),
+        };
+        let mut map: *mut turtle::Map = null_mut();
+        let rc = unsafe {
+            turtle::map_create(&mut map, &info, projection)
+        };
+        error::to_result(rc, Some("grid"))?;
+
+        for iy in 0..ny {
+            for ix in 0..nx {
+                let zij = self.get_z(ix, iy)?;
+                let rc = unsafe { turtle::map_fill(map, ix as c_int, iy as c_int, zij) };
+                error::to_result(rc, Some("grid"))?;
+            }
+        }
+        Ok((map, z))
+    }
+}
+
+struct ArrayConverter<'a, 'py> {
+    nx: usize,
+    array: &'a AnyArray<'py, f64>,
+}
+
+impl<'a, 'py> Convert for ArrayConverter<'a, 'py> {
+    fn get_z(&self, ix: usize, iy: usize) -> PyResult<f64> {
+        self.array.get_item(iy * self.nx + ix)
+    }
+}
+
+struct GeotiffConverter<'a> {
+    nx: usize,
+    ny: usize,
+    dx: f64,
+    dy: f64,
+    x: &'a [f64; 2],
+    y: &'a [f64; 2],
+    geotiff: &'a GeoTiff,
+}
+
+impl<'a> GeotiffConverter<'a> {
+    fn new(
+        nx: usize,
+        ny: usize,
+        x: &'a [f64; 2],
+        y: &'a [f64; 2],
+        geotiff: &'a GeoTiff,
+    ) -> Self {
+        let dx = (x[1] - x[0]) / ((nx - 1) as f64);
+        let dy = (y[1] - y[0]) / ((ny - 1) as f64);
+        Self { nx, ny, dx, dy, x, y, geotiff }
+    }
+}
+
+impl<'a> Convert for GeotiffConverter<'a> {
+    fn get_z(&self, ix: usize, iy: usize) -> PyResult<f64> {
+        let x = if ix == self.nx - 1 { self.x[1] } else { self.x[0] + ix as f64 * self.dx };
+        let y = if iy == self.ny - 1 { self.y[1] } else { self.y[0] + iy as f64 * self.dy };
+        let z = self.geotiff.get_value_at(&Coord { x, y }, 0)
+            .unwrap_or_else(|| 0.0); // XXX Use NO_DATA value?
+        Ok(z)
     }
 }

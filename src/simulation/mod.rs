@@ -364,7 +364,7 @@ impl Fluxmeter {
         let mut array = NewArray::zeros(py, shape)?;
         let flux = array.as_slice_mut();
 
-        // Loop over states.
+        // Loop over states. (XXX provide an iterator?)
         for i in 0..size {
             const WHY: &str = "while computing flux(es)";
             if (i % 100) == 0 { Self::check_ctrlc(WHY)? }

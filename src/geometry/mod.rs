@@ -22,6 +22,8 @@ use layer::{DataLike, Layer};
 use magnet::Magnet;
 
 
+// XXX Allow for any geoid?
+
 #[pyclass(module="mulder")]
 pub struct Geometry {
     /// The geometry atmosphere.
@@ -226,7 +228,7 @@ impl Geometry {
 
     #[pyo3(signature=(coordinates=None, /, *, **kwargs))]
     fn scan<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
         kwargs: Option<&Bound<PyDict>>,
@@ -249,6 +251,7 @@ impl Geometry {
             shape.push(n);
             (size, shape, n)
         };
+        self.ensure_stepper(py)?;
 
         let mut array = NewArray::<f64>::zeros(py, shape)?;
         let distances = array.as_slice_mut();

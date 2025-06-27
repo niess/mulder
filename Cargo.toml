@@ -10,6 +10,8 @@ cc = "1.2"
 [dependencies]
 console = "0.15"
 enum-variants-strings = "0.3"
+geotiff = "0.1"
+geo-types = "0.7"
 getrandom = "0.3"
 indicatif = "0.17"
 libc = "0.2"
