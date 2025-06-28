@@ -6,7 +6,7 @@ use crate::utils::convert::{Bremsstrahlung, Mdf, PairProduction, Photonuclear};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::io::PathString;
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::utils::notify;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use temp_dir::TempDir;
@@ -350,7 +350,7 @@ impl Physics {
 #[repr(C)]
 struct Notifier {
     interface: pumas::PhysicsNotifier,
-    bar: Option<ProgressBar>,
+    bar: Option<notify::Notifier>,
     client: String,
     section: usize,
 }
@@ -376,16 +376,9 @@ impl Notifier {
                 } else {
                     Cow::Owned(format!("{}s", title))
                 };
-                let bar = ProgressBar::new(steps as u64);
-                let bar_style = ProgressStyle::with_template(
-                    "{msg} [{wide_bar:.dim}] {percent}%, {elapsed})"
-                )
-                    .unwrap()
-                    .progress_chars("=> ");
-                bar.set_style(bar_style);
                 let section = style(format!("[{}/{}]", self.section, Self::SECTIONS)).dim();
-                bar.set_message(format!("({} {} Computing {}", self.client, section, title));
-                bar.set_position(0);
+                let msg = format!("({} {} Computing {}", self.client, section, title);
+                let bar = notify::Notifier::new(steps as usize, msg);
                 Some(bar)
             },
             Some(_) => None,
@@ -393,14 +386,8 @@ impl Notifier {
     }
 
     fn notify(&self) {
-        self.bar.as_ref().unwrap().inc(1)
-    }
-}
-
-impl Drop for Notifier {
-    fn drop(&mut self) {
-        if let Some(bar) = self.bar.as_ref() {
-            bar.finish_and_clear()
+        if let Some(bar) = &self.bar {
+            bar.tic()
         }
     }
 }

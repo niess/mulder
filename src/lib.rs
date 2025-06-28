@@ -29,6 +29,9 @@ fn set_prefix(py: Python) -> PyResult<()> {
     Ok(())
 }
 
+#[pyclass(frozen, module="mulder")]
+struct Config ();
+
 #[pymodule]
 fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     let py = module.py();
@@ -58,11 +61,40 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     // Register function(s).
     module.add_function(wrap_pyfunction!(simulation::physics::compile, module)?)?;
 
-    // Register constants.
-    let default_cache = utils::cache::default_path()
-        .and_then(|cache| cache.into_pyobject(py).map(|cache| cache.unbind()))
-        .unwrap_or_else(|_| py.None());
-    module.add("DEFAULT_CACHE", default_cache)?;
+    // Set config wrapper.
+    module.add("config", Config())?;
 
     Ok(())
+}
+
+
+#[allow(non_snake_case)]
+#[pymethods]
+impl Config {
+    #[getter]
+    fn get_DEFAULT_CACHE(&self, py: Python) -> PyObject {
+        utils::cache::default_path()
+            .and_then(|cache| cache.into_pyobject(py).map(|cache| cache.unbind()))
+            .unwrap_or_else(|_| py.None())
+    }
+
+    #[getter]
+    fn get_NOTIFY(&self) -> bool {
+        utils::notify::get()
+    }
+
+    #[setter]
+    fn set_NOTIFY(&self, value: bool) {
+        utils::notify::set(value)
+    }
+
+    #[getter]
+    fn get_PREFIX(&self, py: Python) -> &String {
+        PREFIX.get(py).unwrap()
+    }
+
+    #[getter]
+    fn get_VERSION(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
 }

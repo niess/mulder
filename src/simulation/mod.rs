@@ -11,6 +11,7 @@ use crate::geometry::magnet::Magnet;
 use crate::geometry::layer::Layer;
 use crate::utils::convert::TransportMode;
 use crate::utils::io::PathString;
+use crate::utils::notify::{Notifier, NotifyArg};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyString, PyTuple};
@@ -305,12 +306,13 @@ impl Fluxmeter {
     }
 
     /// Compute flux estimate(s).
-    #[pyo3(signature=(states=None, /, *, events=None, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
     fn __call__<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         events: Option<usize>,
+        notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         // Extract states.
@@ -364,7 +366,13 @@ impl Fluxmeter {
         let mut array = NewArray::zeros(py, shape)?;
         let flux = array.as_slice_mut();
 
-        // Loop over states. (XXX provide an iterator?)
+        // Setup notifications.
+        let notifier = {
+            let steps = size * events.unwrap_or_else(|| 1);
+            Notifier::from_arg(notify, steps, "computing flux")
+        };
+
+        // Loop over states.
         for i in 0..size {
             const WHY: &str = "while computing flux(es)";
             if (i % 100) == 0 { Self::check_ctrlc(WHY)? }
@@ -392,6 +400,7 @@ impl Fluxmeter {
                         }
                         fi
                     };
+                    notifier.tic();
                 },
                 _ => match events {
                     Some(events) => {
@@ -407,6 +416,8 @@ impl Fluxmeter {
 
                             let index = i * events + j;
                             if (index % 100) == 0 { Self::check_ctrlc(WHY)? }
+
+                            notifier.tic();
                         }
                         let n = events as f64;
                         s1 /= n;
@@ -419,20 +430,23 @@ impl Fluxmeter {
                         if !states.contains(Name::Pid) { agent.randomise_charge(); }
                         let particle = Particle::from_charge(agent.state.charge);
                         flux[i] = agent.flux(particle)?;
+                        notifier.tic();
                     },
                 },
             }
         }
+        drop(notifier);
 
         Ok(array)
     }
 
     /// Compute grammage(s) along line of sight(s).
-    #[pyo3(signature=(states=None, /, *, sum=None, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, notify=None, sum=None, **kwargs))]
     fn grammage<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
+        notify: Option<NotifyArg>,
         sum: Option<bool>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
@@ -472,6 +486,10 @@ impl Fluxmeter {
         )?);
         let agent: &mut Agent = &mut pinned.deref_mut();
 
+        // Setup notifications.
+        let notifier = Notifier::from_arg(notify, size, "computing grammage");
+
+        // Loop over states.
         let mut array = if sum {
             NewArray::empty(py, shape)?
         } else {
@@ -493,18 +511,21 @@ impl Fluxmeter {
                     result[i * n + j] = grammage[j];
                 }
             }
+
+            notifier.tic();
         }
 
         Ok(array)
     }
 
     /// Transport state(s) to the reference flux.
-    #[pyo3(signature=(states=None, /, *, events=None, **kwargs))]
+    #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
     fn transport<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         events: Option<usize>,
+        notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<StatesArray<'py>> {
         let states = Extractor::from_args(
@@ -563,6 +584,9 @@ impl Fluxmeter {
             StatesArray::Unflavoured(NewArray::empty(py, shape)?)
         };
 
+        // Setup notifications.
+        let notifier = Notifier::from_arg(notify, size * events, "transporting muon(s)");
+
         for i in 0..size {
             let state = FlavouredState::from_transport(&states, i)?;
             if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
@@ -583,6 +607,8 @@ impl Fluxmeter {
                         agent.get_unflavoured_state()
                     )?,
                 }
+
+                notifier.tic();
             }
         }
 

@@ -71,11 +71,11 @@ def main():
     elif args.command == "config":
         result = []
         if args.cache:
-            result.append(mulder.DEFAULT_CACHE)
+            result.append(str(mulder.config.DEFAULT_CACHE))
         if args.prefix:
-            result.append(os.path.dirname(__file__))
+            result.append(mulder.config.PREFIX)
         if args.version:
-            result.append(mulder.VERSION)
+            result.append(mulder.config.VERSION)
         if result:
             print(" ".join(result))
 
