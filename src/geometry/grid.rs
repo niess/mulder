@@ -49,7 +49,7 @@ impl Grid {
     #[pyo3(signature=(data, /, *, x=None, y=None, projection=None))]
     fn new(
         data: DataArg,
-        x: Option<[f64; 2]>, // XXX Check for any redefiniation.
+        x: Option<[f64; 2]>,
         y: Option<[f64; 2]>,
         projection: Option<&str>,
     ) -> PyResult<Self> {
@@ -74,6 +74,16 @@ impl Grid {
                 (Data::Map(map), z)
             },
             DataArg::Path(string) => {
+                if x.is_some() || y.is_some() {
+                    let coord = if x.is_some() { "x" } else { "y" };
+                    let why = format!("cannot redefine {}-limits", coord);
+                    let err = Error::new(TypeError)
+                        .what("grid")
+                        .why(&why)
+                        .to_err();
+                    return Err(err)
+                }
+
                 let path = Path::new(string.as_str());
                 if path.is_file() {
                     let (map, z) = match path.extension().and_then(OsStr::to_str) {
