@@ -42,6 +42,8 @@ fn main() {
     ];
 
     cc::Build::new()
+        .cpp(false)
+        .std("c99")
         .includes(c_includes)
         .files(c_sources)
         .define("TURTLE_NO_LD", None)

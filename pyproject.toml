@@ -1,0 +1,59 @@
+[project]
+name = "mulder"
+authors = [
+    { name="Valentin Niess", email="valentin.niess@gmail.com" },
+]
+description = "MUon fLuxme'DER"
+readme = "README.md"
+version = "0.2.0"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy >= 1.6.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics"
+]
+license = { text = "LGPL-3.0-or-later" }
+
+[project.scripts]
+mulder = "mulder.__main__:main"
+
+[project.urls]
+homepage = "https://github.com/niess/mulder"
+documentation = "https://mulder.readthedocs.io"
+download = "https://pypi.python.org/pypi/mulder"
+source = "https://github.com/niess/mulder"
+issues = "https://github.com/niess/mulder/issues"
+
+[build-system]
+requires = ["setuptools", "setuptools-rust"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src/python"]
+
+[[tool.setuptools-rust.ext-modules]]
+target = "mulder.mulder"
+
+# Build options for wheels.
+[tool.cibuildwheel.linux]
+before-all = """
+curl -sSf https://sh.rustup.rs -o rustup.sh && \
+sh rustup.sh -y
+"""
+repair-wheel-command = """
+auditwheel repair -w {dest_dir} {wheel}\
+"""
+build = "cp38-manylinux_*"
+environment = "PATH=$HOME/.cargo/bin:$PATH"
+manylinux-x86_64-image = "manylinux2014"
+
+[tool.cibuildwheel.macos]
+build = "cp38-macosx_*"
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
+
+[tool.cibuildwheel.windows]
+build = "cp38-win_amd64"
+environment = { CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu" }
