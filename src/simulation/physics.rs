@@ -14,7 +14,6 @@ use ::std::borrow::Cow;
 use ::std::collections::HashMap;
 use ::std::ffi::{c_char, c_int, CStr, CString, c_uint};
 use ::std::fs::File;
-use ::std::os::fd::IntoRawFd;
 use ::std::ptr::{null, null_mut};
 
 
@@ -232,10 +231,11 @@ impl Physics {
         };
 
         // Cache physics data for subsequent usage.
-        if let Ok(file) = File::create(dump_path) {
+        if File::create(&dump_path).is_ok() {
+            let dump_path = CString::new(dump_path.as_os_str().to_string_lossy().as_ref())?;
             unsafe {
-                let stream = libc::fdopen(
-                    file.into_raw_fd(),
+                let stream = libc::fopen(
+                    dump_path.as_c_str().as_ptr(),
                     CStr::from_bytes_with_nul_unchecked(b"wb\0").as_ptr(),
                 );
                 let rc = pumas::physics_dump(physics, stream);
@@ -271,11 +271,12 @@ impl Physics {
         let tag = self.pumas_physics_tag();
         let path = cache::path().ok()?
             .join(format!("materials/{}-{}.pumas", materials, tag));
-        let file = File::open(path).ok()?;
+        File::open(&path).ok()?;
         let mut physics = null_mut();
         let rc = unsafe {
-            let stream = libc::fdopen(
-                file.into_raw_fd(),
+            let path = CString::new(path.as_os_str().to_string_lossy().as_ref()).unwrap();
+            let stream = libc::fopen(
+                path.as_c_str().as_ptr(),
                 CStr::from_bytes_with_nul_unchecked(b"rb\0").as_ptr(),
             );
             let rc = pumas::physics_load(&mut physics, stream);
@@ -377,7 +378,7 @@ impl Notifier {
                     Cow::Owned(format!("{}s", title))
                 };
                 let section = style(format!("[{}/{}]", self.section, Self::SECTIONS)).dim();
-                let msg = format!("({} {} Computing {}", self.client, section, title);
+                let msg = format!("{} Computing {} [materials={}]", section, title, self.client);
                 let bar = notify::Notifier::new(steps as usize, msg);
                 Some(bar)
             },
