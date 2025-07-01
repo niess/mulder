@@ -4,6 +4,7 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::IndexError;
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::io::PathString;
+use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{Dtype, NewArray};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
@@ -177,11 +178,12 @@ impl Geometry {
             })
     }
 
-    #[pyo3(signature=(position=None, /, **kwargs))]
+    #[pyo3(signature=(position=None, /, *, notify=None, **kwargs))]
     fn locate<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
+        notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
         let position = Extractor::from_args(
@@ -195,6 +197,8 @@ impl Geometry {
         )?;
 
         self.ensure_stepper(py)?;
+        let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
+
         let mut array = NewArray::empty(py, position.shape())?;
         let layer = array.as_slice_mut();
         for i in 0..position.size() {
@@ -222,15 +226,17 @@ impl Geometry {
                 None::<&str>,
             )?;
             layer[i] = layer_index(index[0]);
+            notifier.tic();
         }
         Ok(array)
     }
 
-    #[pyo3(signature=(coordinates=None, /, *, **kwargs))]
+    #[pyo3(signature=(coordinates=None, /, *, notify=None, **kwargs))]
     fn scan<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         let coordinates = Extractor::from_args(
@@ -251,7 +257,9 @@ impl Geometry {
             shape.push(n);
             (size, shape, n)
         };
+
         self.ensure_stepper(py)?;
+        let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
         let mut array = NewArray::<f64>::zeros(py, shape)?;
         let distances = array.as_slice_mut();
@@ -322,16 +330,19 @@ impl Geometry {
                     r[i] += EPS * u[i];
                 }
             }
+
+            notifier.tic();
         }
 
         Ok(array)
     }
 
-    #[pyo3(signature=(coordinates=None, /, **kwargs))]
+    #[pyo3(signature=(coordinates=None, /, *, notify=None, **kwargs))]
     fn trace<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
         let coordinates = Extractor::from_args(
@@ -349,6 +360,8 @@ impl Geometry {
         let shape = coordinates.shape();
 
         self.ensure_stepper(py)?;
+        let notifier = Notifier::from_arg(notify, size, "tracing geometry");
+
         let mut array = NewArray::empty(py, shape)?;
         let intersections = array.as_slice_mut();
         for i in 0..size {
@@ -425,6 +438,7 @@ impl Geometry {
                 altitude: position.altitude,
                 distance: di,
             };
+            notifier.tic();
         }
         Ok(array)
     }

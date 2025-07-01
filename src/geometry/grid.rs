@@ -3,6 +3,7 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{IOError, NotImplementedError, TypeError};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
+use crate::utils::notify::{Notifier, NotifyArg};
 use geotiff::GeoTiff;
 use geo_types::geometry::Coord;
 use pyo3::prelude::*;
@@ -324,12 +325,13 @@ impl Grid {
         self.__add__(-offset)
     }
 
-    /// Computes the elevation value at grid point(s).
-    #[pyo3(signature=(xy, y=None, /))]
+    /// Computes the altitude value(s) at grid point(s).
+    #[pyo3(signature=(xy, y=None, /, *, notify=None))]
     fn __call__<'py>(
         &self,
         xy: AnyArray<'py, f64>,
         y: Option<AnyArray<'py, f64>>,
+        notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
         let py = xy.py();
         let z = match y {
@@ -338,11 +340,13 @@ impl Grid {
                 let (nx, ny, shape) = get_shape(&x, &y);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let z = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
                         let xi = x.get_item(ix)?;
                         z[iy * nx + ix] = self.data.z(xi, yi) + self.offset;
+                        notifier.tic();
                     }
                 }
                 array
@@ -352,10 +356,12 @@ impl Grid {
                 shape.pop();
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let z = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
                 for i in 0..z.len() {
                     let xi = xy.get_item(2 * i)?;
                     let yi = xy.get_item(2 * i + 1)?;
                     z[i] = self.data.z(xi, yi) + self.offset;
+                    notifier.tic();
                 }
                 array
             },
@@ -364,11 +370,12 @@ impl Grid {
     }
 
     /// Computes the elevation gradient at grid point(s).
-    #[pyo3(signature=(xy, y=None, /))]
+    #[pyo3(signature=(xy, y=None, /, *, notify=None))]
     fn gradient<'py>(
         &self,
         xy: AnyArray<'py, f64>,
         y: Option<AnyArray<'py, f64>>,
+        notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
         let py = xy.py();
         let gradient = match y {
@@ -377,6 +384,7 @@ impl Grid {
                 let (nx, ny, shape) = get_shape(&x, &y);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
@@ -385,6 +393,7 @@ impl Grid {
                         let i = iy * nx + ix;
                         gradient[2 * i] = gx;
                         gradient[2 * i + 1] = gy;
+                        notifier.tic();
                     }
                 }
                 array
@@ -393,12 +402,14 @@ impl Grid {
                 let shape = parse_xy(&xy)?;
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
                 for i in 0..xy.size() {
                     let xi = xy.get_item(2 * i)?;
                     let yi = xy.get_item(2 * i + 1)?;
                     let [gx, gy] = self.data.gradient(xi, yi);
                     gradient[2 * i] = gx;
                     gradient[2 * i + 1] = gy;
+                    notifier.tic();
                 }
                 array
             },
