@@ -1,7 +1,7 @@
 project = "Mulder"
 copyright = "Université Clermont Auvergne, CNRS/IN2P3, LPCA"
 author = "Valentin Niess"
-release = "0.2.1"
+release = "0.2.2"
 
 highlight_language = "python3"
 
