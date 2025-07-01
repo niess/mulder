@@ -4,8 +4,11 @@
 
 # Ignore build artefacts.
 /Cargo.lock
+/dist
 /docs/build
 /target
+/src/python/mulder.egg-info/
+/wheelhouse
 
 # Ignore python bytecode objects.
 *.pyo

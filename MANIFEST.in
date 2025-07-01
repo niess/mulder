@@ -2,3 +2,6 @@ recursive-include src *
 include Cargo.toml
 global-exclude */__pycache__/*
 global-exclude *.py[cod]
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll
