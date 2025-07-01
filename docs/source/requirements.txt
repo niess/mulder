@@ -1,0 +1,4 @@
+mulder
+numpy
+sphinx
+sphinx-book-theme

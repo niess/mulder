@@ -1,0 +1,26 @@
+Bibliography
+============
+
+.. _bibliography:
+
+----
+
+This section contains a list of academic `references`_ related to Mulder.
+
+
+References
+----------
+
+.. [NBCL18] V. Niess, A. Barnoud, C. Cârloganu, E. Le Menedeu, Comput.
+   Phys. Commun. 229, 54 (2018), `doi:10.1016/j.cpc.2018.04.001
+   <https://doi.org/10.1016/j.cpc.2018.04.001>`_ [`arXiv:1705.05636
+   <https://arxiv.org/abs/1705.05636>`_].
+
+.. [NBCM20] V. Niess, A. Barnoud, C. Cârloganu, O. Martineau-Huynh, Comput.
+   Phys. Commun. 247 (2020) 106952,
+   `doi:10.1016/j.cpc.2019.106952 <https://doi.org/10.1016/j.cpc.2019.106952>`_
+   [`arXiv:1904.03435 <https://arxiv.org/abs/1904.03435>`_].
+
+.. [Nie22] V. Niess, Comput. Phys. Commun. 279 (2022) 108438,
+   `doi:10.1016/j.cpc.2022.108438 <https://doi.org/10.1016/j.cpc.2022.108438>`_
+   [`arXiv:2206.01457 <https://arxiv.org/abs/2206.01457>`_].
