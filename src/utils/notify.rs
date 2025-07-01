@@ -46,7 +46,7 @@ impl Notifier {
     }
 
     pub fn new(steps: usize, message: impl Into<Cow<'static, str>>) -> Self {
-        if ENABLED.load(Relaxed) {
+        if (steps > 1) && ENABLED.load(Relaxed) {
             let bar = ProgressBar::new(steps as u64);
             let bar_style = ProgressStyle::with_template(
                 "{msg} [{wide_bar:.dim}] {percent}%, {elapsed})"
