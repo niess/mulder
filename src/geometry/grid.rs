@@ -344,6 +344,10 @@ impl Grid {
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
+                        const WHY: &str = "while computing altitude(s)";
+                        let index = iy * nx + ix;
+                        if (index % 100) == 0 { error::check_ctrlc(WHY)? }
+
                         let xi = x.get_item(ix)?;
                         z[iy * nx + ix] = self.data.z(xi, yi) + self.offset;
                         notifier.tic();
@@ -358,6 +362,9 @@ impl Grid {
                 let z = array.as_slice_mut();
                 let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
                 for i in 0..z.len() {
+                    const WHY: &str = "while computing altitude(s)";
+                    if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
                     let xi = xy.get_item(2 * i)?;
                     let yi = xy.get_item(2 * i + 1)?;
                     z[i] = self.data.z(xi, yi) + self.offset;
@@ -388,6 +395,10 @@ impl Grid {
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
+                        const WHY: &str = "while computing gradient(s)";
+                        let index = iy * nx + ix;
+                        if (index % 100) == 0 { error::check_ctrlc(WHY)? }
+
                         let xi = x.get_item(ix)?;
                         let [gx, gy] = self.data.gradient(xi, yi);
                         let i = iy * nx + ix;
@@ -404,6 +415,9 @@ impl Grid {
                 let gradient = array.as_slice_mut();
                 let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
                 for i in 0..xy.size() {
+                    const WHY: &str = "while computing gradients(s)";
+                    if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
                     let xi = xy.get_item(2 * i)?;
                     let yi = xy.get_item(2 * i + 1)?;
                     let [gx, gy] = self.data.gradient(xi, yi);

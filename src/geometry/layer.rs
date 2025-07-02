@@ -1,6 +1,7 @@
 use crate::bindings::turtle;
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{IndexError, TypeError, ValueError};
+use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
@@ -110,11 +111,12 @@ impl Layer {
             })
     }
 
-    #[pyo3(signature=(/, *, latitude, longitude))]
+    #[pyo3(signature=(/, *, latitude, longitude, notify=None))]
     fn altitude<'py>(
         &mut self,
         latitude: AnyArray<'py, f64>,
         longitude: AnyArray<'py, f64>,
+        notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
         let shape = if latitude.ndim() == 0 {
             longitude.shape()
@@ -141,8 +143,16 @@ impl Layer {
 
         let mut array = NewArray::empty(py, shape)?;
         let z = array.as_slice_mut();
+        let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
 
         for i in 0..z.len() {
+            const WHY: &str = "while computing altitude(s)";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            unsafe {
+                turtle::stepper_reset(self.stepper);
+            }
+
             let lat = latitude.get_item(i)?;
             let lon = longitude.get_item(i)?;
             let mut r = [ 0.0_f64; 3 ];
@@ -170,6 +180,7 @@ impl Layer {
                 1 => elevation[0],
                 _ => f64::NAN,
             };
+            notifier.tic();
         }
         Ok(array)
     }

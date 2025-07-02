@@ -1,7 +1,7 @@
 use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{KeyboardInterrupt, TypeError, ValueError};
+use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{ArrayMethods, Dtype, NewArray};
 use crate::utils::traits::MinMax;
@@ -375,7 +375,7 @@ impl Fluxmeter {
         // Loop over states.
         for i in 0..size {
             const WHY: &str = "while computing flux(es)";
-            if (i % 100) == 0 { Self::check_ctrlc(WHY)? }
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             let state = FlavouredState::from_transport(&states, i)?;
             if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
@@ -415,7 +415,7 @@ impl Fluxmeter {
                             s2 += fij.powi(2);
 
                             let index = i * events + j;
-                            if (index % 100) == 0 { Self::check_ctrlc(WHY)? }
+                            if (index % 100) == 0 { error::check_ctrlc(WHY)? }
 
                             notifier.tic();
                         }
@@ -499,7 +499,7 @@ impl Fluxmeter {
         };
         let result = array.as_slice_mut();
         for i in 0..size {
-            if (i % 100) == 0 { Self::check_ctrlc("while computing grammage(s)")?; }
+            if (i % 100) == 0 { error::check_ctrlc("while computing grammage(s)")?; }
 
             let state = FlavouredState::from_grammage(&states, i)?;
             agent.set_state(&state)?;
@@ -592,7 +592,7 @@ impl Fluxmeter {
             if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
             for j in 0..events {
                 let index = i * events + j;
-                if (index % 100) == 0 { Self::check_ctrlc("while transporting muon(s)")?; }
+                if (index % 100) == 0 { error::check_ctrlc("while transporting muon(s)")?; }
 
                 agent.set_state(&state)?;
                 agent.transport()?;
@@ -618,16 +618,6 @@ impl Fluxmeter {
 
 impl Fluxmeter {
     const TOP_MATERIAL: &str = "Air";
-
-    fn check_ctrlc(why: &str) -> PyResult<()> {
-        if error::ctrlc_catched() {
-            error::clear();
-            let err = Error::new(KeyboardInterrupt).why(why);
-            Err(err.to_err())
-        } else {
-            Ok(())
-        }
-    }
 
     fn create_geometry(
         &mut self,
@@ -715,7 +705,7 @@ extern "C" fn atmosphere_locals(
             agent.geographic.altitude,
         ).unwrap();
 
-        let frame = LocalFrame::new(&agent.geographic, 0.0, 0.0);
+        let frame = LocalFrame::new(agent.geographic, 0.0, 0.0);
         agent.magnet_field = frame.to_ecef_direction(&enu);
         agent.magnet_position = agent.state.position;
     }

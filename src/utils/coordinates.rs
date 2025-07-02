@@ -1,4 +1,7 @@
 use crate::bindings::turtle;
+use crate::utils::numpy::Dtype;
+use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 
 
 // ===============================================================================================
@@ -52,6 +55,7 @@ impl GeographicCoordinates {
 //
 // ===============================================================================================
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 #[derive(Default)]
 pub struct HorizontalCoordinates {
@@ -96,6 +100,27 @@ impl HorizontalCoordinates {
     }
 }
 
+static HORIZONTAL_COORDINATES_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for HorizontalCoordinates {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = HORIZONTAL_COORDINATES_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
+                        ("azimuth",  "f8"),
+                        ("elevation",  "f8")
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
+    }
+}
+
 
 // ===============================================================================================
 //
@@ -105,6 +130,7 @@ impl HorizontalCoordinates {
 
 #[derive(Clone, Default)]
 pub struct LocalFrame {
+    origin: GeographicCoordinates,
     rotation: [[f64; 3]; 3],
     #[allow(unused)] // XXX needed?
     translation: [f64; 3],
@@ -130,7 +156,12 @@ impl LocalFrame {
         ecef
     }
 
-    pub fn new(origin: &GeographicCoordinates, declination: f64, inclination: f64) -> Self {
+    pub fn to_horizontal(&self, enu: &[f64; 3]) -> HorizontalCoordinates {
+        let ecef = self.to_ecef_direction(enu);
+        HorizontalCoordinates::from_ecef(&ecef, &self.origin)
+    }
+
+    pub fn new(origin: GeographicCoordinates, declination: f64, inclination: f64) -> Self {
         // Compute transform from ECEF to ENU.
         let mut rotation = [[0.0; 3]; 3];
         unsafe {
@@ -153,12 +184,13 @@ impl LocalFrame {
             turtle::ecef_from_horizontal(
                 origin.latitude,
                 origin.longitude,
-                0.0,
+                declination,
                 90.0 - inclination,
                 rotation[2].as_mut_ptr(),
             );
         }
+
         let translation = origin.to_ecef();
-        Self { rotation, translation }
+        Self { rotation, translation, origin }
     }
 }

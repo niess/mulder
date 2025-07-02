@@ -153,7 +153,7 @@ impl<'a, 'py> IntoPyObject<'py> for &'a Material {
                 ])?
             },
         };
-        Ok(namespace)
+        Ok(namespace.into_pyobject(py)?)
     }
 }
 
@@ -167,6 +167,6 @@ impl<'a, 'py> IntoPyObject<'py> for &'a Component {
             ("name", self.name.as_str().into_pyobject(py)?.into_any()),
             ("weight", self.weight.into_pyobject(py)?.into_any()),
         ]).unwrap();
-        Ok(namespace)
+        Ok(namespace.into_pyobject(py)?)
     }
 }

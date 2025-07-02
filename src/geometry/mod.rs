@@ -14,6 +14,7 @@ use std::ffi::c_int;
 use std::ptr::{null, null_mut};
 
 pub mod atmosphere;
+pub mod camera;
 pub mod grid;
 pub mod layer;
 pub mod magnet;
@@ -67,7 +68,7 @@ enum LayerLike<'py> {
 }
 
 #[repr(C)]
-struct Intersection {
+pub struct Intersection {
     before: i32,
     after: i32,
     latitude: f64,
@@ -202,6 +203,11 @@ impl Geometry {
         let mut array = NewArray::empty(py, position.shape())?;
         let layer = array.as_slice_mut();
         for i in 0..position.size() {
+            const WHY: &str = "while locating position(s)";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            self.reset_stepper();
+
             let geographic = GeographicCoordinates {
                 latitude: position.get_f64(Name::Latitude, i)?,
                 longitude: position.get_f64(Name::Longitude, i)?,
@@ -264,6 +270,11 @@ impl Geometry {
         let mut array = NewArray::<f64>::zeros(py, shape)?;
         let distances = array.as_slice_mut();
         for i in 0..size {
+            const WHY: &str = "while scanning geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            self.reset_stepper();
+
             // Get the starting point.
             let geographic = GeographicCoordinates {
                 latitude: coordinates.get_f64(Name::Latitude, i)?,
@@ -337,8 +348,8 @@ impl Geometry {
         Ok(array)
     }
 
-    #[pyo3(signature=(coordinates=None, /, *, notify=None, **kwargs))]
-    fn trace<'py>(
+    #[pyo3(name="trace", signature=(coordinates=None, /, *, notify=None, **kwargs))]
+    fn py_trace<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
@@ -365,79 +376,21 @@ impl Geometry {
         let mut array = NewArray::empty(py, shape)?;
         let intersections = array.as_slice_mut();
         for i in 0..size {
-            let geographic = GeographicCoordinates {
+            const WHY: &str = "while tracing geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            self.reset_stepper();
+
+            let position = GeographicCoordinates {
                 latitude: coordinates.get_f64(Name::Latitude, i)?,
                 longitude: coordinates.get_f64(Name::Longitude, i)?,
                 altitude: coordinates.get_f64(Name::Altitude, i)?,
             };
-            let mut r = geographic.to_ecef();
-            let mut index = [ -2; 2 ];
-            error::to_result(
-                unsafe {
-                    turtle::stepper_step(
-                        self.stepper,
-                        r.as_mut_ptr(),
-                        null(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        index.as_mut_ptr(),
-                    )
-                },
-                None::<&str>,
-            )?;
-            let start_layer = index[0];
-            let mut di = 0.0;
-            let position = if (start_layer >= 1) &&
-                              (start_layer as usize <= self.layers.len() + 1) {
-
-                // Iterate until a boundary is hit.
-                let horizontal = HorizontalCoordinates {
-                    azimuth: coordinates.get_f64(Name::Azimuth, i)?,
-                    elevation: coordinates.get_f64(Name::Elevation, i)?,
-                };
-                let u = horizontal.to_ecef(&geographic);
-                let mut step = 0.0_f64;
-                while index[0] == start_layer {
-                    error::to_result(
-                        unsafe {
-                            turtle::stepper_step(
-                                self.stepper,
-                                r.as_mut_ptr(),
-                                u.as_ptr(),
-                                null_mut(),
-                                null_mut(),
-                                null_mut(),
-                                null_mut(),
-                                &mut step,
-                                index.as_mut_ptr(),
-                            )
-                        },
-                        None::<&str>,
-                    )?;
-                    di += step;
-                }
-
-                // Push the particle through the boundary.
-                const EPS: f64 = f32::EPSILON as f64;
-                di += EPS;
-                for i in 0..3 {
-                    r[i] += EPS * u[i];
-                }
-                GeographicCoordinates::from_ecef(&r)
-            } else {
-                geographic.clone()
+            let direction = HorizontalCoordinates {
+                azimuth: coordinates.get_f64(Name::Azimuth, i)?,
+                elevation: coordinates.get_f64(Name::Elevation, i)?,
             };
-            intersections[i] = Intersection {
-                before: layer_index(start_layer),
-                after: layer_index(index[0]),
-                latitude: position.latitude,
-                longitude: position.longitude,
-                altitude: position.altitude,
-                distance: di,
-            };
+            intersections[i] = self.trace(position, direction)?;
             notifier.tic();
         }
         Ok(array)
@@ -511,11 +464,89 @@ impl Geometry {
         Ok(Doublet { layers: stepper, opensky: opensky_stepper })
     }
 
-    fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
+    pub fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
         if self.stepper == null_mut() {
             self.stepper = self.create_steppers(py, None)?.layers.stepper;
         }
         Ok(())
+    }
+
+
+    pub fn reset_stepper(&mut self) {
+        unsafe {
+            turtle::stepper_reset(self.stepper);
+        }
+    }
+
+    pub fn trace(
+        &self,
+        position: GeographicCoordinates,
+        direction: HorizontalCoordinates
+    ) -> PyResult<Intersection> {
+        let mut r = position.to_ecef();
+        let mut index = [ -2; 2 ];
+        error::to_result(
+            unsafe {
+                turtle::stepper_step(
+                    self.stepper,
+                    r.as_mut_ptr(),
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    index.as_mut_ptr(),
+                )
+            },
+            None::<&str>,
+        )?;
+        let start_layer = index[0];
+        let mut di = 0.0;
+        let position = if (start_layer >= 1) &&
+                          (start_layer as usize <= self.layers.len() + 1) {
+
+            // Iterate until a boundary is hit.
+            let u = direction.to_ecef(&position);
+            let mut step = 0.0_f64;
+            while index[0] == start_layer {
+                error::to_result(
+                    unsafe {
+                        turtle::stepper_step(
+                            self.stepper,
+                            r.as_mut_ptr(),
+                            u.as_ptr(),
+                            null_mut(),
+                            null_mut(),
+                            null_mut(),
+                            null_mut(),
+                            &mut step,
+                            index.as_mut_ptr(),
+                        )
+                    },
+                    None::<&str>,
+                )?;
+                di += step;
+            }
+
+            // Push the particle through the boundary.
+            const EPS: f64 = f32::EPSILON as f64;
+            di += EPS;
+            for i in 0..3 {
+                r[i] += EPS * u[i];
+            }
+            GeographicCoordinates::from_ecef(&r)
+        } else {
+            position
+        };
+        Ok(Intersection {
+            before: layer_index(start_layer),
+            after: layer_index(index[0]),
+            latitude: position.latitude,
+            longitude: position.longitude,
+            altitude: position.altitude,
+            distance: di,
+        })
     }
 }
 

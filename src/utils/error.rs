@@ -235,3 +235,13 @@ pub fn to_result<T: AsRef<str>>(rc: c_uint, what: Option<T>) -> Result<(), PyErr
 pub fn ctrlc_catched() -> bool {
     if unsafe { PyErr_CheckSignals() } == -1 { true } else { false }
 }
+
+pub fn check_ctrlc(why: &str) -> PyResult<()> {
+    if ctrlc_catched() {
+        clear();
+        let err = Error::new(ErrorKind::KeyboardInterrupt).why(why);
+        Err(err.to_err())
+    } else {
+        Ok(())
+    }
+}

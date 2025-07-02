@@ -2,13 +2,14 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 
 
-pub struct Namespace;
+#[derive(IntoPyObject)]
+pub struct Namespace<'py> (Bound<'py, PyAny>);
 
-impl Namespace {
-    pub fn new<'py, T, U>(
+impl<'py> Namespace<'py> {
+    pub fn new<T, U>(
         py: Python<'py>,
         kwargs: impl IntoIterator<Item = (&'static str, T), IntoIter = U>,
-    ) -> PyResult<Bound<'py, PyAny>>
+    ) -> PyResult<Self>
     where
         T: IntoPyObject<'py>,
         U: ExactSizeIterator<Item = (&'static str, T)>,
@@ -18,6 +19,6 @@ impl Namespace {
         let namespace = py.import("types")
             .and_then(|x| x.getattr("SimpleNamespace"))
             .and_then(|x| x.call((), Some(&kwargs)))?;
-        Ok(namespace)
+        Ok(Self(namespace))
     }
 }
