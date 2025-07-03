@@ -42,6 +42,11 @@ pub enum DataLike<'py> {
     Grid(GridLike<'py>),
 }
 
+pub enum DataRef<'a> {
+    Flat(f64),
+    Grid(&'a Grid),
+}
+
 #[pymethods]
 impl Layer {
     #[pyo3(signature=(*data, density=None, material=None))]
@@ -200,6 +205,11 @@ impl Layer {
         Ok(())
     }
 
+    pub fn get_data_ref<'a, 'py:'a>(&'a self, py: Python<'py>) -> Vec<DataRef<'a>> {
+        let data: Vec<_> = self.data.iter().map(|data| data.get(py)).collect();
+        data
+    }
+
     pub unsafe fn insert(&self, py: Python, stepper: *mut turtle::Stepper) -> PyResult<()> {
         if !self.data.is_empty() {
             error::to_result(turtle::stepper_add_layer(stepper), Self::WHAT)?;
@@ -271,6 +281,13 @@ impl Data {
         }
     }
 
+    fn get<'a, 'py:'a>(&'a self, py: Python<'py>) -> DataRef<'a> {
+        match self {
+            Self::Flat(f) => DataRef::Flat(*f),
+            Self::Grid(g) => DataRef::Grid(g.bind(py).get()),
+        }
+    }
+
     pub fn z(&self, py: Python) -> (f64, f64) {
         match self {
             Self::Flat(f) => (*f, *f),
@@ -291,5 +308,36 @@ impl<'py> DataLike<'py> {
             },
         };
         Ok(data)
+    }
+}
+
+impl<'a> DataRef<'a> {
+    pub fn gradient(
+        &self,
+        latitude: f64,
+        longitude: f64,
+        altitude: f64,
+    ) -> [f64; 3] {
+        let [glon, glat] = match self {
+            Self::Flat(_) => [ 0.0; 2 ],
+            Self::Grid(g) => g.data.gradient(longitude, latitude),
+        };
+        const DEG: f64 = std::f64::consts::PI / 180.0;
+        const RT: f64 = 0.5 * (6378137.0 + 6356752.314245);  // WGS84 average.
+        let theta = (90.0 - latitude) * DEG;
+        let phi = longitude * DEG;
+        let st = theta.sin();
+        let ct = theta.cos();
+        let sp = phi.sin();
+        let cp = phi.cos();
+        let r_inv = 1.0 / (RT + altitude);
+        let rho_inv = if st.abs() <= (f32::EPSILON as f64) { 0.0 } else { r_inv / st };
+        let gt = -glat * r_inv / DEG;
+        let gp = glon * rho_inv / DEG;
+        [
+            st * cp - ct * cp * gt + sp * gp,
+            st * sp - ct * sp * gt - cp * gp,
+            ct      + st      * gt,
+        ]
     }
 }

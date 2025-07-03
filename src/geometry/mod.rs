@@ -390,7 +390,7 @@ impl Geometry {
                 azimuth: coordinates.get_f64(Name::Azimuth, i)?,
                 elevation: coordinates.get_f64(Name::Elevation, i)?,
             };
-            intersections[i] = self.trace(position, direction)?;
+            intersections[i] = self.trace(position, direction)?.0;
             notifier.tic();
         }
         Ok(array)
@@ -471,7 +471,6 @@ impl Geometry {
         Ok(())
     }
 
-
     pub fn reset_stepper(&mut self) {
         unsafe {
             turtle::stepper_reset(self.stepper);
@@ -482,7 +481,7 @@ impl Geometry {
         &self,
         position: GeographicCoordinates,
         direction: HorizontalCoordinates
-    ) -> PyResult<Intersection> {
+    ) -> PyResult<(Intersection, i32)> {
         let mut r = position.to_ecef();
         let mut index = [ -2; 2 ];
         error::to_result(
@@ -539,14 +538,17 @@ impl Geometry {
         } else {
             position
         };
-        Ok(Intersection {
-            before: layer_index(start_layer),
-            after: layer_index(index[0]),
-            latitude: position.latitude,
-            longitude: position.longitude,
-            altitude: position.altitude,
-            distance: di,
-        })
+        Ok((
+            Intersection {
+                before: layer_index(start_layer),
+                after: layer_index(index[0]),
+                latitude: position.latitude,
+                longitude: position.longitude,
+                altitude: position.altitude,
+                distance: di,
+            },
+            index[1],
+        ))
     }
 }
 

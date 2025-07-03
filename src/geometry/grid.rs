@@ -376,7 +376,7 @@ impl Grid {
         Ok(z)
     }
 
-    /// Computes the elevation gradient at grid point(s).
+    /// Computes the altitude gradient at grid point(s).
     #[pyo3(signature=(xy, y=None, /, *, notify=None))]
     fn gradient<'py>(
         &self,
@@ -504,7 +504,7 @@ unsafe fn get_stack_zlim(stack: *const turtle::Stack) -> [f64; 2] {
 }
 
 impl Data {
-    fn gradient(&self, x: f64, y: f64) -> [f64; 2] {
+    pub fn gradient(&self, x: f64, y: f64) -> [f64; 2] {
         match self {
             Self::Map(map) => {
                 let mut gx = f64::NAN;

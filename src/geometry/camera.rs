@@ -4,8 +4,9 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{NewArray, PyArray};
+use crate::utils::numpy::{Dtype, NewArray, PyArray};
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::PyDict;
 
 
@@ -92,6 +93,13 @@ struct Iter {
     nu: usize,
     nv: usize,
     index: usize,
+}
+
+#[repr(C)]
+struct Picture {
+    layer: i32,
+    direction: [f64; 3],
+    normal: [f64; 3],
 }
 
 #[pymethods]
@@ -232,7 +240,7 @@ impl Camera {
         py: Python<'py>,
         geometry: &mut Geometry,
         notify: Option<NotifyArg>,
-    ) -> PyResult<NewArray<'py, i32>> {
+    ) -> PyResult<NewArray<'py, Picture>> {
         let nu = self.resolution.width();
         let nv = self.resolution.height();
         let mut array = NewArray::empty(py, [nv, nu])?;
@@ -241,14 +249,63 @@ impl Camera {
         geometry.ensure_stepper(py)?;
         let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
 
+        let layers: Vec<_> = geometry.layers.iter().map(
+            |layer| layer.bind_borrowed(py).borrow()
+        ).collect();
+        let data: Vec<_> = layers.iter().map(
+            |layer| layer.get_data_ref(py)
+        ).collect();
+
+        let into_usize = |i: i32| -> usize {
+            if i >= 0 { i as usize } else { usize::MAX }
+        };
+
+        let normalised = |mut v: [f64; 3]| -> [f64; 3] {
+            let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+            if r2 > f64::EPSILON {
+                let r = r2.sqrt();
+                v[0] /= r;
+                v[1] /= r;
+                v[2] /= r;
+                v
+            } else {
+                [0.0; 3]
+            }
+        };
+
+        let r0 = self.position().to_ecef();
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while shooting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             geometry.reset_stepper();
 
-            let intersection = geometry.trace(self.position(), direction)?;
-            picture[i] = intersection.after;
+            let (intersection, index) = geometry.trace(self.position(), direction)?;
+            let layer = intersection.after;
+            let position = GeographicCoordinates {
+                latitude: intersection.latitude,
+                longitude: intersection.longitude,
+                altitude: intersection.altitude,
+            };
+            let ri = position.to_ecef();
+            let direction = normalised([
+                ri[0] - r0[0],
+                ri[1] - r0[1],
+                ri[2] - r0[2],
+            ]);
+            let normal = match data.get(into_usize(layer)) {
+                Some(data) => match data.get(into_usize(index)) {
+                    Some(data) => normalised(data.gradient(
+                        intersection.latitude,
+                        intersection.longitude,
+                        intersection.altitude,
+                    )),
+                    None => [0.0; 3],
+                }
+                None => [0.0; 3],
+            };
+
+            picture[i] = Picture { layer, direction, normal };
             notifier.tic();
         }
 
@@ -414,5 +471,27 @@ impl HeightWidth for (usize, usize) {
     #[inline]
     fn width(&self) -> usize {
         self.1
+    }
+}
+
+static PICTURE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for Picture {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = PICTURE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
+                        ("layer",     "i4"),
+                        ("direction", "3f8"),
+                        ("normal",    "3f8"),
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
     }
 }
