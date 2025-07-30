@@ -1,3 +1,6 @@
+use std::ops::{Add, Mul, Sub};
+
+
 pub trait MinMax {
     type Number;
 
@@ -29,5 +32,63 @@ impl MinMax for (f64, f64) {
     #[inline]
     fn mut_max(&mut self) -> &mut Self::Number {
         &mut self.1
+    }
+}
+
+#[allow(unused)]
+pub trait Vector3: Sized {
+    type Number:
+        Copy +
+        Add<Output=Self::Number> +
+        Mul<Output=Self::Number> +
+        Sub<Output=Self::Number>;
+
+    fn vector3(x: Self::Number, y: Self::Number, z: Self::Number) -> Self;
+    fn x(&self) -> Self::Number;
+    fn y(&self) -> Self::Number;
+    fn z(&self) -> Self::Number;
+
+    #[inline]
+    fn add(&self, rhs: &Self) -> Self {
+        Self::vector3(self.x() + rhs.x(), self.y() + rhs.y(), self.z() + rhs.z())
+    }
+
+    #[inline]
+    fn mul(&self, rhs: Self::Number) -> Self {
+        Self::vector3(self.x() * rhs, self.y() * rhs, self.z() * rhs)
+    }
+
+    #[inline]
+    fn sub(&self, rhs: &Self) -> Self {
+        Self::vector3(self.x() - rhs.x(), self.y() - rhs.y(), self.z() - rhs.z())
+    }
+
+    #[inline]
+    fn dot(&self, rhs: &Self) -> Self::Number {
+        self.x() * rhs.x() +  self.y() * rhs.y() + self.z() * rhs.z()
+    }
+}
+
+impl Vector3 for [f64; 3] {
+    type Number = f64;
+
+    #[inline]
+    fn vector3(x: Self::Number, y: Self::Number, z: Self::Number) -> Self {
+        [x, y, z]
+    }
+
+    #[inline]
+    fn x(&self) -> Self::Number {
+        self[0]
+    }
+
+    #[inline]
+    fn y(&self) -> Self::Number {
+        self[1]
+    }
+
+    #[inline]
+    fn z(&self) -> Self::Number {
+        self[2]
     }
 }
