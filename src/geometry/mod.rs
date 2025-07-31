@@ -14,7 +14,6 @@ use std::ffi::c_int;
 use std::ptr::{null, null_mut};
 
 pub mod atmosphere;
-pub mod camera;
 pub mod grid;
 pub mod layer;
 pub mod magnet;
@@ -69,12 +68,12 @@ enum LayerLike<'py> {
 
 #[repr(C)]
 pub struct Intersection {
-    before: i32,
-    after: i32,
-    latitude: f64,
-    longitude: f64,
-    altitude: f64,
-    distance: f64,
+    pub before: i32,
+    pub after: i32,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub distance: f64,
 }
 
 pub struct GeometryStepper {
