@@ -284,9 +284,9 @@ impl Camera {
                 };
                 let ri = position.to_ecef();
                 let direction = normalised([
-                    ri[0] - r0[0],
-                    ri[1] - r0[1],
-                    ri[2] - r0[2],
+                    r0[0] - ri[0],
+                    r0[1] - ri[1],
+                    r0[2] - ri[2],
                 ]);
                 let normal = match data.get(into_usize(layer)) {
                     Some(data) => match data.get(into_usize(index)) {

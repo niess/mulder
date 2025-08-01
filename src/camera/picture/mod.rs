@@ -3,24 +3,24 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, PyArray};
-use crate::utils::traits::Vector3;
 use pyo3::prelude::*;
 use pyo3::type_object::PyTypeInfo;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 
-mod colours;
 mod lights;
+mod materials;
+mod pbr;
 
-pub use colours::Colour;
 pub use lights::{AmbientLight, DirectionalLight, SunLight};
+pub use materials::OpticalProperties;
 
 
 pub fn initialise(py: Python) -> PyResult<()> {
     let raw_picture = RawPicture::type_object(py);
     raw_picture.setattr("lights", lights::default_lights(py)?)?;
-    raw_picture.setattr("palette", colours::default_palette(py)?)?;
+    raw_picture.setattr("materials", materials::default_materials(py)?)?;
     Ok(())
 }
 
@@ -121,12 +121,12 @@ impl RawPicture {
         Ok(())
     }
 
-    #[pyo3(signature=(/, *, lights=None, palette=None, notify=None))]
+    #[pyo3(signature=(/, *, lights=None, materials=None, notify=None))]
     fn develop<'py>(
         &mut self,
         py: Python<'py>,
         lights: Option<Vec<lights::Light>>,
-        palette: Option<HashMap<String, Colour>>,
+        materials: Option<HashMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
         // Resolve lights.
@@ -155,23 +155,23 @@ impl RawPicture {
             (ambient, directionals)
         };
 
-        // Resolve colours.
-        let palette = match palette {
-            Some(palette) => palette,
-            None => Self::default_palette(py)?.extract()?,
+        // Resolve materials.
+        let materials = match materials {
+            Some(materials) => materials,
+            None => Self::default_materials(py)?.extract()?,
         };
-        let colours = {
-            let mut colours = Vec::new();
+        let materials = {
+            let mut properties = Vec::new();
             for material in self.materials.iter() {
-                let colour = palette
+                let property = materials
                     .get(material)
-                    .ok_or_else(|| {
-                        let why = format!("undefined colour for material '{}'", material);
-                        Error::new(ValueError).what("palette").why(&why).to_err()
-                    })?;
-                colours.push(colour);
+                    .map(|material| materials::MaterialData::from(material))
+                    .unwrap_or_else(|| materials::MaterialData::from(
+                        &OpticalProperties::default()
+                    ));
+                properties.push(property);
             }
-            colours
+            properties
         };
 
         // Loop over pixels.
@@ -184,42 +184,27 @@ impl RawPicture {
         let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
         for i in 0..data.size() {
             let PictureData { layer, direction, normal } = data.get_item(i)?;
-            let rgb = if (layer as usize) < colours.len() {
-                let Colour { rgb, specularity } = colours
+            let rgb = if (layer as usize) < materials.len() {
+                let material = materials
                     .get(layer as usize)
                     .ok_or_else(|| {
                         let why = format!(
                             "expected a value in [0, {}], found '{}'",
-                            colours.len(),
+                            materials.len(),
                             layer,
                         );
                         Error::new(ValueError).what("layer index").why(&why).to_err()
                     })?;
-                let mut intensity = ambient;
-                let mut delta = 0.0;
-                for light in &directionals {
-                    let diff = normal.dot(&light.direction);
-                    if diff > 0.0 {
-                        intensity += light.intensity * diff;
-                        let spec = normal.mul(2.0 * diff).sub(&light.direction).dot(&direction);
-                        if spec > 0.0 {
-                            delta +=
-                                light.intensity * specularity * spec.powi(Self::SPECULARITY_ALPHA);
-                        }
-                    }
-                }
-                [
-                    (rgb.0 as f64 / 255.0 * intensity + delta).min(1.0),
-                    (rgb.1 as f64 / 255.0 * intensity + delta).min(1.0),
-                    (rgb.2 as f64 / 255.0 * intensity + delta).min(1.0),
-                ]
+                pbr::illuminate(normal, direction, ambient, &directionals, material)
             } else {
                 [0.0; 3]
             };
+            let rgb: (u8, u8, u8) = materials::LinearRgb(rgb).into();
 
-            for j in 0..3 {
-                pixels[3 * i + j] = rgb[j] as f32;
-            }
+            pixels[3 * i + 0] = (rgb.0 as f32) / 255.0;
+            pixels[3 * i + 1] = (rgb.1 as f32) / 255.0;
+            pixels[3 * i + 2] = (rgb.2 as f32) / 255.0;
+
             notifier.tic();
         }
 
@@ -228,16 +213,14 @@ impl RawPicture {
 }
 
 impl RawPicture {
-    const SPECULARITY_ALPHA: i32 = 3;
-
     #[inline]
     fn default_lights(py: Python) -> PyResult<Bound<PyAny>> {
         RawPicture::type_object(py).getattr("lights")
     }
 
     #[inline]
-    fn default_palette(py: Python) -> PyResult<Bound<PyAny>> {
-        RawPicture::type_object(py).getattr("palette")
+    fn default_materials(py: Python) -> PyResult<Bound<PyAny>> {
+        RawPicture::type_object(py).getattr("materials")
     }
 
     #[inline]
