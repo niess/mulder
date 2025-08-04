@@ -67,6 +67,7 @@ enum LayerLike<'py> {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Intersection {
     pub before: i32,
     pub after: i32,

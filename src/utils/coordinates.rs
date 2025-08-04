@@ -10,8 +10,7 @@ use pyo3::sync::GILOnceCell;
 //
 // ===============================================================================================
 
-#[derive(Clone, Copy)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GeographicCoordinates {
     pub latitude: f64,
     pub longitude: f64,
@@ -56,8 +55,7 @@ impl GeographicCoordinates {
 // ===============================================================================================
 
 #[repr(C)]
-#[derive(Clone, Copy)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct HorizontalCoordinates {
     pub azimuth: f64,
     pub elevation: f64,
