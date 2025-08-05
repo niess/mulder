@@ -23,27 +23,27 @@ pub enum Light {
 }
 
 #[pyclass(module="mulder")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AmbientLight {
     #[pyo3(get, set)]
     pub(super) intensity: f64,
 }
 
 #[pyclass(module="mulder")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DirectionalLight {
     #[pyo3(get, set)]
-    azimuth: f64,
+    pub azimuth: f64,
 
     #[pyo3(get, set)]
-    elevation: f64,
+    pub elevation: f64,
 
     #[pyo3(get, set)]
-    intensity: f64,
+    pub intensity: f64,
 }
 
 #[pyclass(module="mulder")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SunLight {
     /// The local date and solar time.
     #[pyo3(get, set)]

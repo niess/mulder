@@ -9,10 +9,13 @@ use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 
+mod atmosphere;
 mod lights;
 mod materials;
 mod pbr;
+mod vec3;
 
+pub use atmosphere::SkyProperties;
 pub use lights::{AmbientLight, DirectionalLight, SunLight};
 pub use materials::OpticalProperties;
 

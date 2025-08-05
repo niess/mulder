@@ -2,7 +2,7 @@
 
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;
-use std::ops::{Add, AddAssign, Mul, Sub};
+use super::vec3::Vec3;
 
 
 pub fn illuminate(
@@ -80,116 +80,6 @@ fn powf(lhs: f64, rhs: f64) -> f64 {
 #[inline]
 fn sqrt(x: f64) -> f64 {
     x.sqrt()
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-struct Vec3 ([f64; 3]);
-
-impl Vec3 {
-    const ZERO: Self = Self([0.0; 3]);
-
-    #[inline]
-    fn dot(rhs: &Self, lhs: &Self) -> f64 {
-        rhs.0[0] * lhs.0[0] + rhs.0[1] * lhs.0[1] + rhs.0[2] * lhs.0[2]
-    }
-
-    #[inline]
-    fn normalize(self) -> Self {
-        let nrm = 1.0 / (self.0[0].powi(2) + self.0[1].powi(2) + self.0[2].powi(2)).sqrt();
-        self * nrm
-    }
-
-    const fn splat(x: f64) -> Self {
-        Self ([x; 3])
-    }
-}
-
-impl Add for Vec3 {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: Self) -> Self::Output {
-        Self ([
-            self.0[0] + rhs.0[0],
-            self.0[1] + rhs.0[1],
-            self.0[2] + rhs.0[2],
-        ])
-    }
-}
-
-impl Add<f64> for Vec3 {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: f64) -> Self::Output {
-        Self ([
-            self.0[0] + rhs,
-            self.0[1] + rhs,
-            self.0[2] + rhs,
-        ])
-    }
-}
-
-impl AddAssign for Vec3 {
-    #[inline]
-    fn add_assign(&mut self, rhs: Vec3) {
-        self.0[0] += rhs.0[0];
-        self.0[1] += rhs.0[1];
-        self.0[2] += rhs.0[2];
-    }
-}
-
-impl Mul for Vec3 {
-    type Output = Self;
-
-    #[inline]
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self ([
-            self.0[0] * rhs.0[0],
-            self.0[1] * rhs.0[1],
-            self.0[2] * rhs.0[2],
-        ])
-    }
-}
-
-impl Mul<f64> for Vec3 {
-    type Output = Self;
-
-    #[inline]
-    fn mul(self, rhs: f64) -> Self::Output {
-        Self ([
-            self.0[0] * rhs,
-            self.0[1] * rhs,
-            self.0[2] * rhs,
-        ])
-    }
-}
-
-impl Mul<Vec3> for f64 {
-    type Output = Vec3;
-
-    #[inline]
-    fn mul(self, rhs: Vec3) -> Self::Output {
-        Vec3 ([
-            self * rhs.0[0],
-            self * rhs.0[1],
-            self * rhs.0[2],
-        ])
-    }
-}
-
-impl Sub for Vec3 {
-    type Output = Self;
-
-    #[inline]
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self ([
-            self.0[0] - rhs.0[0],
-            self.0[1] - rhs.0[1],
-            self.0[2] - rhs.0[2],
-        ])
-    }
 }
 
 const PI: f64 = std::f64::consts::PI;

@@ -56,7 +56,9 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<camera::Camera>()?;
     module.add_class::<camera::picture::AmbientLight>()?;
     module.add_class::<camera::picture::DirectionalLight>()?;
+    module.add_class::<camera::picture::OpticalProperties>()?;
     module.add_class::<camera::picture::RawPicture>()?;
+    module.add_class::<camera::picture::SkyProperties>()?;
     module.add_class::<camera::picture::SunLight>()?;
     module.add_class::<geometry::Geometry>()?;
     module.add_class::<geometry::atmosphere::Atmosphere>()?;
