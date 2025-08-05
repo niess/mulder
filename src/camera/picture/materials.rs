@@ -7,10 +7,12 @@ pub fn default_materials(py: Python) -> PyResult<PyObject> {
     let materials = PyDict::new(py);
     materials.set_item("Rock", OpticalProperties {
         colour: (139, 69, 19),
+        roughness: 0.1,
         ..Default::default()
     })?;
     materials.set_item("Water", OpticalProperties {
-        colour: (212, 241, 249),
+        colour: (15, 94, 156),
+        roughness: 0.2,
         ..Default::default()
     })?;
     let materials = materials.into_any().unbind();
