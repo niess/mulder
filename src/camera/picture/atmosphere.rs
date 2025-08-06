@@ -25,14 +25,37 @@ pub struct SkyProperties;
 
 #[pymethods]
 impl SkyProperties {
-    // XXX Vectorise this method.
     #[classmethod]
-    fn transmittance(_cls: &Bound<PyType>, altitude: f64, elevation: f64) -> [f64; 3] {
-        let r = altitude + Atmosphere::BOTTOM_RADIUS;
-        let mu = (elevation * DEG).sin();
-        let t = Transmittance::get()
-            .eval(r, mu);
-        t.0
+    fn multiple_scattering<'py>(cls: &Bound<'py, PyType>) -> PyResult<Namespace<'py>> {
+        let py = cls.py();
+
+        let ms = MultipleScattering::get();
+        let mut altitude_array = NewArray::<f64>::empty(py, [MultipleScattering::SHAPE.0])?;
+        let mut elevation_array = NewArray::<f64>::empty(py, [MultipleScattering::SHAPE.1])?;
+        let mut light_array = NewArray::<f64>::empty(
+            py, [MultipleScattering::SHAPE.1, MultipleScattering::SHAPE.0, 3])?;
+
+        let altitude = altitude_array.as_slice_mut();
+        for (i, u) in ms.0.iter_u().enumerate() {
+            altitude[i] = MultipleScattering::unmap_u(u) - Atmosphere::BOTTOM_RADIUS;
+        }
+        let elevation = elevation_array.as_slice_mut();
+        for (i, v) in ms.0.iter_v().enumerate() {
+            elevation[i] = MultipleScattering::unmap_v(v).asin() / DEG;
+        }
+        let light = light_array.as_slice_mut();
+        for (i, l) in ms.0.data.iter().enumerate() {
+            let rgb: (u8, u8, u8) = LinearRgb(l.0).into();
+            light[3 * i + 0] = (rgb.0 as f64) / 255.0;
+            light[3 * i + 1] = (rgb.1 as f64) / 255.0;
+            light[3 * i + 2] = (rgb.2 as f64) / 255.0;
+        }
+
+        Namespace::new(py, [
+            ("altitude", altitude_array),
+            ("elevation", elevation_array),
+            ("light", light_array),
+        ])
     }
 
     #[classmethod]
@@ -93,6 +116,16 @@ impl SkyProperties {
             ("light", light_array),
         ])
     }
+
+    // XXX Vectorise this method.
+    #[classmethod]
+    fn transmittance(_cls: &Bound<PyType>, altitude: f64, elevation: f64) -> [f64; 3] {
+        let r = altitude + Atmosphere::BOTTOM_RADIUS;
+        let mu = (elevation * DEG).sin();
+        let t = Transmittance::get()
+            .eval(r, mu);
+        t.0
+    }
 }
 
 
@@ -104,6 +137,8 @@ impl SkyProperties {
 // ===============================================================================================
 
 struct Atmosphere;
+
+struct MultipleScattering (Lut2);
 
 struct SkyView (Lut2);
 
@@ -150,6 +185,8 @@ impl Atmosphere {
     const OZONE_ALTITUDE: f64 = 25E+03;
     const OZONE_WIDTH: f64 = 30E+03;
     const OZONE_ABSORPTION: Vec3 = Vec3::new(0.650E-06, 1.881E-06, 0.085E-06);
+
+    const GROUND_ALBEDO: Vec3 = Vec3::splat(0.3);
 
     fn cross_section(r: f64) -> CrossSection {
         let altitude = r.clamp(Self::BOTTOM_RADIUS, Self::TOP_RADIUS) - Self::BOTTOM_RADIUS;
@@ -206,6 +243,7 @@ impl Atmosphere {
         ray_dir: &Vec3,
         local_r: f64,
         lights: &[ResolvedLight],
+        multiple_scattering: &MultipleScattering,
         transmittance: &Transmittance,
     ) -> Vec3 {
         let mut inscattering = Vec3::ZERO;
@@ -227,13 +265,12 @@ impl Atmosphere {
             };
 
             // Multiple scattering.
-            /* XXX
-            let psi_ms = sample_multiscattering_lut(local_r, mu_light);
-            let multiscattering_factor = psi_ms * (local_atmosphere.rayleigh_scattering + local_atmosphere.mie_scattering);
-            */
+            let psi_ms = multiple_scattering.eval(local_r, mu_light);
+            let multiple_scattering = psi_ms *
+                (cross_section.rayleigh_scattering + cross_section.mie_scattering);
 
-            // inscattering += (*light).color.rgb * (scattering_factor + multiscattering_factor);
-            inscattering += light.intensity * Vec3(light.colour.0) * single_scattering;
+            inscattering += light.intensity * Vec3(light.colour.0) * (
+                single_scattering + multiple_scattering);
         }
         const EXPOSURE: f64 = 4.0 * PI;
         inscattering * EXPOSURE
@@ -258,6 +295,131 @@ impl Atmosphere {
     }
 }
 
+static MULTIPLE_SCATTERING: OnceLock<MultipleScattering> = OnceLock::new();
+
+impl MultipleScattering {
+    const DIRECTIONS: usize = 64;
+    const SHAPE: (usize, usize) = (32, 32);
+    const SAMPLES: usize = 16;
+
+    fn eval(&self, r: f64, mu: f64) -> Vec3 {
+        let (u, v) = Self::map(r, mu);
+        self.0.interpolate(u, v)
+    }
+
+    fn get() -> &'static Self {
+        MULTIPLE_SCATTERING.get_or_init(|| Self::new())
+    }
+
+    fn map(r: f64, mu: f64) -> (f64, f64) {
+        let u = ((r - Atmosphere::BOTTOM_RADIUS) /
+            (Atmosphere::TOP_RADIUS - Atmosphere::BOTTOM_RADIUS))
+            .clamp(0.0, 1.0);
+        let v = 0.5 + 0.5 * mu;
+        (u, v)
+    }
+
+    fn new() -> Self {
+        let mut lut = Lut2::new(Self::SHAPE);
+        let transmittance = Transmittance::get();
+        for (u, v, d) in lut.iter_mut() {
+            let (r, mu) = Self::unmap(u, v);
+            let light_dir = Atmosphere::direction(mu, 0.0);
+            let mut l_2 = Vec3::ZERO;
+            let mut f_ms = Vec3::ZERO;
+            for i in 0..Self::DIRECTIONS {
+                const PHI_X: f64 = 1.3247179572447460259609088;
+                const PHI_Y: f64 = 1.7548776662466927600495087;
+                let x = (0.5 + (i as f64) * PHI_X).fract();
+                let y = (0.5 + (i as f64) * PHI_Y).fract();
+                let ray_dir = Atmosphere::direction(2.0 * x - 1.0, 2.0 * PI * y);
+                let sample = Self::sample_dir(r, ray_dir, light_dir, transmittance);
+                l_2 += sample.0;
+                f_ms += sample.1;
+            }
+            l_2 /= Self::DIRECTIONS as f64;
+            f_ms /= Self::DIRECTIONS as f64;
+            *d = l_2 / (1.0 - f_ms);
+        }
+        Self (lut)
+    }
+
+    fn sample_dir(
+        r: f64,
+        ray_dir: Vec3,
+        light_dir: Vec3,
+        transmittance: &Transmittance,
+    ) -> (Vec3, Vec3) {
+        let mu_view = ray_dir.z();
+        let t_max = Atmosphere::max_distance(r, mu_view);
+        let dt = t_max / (Self::SAMPLES as f64);
+        let mut optical_depth = Vec3::ZERO;
+        let mut l_2 = Vec3::ZERO;
+        let mut f_ms = Vec3::ZERO;
+        let mut  throughput = Vec3::splat(1.0);
+        for i in 0..Self::SAMPLES {
+            let t_i = dt * (i as f64 + 0.5);
+            let local_r = Atmosphere::local_r(r, mu_view, t_i);
+            let local_up = Atmosphere::local_up(r, t_i, ray_dir);
+
+            let cross_section = Atmosphere::cross_section(local_r);
+            let sample_optical_depth = cross_section.extinction * dt;
+            let sample_transmittance = (-sample_optical_depth).exp();
+            optical_depth += sample_optical_depth;
+
+            let mu_light = Vec3::dot(&light_dir, &local_up);
+            if !Atmosphere::intersects_ground(local_r, mu_light) {
+                let scattering_no_phase =
+                    cross_section.rayleigh_scattering + cross_section.mie_scattering;
+
+                let ms_int = (scattering_no_phase - scattering_no_phase * sample_transmittance) /
+                    cross_section.extinction;
+                f_ms += throughput * ms_int;
+
+                let transmittance_to_light = transmittance.eval(local_r, mu_light);
+
+                let s = scattering_no_phase * transmittance_to_light / (4.0 * PI);
+                let s_int = (s - s * sample_transmittance) / cross_section.extinction;
+                l_2 += throughput * s_int;
+            }
+
+            throughput *= sample_transmittance;
+            const THRESHOLD: f64 = 0.001;
+            if (throughput.x() < THRESHOLD) &&
+               (throughput.y() < THRESHOLD) &&
+               (throughput.z() < THRESHOLD) {
+                break
+            }
+        }
+
+        if Atmosphere::intersects_ground(r, mu_view) {
+            let transmittance_to_ground = (-optical_depth).exp();
+            let local_up = Atmosphere::local_up(r, t_max, ray_dir);
+            let mu_light = Vec3::dot(&light_dir, &local_up);
+            let transmittance_to_light = transmittance.eval(0.0, mu_light);
+            let ground_luminance = transmittance_to_light * transmittance_to_ground *
+                mu_light.max(0.0) * Atmosphere::GROUND_ALBEDO;
+            l_2 += ground_luminance;
+        }
+
+        (l_2, f_ms)
+    }
+
+    fn unmap(u: f64, v: f64) -> (f64, f64) {
+        let r = Self::unmap_u(u);
+        let mu = Self::unmap_v(v);
+        (r, mu)
+    }
+
+    fn unmap_u(u: f64) -> f64 {
+        (Atmosphere::TOP_RADIUS - Atmosphere::BOTTOM_RADIUS) * u + Atmosphere::BOTTOM_RADIUS
+    }
+
+    fn unmap_v(v: f64) -> f64 {
+        2.0 * v - 1.0
+    }
+}
+
 impl SkyView {
     const SHAPE: (usize, usize) = (400, 200);
     const SAMPLES: usize = 16;
@@ -279,6 +441,7 @@ impl SkyView {
     fn new(altitude: f64, lights: &[ResolvedLight]) -> Self {
         let r = altitude + Atmosphere::BOTTOM_RADIUS;
         let mut lut = Lut2::new(Self::SHAPE);
+        let multiple_scattering = MultipleScattering::get();
         let transmittance = Transmittance::get();
         for (u, v, d) in lut.iter_mut() {
             let (mu, azimuth) = Self::unmap(u, v);
@@ -295,7 +458,6 @@ impl SkyView {
                 prev_t = t_i;
 
                 let local_r = Atmosphere::local_r(r, mu, t_i);
-                let local_up = Atmosphere::local_up(r, t_i, ray_dir);
                 let cross_section = Atmosphere::cross_section(local_r);
 
                 let sample_optical_depth = cross_section.extinction * dt_i;
@@ -306,6 +468,7 @@ impl SkyView {
                     &ray_dir,
                     local_r,
                     lights,
+                    multiple_scattering,
                     transmittance,
                 );
 

@@ -84,11 +84,6 @@ enum TimeArg {
     String(String),
 }
 
-pub struct ResolvedAmbient {
-    pub colour: LinearRgb,
-    pub intensity: f64,
-}
-
 pub struct ResolvedLight {
     pub azimuth: f64,
     pub elevation: f64,
