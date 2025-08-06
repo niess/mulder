@@ -138,11 +138,11 @@ impl RawPicture {
             None => Self::default_lights(py)?.extract()?,
         };
         let (ambient, directionals) = {
-            let mut ambient = 0.0;
+            let mut ambient = vec3::Vec3::ZERO;
             let mut directionals = Vec::<lights::ResolvedLight>::new();
             for light in lights {
                 match light {
-                    lights::Light::Ambient(light) => ambient += light.intensity,
+                    lights::Light::Ambient(light) => ambient += light.luminance(),
                     lights::Light::Directional(light) => {
                         directionals.push(light.resolve(&self.position()))
                     },

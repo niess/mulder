@@ -8,7 +8,7 @@ use super::vec3::Vec3;
 pub fn illuminate(
     n: [f64;3],
     v: [f64;3],
-    ambient_light: f64,
+    ambient_light: Vec3,
     directional_lights: &[ResolvedLight],
     material: &MaterialData,
 ) -> [f64; 3] {
@@ -33,7 +33,7 @@ pub fn illuminate(
             material.roughness,
         );
 
-        let illuminance = light.intensity * NoL;
+        let illuminance = light.intensity * Vec3(light.colour.0) * NoL;
         luminance += brdf * illuminance;
     }
 

@@ -1,9 +1,10 @@
+use crate::utils::coordinates::GeographicCoordinates;
 use crate::utils::namespace::Namespace;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 use super::vec3::Vec3;
-use super::lights::{DirectionalLight, Light};
+use super::lights::{ResolvedLight, Light};
 use super::materials::LinearRgb;
 use std::sync::OnceLock;
 
@@ -35,26 +36,29 @@ impl SkyProperties {
     }
 
     #[classmethod]
-    #[pyo3(signature=(/, *lights, latitude=None, altitude=None))]
+    #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
     fn sky_view<'py>(
         cls: &Bound<'py, PyType>,
         lights: &Bound<'py, PyTuple>,
         latitude: Option<f64>,
+        longitude: Option<f64>,
         altitude: Option<f64>,
     ) -> PyResult<Namespace<'py>> {
         let py = cls.py();
-        let latitude = latitude.unwrap_or(45.0);
+        let latitude = latitude.unwrap_or(-45.0);
+        let longitude = longitude.unwrap_or(0.0);
         let altitude = altitude.unwrap_or(0.0);
+        let position = GeographicCoordinates { latitude, longitude, altitude };
         let lights = {
             let mut directionals = Vec::new();
             for light in lights {
                 let light: Light = light.extract()?;
                 match light {
                     Light::Directional(light) => {
-                        directionals.push(light)
+                        directionals.push(light.resolve(&position))
                     },
                     Light::Sun(light) => {
-                        directionals.push(light.to_directional(latitude)?)
+                        directionals.push(light.to_directional(latitude)?.resolve(&position))
                     },
                     _ => (),
                 }
@@ -201,7 +205,7 @@ impl Atmosphere {
         cross_section: &CrossSection,
         ray_dir: &Vec3,
         local_r: f64,
-        lights: &[DirectionalLight],
+        lights: &[ResolvedLight],
         transmittance: &Transmittance,
     ) -> Vec3 {
         let mut inscattering = Vec3::ZERO;
@@ -229,7 +233,7 @@ impl Atmosphere {
             */
 
             // inscattering += (*light).color.rgb * (scattering_factor + multiscattering_factor);
-            inscattering += light.intensity * single_scattering;
+            inscattering += light.intensity * Vec3(light.colour.0) * single_scattering;
         }
         const EXPOSURE: f64 = 4.0 * PI;
         inscattering * EXPOSURE
@@ -272,7 +276,7 @@ impl SkyView {
         (u, v)
     }
 
-    fn new(altitude: f64, lights: &[DirectionalLight]) -> Self {
+    fn new(altitude: f64, lights: &[ResolvedLight]) -> Self {
         let r = altitude + Atmosphere::BOTTOM_RADIUS;
         let mut lut = Lut2::new(Self::SHAPE);
         let transmittance = Transmittance::get();
