@@ -3,6 +3,7 @@ use crate::utils::namespace::Namespace;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
+use super::{RawPicture, Transform};
 use super::vec3::Vec3;
 use super::lights::{ResolvedLight, Light};
 use super::materials::LinearRgb;
@@ -25,6 +26,69 @@ pub struct SkyProperties;
 
 #[pymethods]
 impl SkyProperties {
+    #[pyo3(signature=(picture, *lights))]
+    #[classmethod]
+    fn aerial_view<'py>(
+        cls: &Bound<'py, PyType>,
+        picture: &RawPicture,
+        lights: &Bound<'py, PyTuple>,
+    ) -> PyResult<Namespace<'py>> {
+        let py = cls.py();
+        let position = picture.position();
+        let lights = {
+            let mut directionals = Vec::new();
+            for light in lights {
+                let light: Light = light.extract()?;
+                match light {
+                    Light::Directional(light) => {
+                        directionals.push(light.resolve(position))
+                    },
+                    Light::Sun(light) => {
+                        directionals.push(
+                            light.to_directional(position.latitude)?.resolve(position)
+                        )
+                    },
+                    _ => (),
+                }
+            }
+            directionals
+        };
+
+        let aerial = AerialView::new(&picture.transform, &lights);
+        let mut u_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.0])?;
+        let mut v_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.1])?;
+        let mut distance_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.2])?;
+        let mut light_array = NewArray::<f64>::empty(
+            py, [AerialView::SHAPE.2, AerialView::SHAPE.1, AerialView::SHAPE.0, 3])?;
+
+        let u = u_array.as_slice_mut();
+        for (i, ui) in aerial.0.iter_u().enumerate() {
+            u[i] = ui;
+        }
+        let v = v_array.as_slice_mut();
+        for (i, vi) in aerial.0.iter_v().enumerate() {
+            v[i] = vi;
+        }
+        let distance = distance_array.as_slice_mut();
+        for (i, wi) in aerial.0.iter_w().enumerate() {
+            distance[i] = AerialView::unmap(wi);
+        }
+        let light = light_array.as_slice_mut();
+        for (i, l) in aerial.0.data.iter().enumerate() {
+            let rgb: (u8, u8, u8) = LinearRgb(l.0).into();
+            light[3 * i + 0] = (rgb.0 as f64) / 255.0;
+            light[3 * i + 1] = (rgb.1 as f64) / 255.0;
+            light[3 * i + 2] = (rgb.2 as f64) / 255.0;
+        }
+
+        Namespace::new(py, [
+            ("u", u_array),
+            ("v", v_array),
+            ("distance", distance_array),
+            ("light", light_array),
+        ])
+    }
+
     #[classmethod]
     fn multiple_scattering<'py>(cls: &Bound<'py, PyType>) -> PyResult<Namespace<'py>> {
         let py = cls.py();
@@ -138,6 +202,8 @@ impl SkyProperties {
 
 struct Atmosphere;
 
+struct AerialView (Lut3);
+
 struct MultipleScattering (Lut2);
 
 struct SkyView (Lut2);
@@ -152,6 +218,11 @@ struct CrossSection {
 
 struct Lut2 {
     shape: (usize, usize),
+    data: Vec<Vec3>,
+}
+
+struct Lut3 {
+    shape: (usize, usize, usize),
     data: Vec<Vec3>,
 }
 
@@ -292,6 +363,96 @@ impl Atmosphere {
         let g = Self::MIE_ASYMMETRY;
         let denom = 1.0 + g * g - 2.0 * g * lv;
         (1.0 - g * g) / (4.0 * PI * denom * denom.sqrt())
+    }
+}
+
+impl AerialView {
+    const MAX_DISTANCE: f64 = 1E+05;
+    const MIN_DISTANCE: f64 = 1E+01;
+    const SHAPE: (usize, usize, usize) = (32, 32, 32);
+
+    fn eval(&self, u: f64, v: f64, distance: f64) -> Vec3 {
+        let w = Self::map(distance);
+        self.0.interpolate(u, v, w)
+    }
+
+    fn map(distance: f64) -> f64 {
+        if distance <= Self::MIN_DISTANCE {
+            0.0
+        } else if distance >= Self::MAX_DISTANCE {
+            1.0
+        } else {
+            (distance / Self::MIN_DISTANCE).ln() / (Self::MAX_DISTANCE / Self::MIN_DISTANCE).ln()
+        }
+    }
+
+    fn new(transform: &Transform, lights: &[ResolvedLight]) -> Self {
+        let r = transform.frame.origin.altitude + Atmosphere::BOTTOM_RADIUS;
+        let mut lut = Lut3::new(Self::SHAPE);
+        let multiple_scattering = MultipleScattering::get();
+        let transmittance = Transmittance::get();
+        for (iv, v) in lut.iter_v().enumerate() {
+            for (iu, u) in lut.iter_u().enumerate() {
+                let (mu, azimuth) = {
+                    let direction = transform.direction(u, v);
+                    let mu = (direction.elevation * DEG).sin();
+                    let azimuth = direction.azimuth * DEG;
+                    (mu, azimuth)
+                };
+                let ray_dir = Atmosphere::direction(mu, azimuth);
+                let t_max = Atmosphere::max_distance(r, mu);
+
+                let mut total_inscattering = Vec3::ZERO;
+                let mut throughput = Vec3::splat(1.0);
+                let mut prev_t = 0.0;
+                let mut saturate = false;
+                for (iw, w) in lut.iter_w().enumerate() {
+                    if saturate {
+                        lut.set(iu, iv, iw, total_inscattering);
+                        continue;
+                    }
+
+                    let t_i = Self::unmap(w).min(t_max);
+                    let dt_i = t_i - prev_t;
+                    prev_t = t_i;
+
+                    let local_r = Atmosphere::local_r(r, mu, t_i);
+                    let cross_section = Atmosphere::cross_section(local_r);
+
+                    let sample_optical_depth = cross_section.extinction * dt_i;
+                    let sample_transmittance = (-sample_optical_depth).exp();
+
+                    let inscattering = Atmosphere::local_inscattering(
+                        &cross_section,
+                        &ray_dir,
+                        local_r,
+                        lights,
+                        multiple_scattering,
+                        transmittance,
+                    );
+
+                    // Analytical integration of the single scattering term in the radiance
+                    // transfer equation.
+                    let s_int = (inscattering - inscattering * sample_transmittance) /
+                        cross_section.extinction;
+                    total_inscattering += throughput * s_int;
+                    lut.set(iu, iv, iw, total_inscattering);
+
+                    throughput *= sample_transmittance;
+                    const THRESHOLD: f64 = 0.001;
+                    if (throughput.x() < THRESHOLD) &&
+                       (throughput.y() < THRESHOLD) &&
+                       (throughput.z() < THRESHOLD) {
+                        saturate = true;
+                    }
+                }
+            }
+        }
+        Self (lut)
+    }
+
+    fn unmap(w: f64) -> f64 {
+        Self::MIN_DISTANCE * (w * (Self::MAX_DISTANCE / Self::MIN_DISTANCE).ln()).exp()
     }
 }
 
@@ -581,34 +742,14 @@ impl Transmittance {
 impl Lut2 {
     fn interpolate(&self, u: f64, v: f64) -> Vec3 {
         let (nu, nv) = self.shape;
-        let (iu, hu) = {
-            let mut hu = u.clamp(0.0, 1.0) * (nu - 1) as f64;
-            let iu = hu as usize;
-            if iu >= nu - 1 {
-                (nu - 2, 1.0)
-            } else {
-                hu -= iu as f64;
-                (iu, hu)
-            }
-        };
-        let (iv, hv) = {
-            let mut hv = v.clamp(0.0, 1.0) * (nv - 1) as f64;
-            let iv = hv as usize;
-            if iv >= nv - 1 {
-                (nv - 2, 1.0)
-            } else {
-                hv -= iv as f64;
-                (iv, hv)
-            }
-        };
+        let (iu, hu) = compute_index(u, nu);
+        let (iv, hv) = compute_index(v, nv);
         let f00 = self.data[iv * nu + iu];
-        let f01 = self.data[iv * nu + iu + 1];
-        let f10 = self.data[(iv + 1) * nu + iu];
+        let f01 = self.data[(iv + 1) * nu + iu];
+        let f10 = self.data[iv * nu + iu + 1];
         let f11 = self.data[(iv + 1) * nu + iu + 1];
-        f00 * (1.0 - hv) * (1.0 - hu) +
-        f01 * (1.0 - hv) * hu +
-        f10 * hv * (1.0 - hu) +
-        f11 * hv * hu
+        (f00 * (1.0 - hu) + f10 * hu) * (1.0 - hv) +
+        (f01 * (1.0 - hu) + f11 * hu) * hv
     }
 
     fn iter_mut<'a>(&'a mut self) -> Iter2<'a> {
@@ -632,6 +773,52 @@ impl Lut2 {
     fn new(shape: (usize, usize)) -> Self {
         let data = vec![Vec3::ZERO; shape.0 * shape.1];
         Self { shape, data }
+    }
+}
+
+impl Lut3 {
+    fn interpolate(&self, u: f64, v: f64, w: f64) -> Vec3 {
+        let (nu, nv, nw) = self.shape;
+        let (iu, hu) = compute_index(u, nu);
+        let (iv, hv) = compute_index(v, nv);
+        let (iw, hw) = compute_index(w, nw);
+        let f000 = self.data[(iw * nv + iv) * nu + iu];
+        let f010 = self.data[(iw * nv + iv + 1) * nu + iu];
+        let f100 = self.data[(iw * nv + iv) * nu + iu + 1];
+        let f110 = self.data[(iw * nv + iv + 1) * nu + iu + 1];
+        let f001 = self.data[((iw + 1) * nv + iv) * nu + iu];
+        let f011 = self.data[((iw + 1) * nv + iv + 1) * nu + iu];
+        let f101 = self.data[((iw + 1) * nv + iv) * nu + iu + 1];
+        let f111 = self.data[((iw + 1) * nv + iv + 1) * nu + iu + 1];
+        (
+            (f000 * (1.0 - hu) + f100 * hu) * (1.0 - hv) +
+            (f010 * (1.0 - hu) + f110 * hu) * hv
+        ) * (1.0 - hw) + (
+            (f001 * (1.0 - hu) + f101 * hu) * (1.0 - hv) +
+            (f011 * (1.0 - hu) + f111 * hu) * hv
+        ) * hw
+    }
+
+    fn iter_u(&self) -> Iter1 {
+        Iter1::new(self.shape.0)
+    }
+
+    fn iter_v(&self) -> Iter1 {
+        Iter1::new(self.shape.1)
+    }
+
+    fn iter_w(&self) -> Iter1 {
+        Iter1::new(self.shape.2)
+    }
+
+    fn new(shape: (usize, usize, usize)) -> Self {
+        let data = vec![Vec3::ZERO; shape.0 * shape.1 * shape.2];
+        Self { shape, data }
+    }
+
+    fn set(&mut self, iu: usize, iv: usize, iw: usize, value: Vec3) {
+        let (nu, nv, _) = self.shape;
+        self.data[(iw * nv + iv) * nu + iu] = value;
     }
 }
 
@@ -676,5 +863,17 @@ impl<'a> Iterator for Iter2<'a> {
             },
             None => None,
         }
+    }
+}
+
+#[inline]
+fn compute_index(x: f64, n: usize) -> (usize, f64) {
+    let mut h = x.clamp(0.0, 1.0) * (n - 1) as f64;
+    let i = h as usize;
+    if i >= n - 1 {
+        (n - 2, 1.0)
+    } else {
+        h -= i as f64;
+        (i, h)
     }
 }

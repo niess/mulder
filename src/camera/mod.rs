@@ -446,12 +446,12 @@ impl Iterator for Iter {
 impl Transform {
     #[inline]
     fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
-        self.frame.to_horizontal(&[u * self.ratio, self.f, v])
+        self.frame.to_horizontal(&[(u - 0.5) * self.ratio, self.f, (v - 0.5)])
     }
 
     #[inline]
     fn uv(i: usize, n: usize) -> f64 {
-        if n == 1 { 0.0 } else { (i as f64) / ((n - 1) as f64) - 0.5 }
+        if n == 1 { 0.5 } else { (i as f64) / ((n - 1) as f64) }
     }
 }
 
