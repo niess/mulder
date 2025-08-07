@@ -128,10 +128,10 @@ impl Dtype for HorizontalCoordinates {
 
 #[derive(Clone, Default)]
 pub struct LocalFrame {
-    origin: GeographicCoordinates,
-    rotation: [[f64; 3]; 3],
+    pub origin: GeographicCoordinates,
+    pub rotation: [[f64; 3]; 3],
     #[allow(unused)] // XXX needed?
-    translation: [f64; 3],
+    pub translation: [f64; 3],
 }
 
 impl LocalFrame {

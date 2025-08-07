@@ -87,12 +87,17 @@ pub struct PixelsCoordinates {
 }
 
 struct Iter {
-    frame: LocalFrame,
-    ratio: f64,
-    f: f64,
+    transform: Transform,
     nu: usize,
     nv: usize,
     index: usize,
+}
+
+#[derive(Default)]
+struct Transform {
+    frame: LocalFrame,
+    ratio: f64,
+    f: f64,
 }
 
 #[pymethods]
@@ -266,7 +271,6 @@ impl Camera {
             }
         };
 
-        let r0 = self.position().to_ecef();
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while shooting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
@@ -276,18 +280,8 @@ impl Camera {
             // XXX Check ray start location (air, or not / inverse normal accordingly).
             let (intersection, index) = geometry.trace(self.position(), direction)?;
             let layer = intersection.after;
-            let (direction, normal) = if (layer as usize) < layers.len() {
-                let position = GeographicCoordinates {
-                    latitude: intersection.latitude,
-                    longitude: intersection.longitude,
-                    altitude: intersection.altitude,
-                };
-                let ri = position.to_ecef();
-                let direction = normalised([
-                    r0[0] - ri[0],
-                    r0[1] - ri[1],
-                    r0[2] - ri[2],
-                ]);
+            let distance = intersection.distance as f32;
+            let normal = if (layer as usize) < layers.len() {
                 let normal = match data.get(into_usize(layer)) {
                     Some(data) => match data.get(into_usize(index)) {
                         Some(data) => normalised(data.gradient(
@@ -299,13 +293,16 @@ impl Camera {
                     }
                     None => [0.0; 3],
                 };
-                (direction, normal)
+                normal
             } else {
-                let direction = [0.0; 3];
-                let normal = [0.0; 3];
-                (direction, normal)
+                [0.0; 3]
             };
-            picture[i] = picture::PictureData { layer, direction, normal };
+            let pack = |v: [f64; 3]| -> [f32; 2] {
+                let v = HorizontalCoordinates::from_ecef(&v, &self.position());
+                [v.azimuth as f32, v.elevation as f32]
+            };
+            let normal = pack(normal);
+            picture[i] = picture::PictureData { layer, distance, normal };
             notifier.tic();
         }
         let pixels = array.into_bound().unbind();
@@ -314,11 +311,9 @@ impl Camera {
             .map(|layer| layer.bind(py).borrow().material.clone())
             .collect();
 
-        let latitude = self.latitude;
-        let longitude = self.longitude;
-        let altitude = self.altitude;
+        let transform = self.transform();
 
-        let picture = picture::RawPicture { latitude, longitude, altitude, materials, pixels };
+        let picture = picture::RawPicture { transform, materials, pixels };
         Ok(picture)
     }
 }
@@ -342,9 +337,7 @@ impl Camera {
 
     fn iter(&self) -> Iter {
         Iter {
-            frame: self.local_frame(),
-            ratio: self.ratio,
-            f: self.focal_length(),
+            transform: self.transform(),
             nu: self.resolution.width(),
             nv: self.resolution.height(),
             index: 0,
@@ -366,6 +359,14 @@ impl Camera {
             latitude: self.latitude,
             longitude: self.longitude,
             altitude: self.altitude,
+        }
+    }
+
+    fn transform(&self) -> Transform {
+        Transform {
+            frame: self.local_frame(),
+            ratio: self.ratio,
+            f: self.focal_length(),
         }
     }
 }
@@ -398,14 +399,13 @@ impl PixelsCoordinates {
         let u = u_array.as_slice_mut();
         let v = v_array.as_slice_mut();
 
-        let iter = camera.iter();
         for i in 0..nv {
-            v[i] = iter.v(i);
+            v[i] = Transform::uv(i, nv);
         }
         for j in 0..nu {
-            u[j] = iter.u(j);
+            u[j] = Transform::uv(j, nu);
         }
-        for (i, direction) in iter.enumerate() {
+        for (i, direction) in camera.iter().enumerate() {
             azimuth[i] = direction.azimuth;
             elevation[i] = direction.elevation;
         }
@@ -424,18 +424,6 @@ impl PixelsCoordinates {
     }
 }
 
-impl Iter {
-    #[inline]
-    fn u(&self, j: usize) -> f64 {
-        if self.nu == 1 { 0.0 } else { self.ratio * ((j as f64) / ((self.nu - 1) as f64) - 0.5)}
-    }
-
-    #[inline]
-    fn v(&self, i: usize) -> f64 {
-        if self.nv == 1 { 0.0 } else { (i as f64) / ((self.nv - 1) as f64) - 0.5 }
-    }
-}
-
 impl Iterator for Iter {
     type Item = HorizontalCoordinates;
 
@@ -445,13 +433,25 @@ impl Iterator for Iter {
         self.index += 1;
 
         if (i < self.nv) && (j < self.nu) {
-            let uj = self.u(j);
-            let vi = self.v(i);
-            let horizontal = self.frame.to_horizontal(&[uj, self.f, vi]);
+            let uj = Transform::uv(j, self.nu);
+            let vi = Transform::uv(i, self.nv);
+            let horizontal = self.transform.direction(uj, vi);
             Some(horizontal)
         } else {
             None
         }
+    }
+}
+
+impl Transform {
+    #[inline]
+    fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
+        self.frame.to_horizontal(&[u * self.ratio, self.f, v])
+    }
+
+    #[inline]
+    fn uv(i: usize, n: usize) -> f64 {
+        if n == 1 { 0.0 } else { (i as f64) / ((n - 1) as f64) - 0.5 }
     }
 }
 

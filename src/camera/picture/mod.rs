@@ -1,4 +1,4 @@
-use crate::utils::coordinates::GeographicCoordinates;
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
@@ -8,6 +8,7 @@ use pyo3::type_object::PyTypeInfo;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
+use super::Transform;
 
 mod atmosphere;
 mod lights;
@@ -29,17 +30,7 @@ pub fn initialise(py: Python) -> PyResult<()> {
 
 #[pyclass(module="mulder")]
 pub struct RawPicture {
-    /// The picture latitude coordinate, in degrees.
-    #[pyo3(get)]
-    pub latitude: f64,
-
-    /// The picture longitude coordinate, in degrees.
-    #[pyo3(get)]
-    pub longitude: f64,
-
-    /// The picture altitude coordinate, in m.
-    #[pyo3(get)]
-    pub altitude: f64,
+    pub(super) transform: Transform,
 
     /// The layers' materials.
     #[pyo3(set)]
@@ -54,8 +45,8 @@ pub struct RawPicture {
 #[derive(Clone)]
 pub struct PictureData {
     pub layer: i32,
-    pub direction: [f64; 3],
-    pub normal: [f64; 3],
+    pub distance: f32,
+    pub normal: [f32; 2],
 }
 
 static PICTURE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
@@ -66,9 +57,9 @@ impl Dtype for PictureData {
             let ob = PyModule::import(py, "numpy")?
                 .getattr("dtype")?
                 .call1(([
-                        ("layer",     "i4"),
-                        ("direction", "3f8"),
-                        ("normal",    "3f8"),
+                        ("layer",    "i4"),
+                        ("distance", "f4"),
+                        ("normal",   "2f4"),
                     ],
                     true,
                 ))?
@@ -84,12 +75,28 @@ impl Dtype for PictureData {
 impl RawPicture {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
-        let latitude = 0.0;
-        let longitude = 0.0;
-        let altitude = 0.0;
+        let transform = Default::default();
         let materials = Vec::new();
         let pixels = NewArray::zeros(py, [])?.into_bound().unbind();
-        Ok(Self { latitude, longitude, altitude, materials, pixels })
+        Ok(Self { transform, materials, pixels })
+    }
+
+    /// The picture latitude coordinate, in degrees.
+    #[getter]
+    pub fn get_latitude(&self) -> f64 {
+        self.position().latitude
+    }
+
+    /// The picture longitude coordinate, in degrees.
+    #[getter]
+    pub fn get_longitude(&self) -> f64 {
+        self.position().longitude
+    }
+
+    /// The picture altitude coordinate, in m.
+    #[getter]
+    pub fn get_altitude(&self) -> f64 {
+        self.position().altitude
     }
 
     #[getter]
@@ -102,22 +109,41 @@ impl RawPicture {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { latitude, longitude, altitude, materials, pixels } = self;
+        let Self { transform, materials, pixels } = self;
+        let Transform { frame, ratio, f } = transform;
+        let LocalFrame { origin, rotation, .. } = frame;
+        let GeographicCoordinates { latitude, longitude, altitude } = origin;
 
         let state = PyDict::new(py);
         state.set_item("latitude", latitude)?;
         state.set_item("longitude", longitude)?;
         state.set_item("altitude", altitude)?;
+        state.set_item("rotation", rotation)?;
+        state.set_item("ratio", ratio)?;
+        state.set_item("f", f)?;
         state.set_item("materials", materials)?;
         state.set_item("pixels", pixels)?;
         Ok(state)
     }
 
     fn __setstate__(&mut self, state: Bound<PyDict>) -> PyResult<()> {
-        *self = Self { // This ensures that no field is omitted.
+        let origin = GeographicCoordinates {
             latitude: state.get_item("latitude")?.unwrap().extract()?,
             longitude: state.get_item("longitude")?.unwrap().extract()?,
             altitude: state.get_item("altitude")?.unwrap().extract()?,
+        };
+        let frame = LocalFrame {
+            origin,
+            rotation: state.get_item("rotation")?.unwrap().extract()?,
+            translation: [0.0; 3],
+        };
+        let transform = Transform { // This ensures that no field is omitted.
+            frame,
+            ratio: state.get_item("ratio")?.unwrap().extract()?,
+            f: state.get_item("f")?.unwrap().extract()?,
+        };
+        *self = Self { // This ensures that no field is omitted.
+            transform,
             materials: state.get_item("materials")?.unwrap().extract()?,
             pixels: state.get_item("pixels")?.unwrap().extract()?,
         };
@@ -144,13 +170,13 @@ impl RawPicture {
                 match light {
                     lights::Light::Ambient(light) => ambient += light.luminance(),
                     lights::Light::Directional(light) => {
-                        directionals.push(light.resolve(&self.position()))
+                        directionals.push(light.resolve(self.position()))
                     },
                     lights::Light::Sun(light) => {
                         directionals.push(
                             light
-                                .to_directional(self.latitude)?
-                                .resolve(&self.position())
+                                .to_directional(self.position().latitude)?
+                                .resolve(self.position())
                         )
                     },
                 }
@@ -180,13 +206,25 @@ impl RawPicture {
         // Loop over pixels.
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
+        let (nv, nu) = (shape[0], shape[1]);
         shape.push(3);
         let mut array = NewArray::empty(py, shape)?;
         let pixels = array.as_slice_mut();
 
         let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
         for i in 0..data.size() {
-            let PictureData { layer, direction, normal } = data.get_item(i)?;
+            let PictureData { layer, normal, .. } = data.get_item(i)?;
+            let unpack = |v: [f32; 2]| {
+                HorizontalCoordinates { azimuth: v[0] as f64, elevation: v[1] as f64 }
+            };
+            let normal = unpack(normal)
+                .to_ecef(self.position());
+            let u = Transform::uv(i % nu, nu);
+            let v = Transform::uv(i / nu, nv);
+            let direction = self.transform.direction(u, v);
+            let view = direction
+                .to_ecef(self.position());
+            let view = core::array::from_fn(|i| -view[i]);
             let rgb = if (layer as usize) < materials.len() {
                 let material = materials
                     .get(layer as usize)
@@ -198,7 +236,7 @@ impl RawPicture {
                         );
                         Error::new(ValueError).what("layer index").why(&why).to_err()
                     })?;
-                pbr::illuminate(normal, direction, ambient, &directionals, material)
+                pbr::illuminate(normal, view, ambient, &directionals, material)
             } else {
                 [0.0; 3]
             };
@@ -227,11 +265,7 @@ impl RawPicture {
     }
 
     #[inline]
-    fn position(&self) -> GeographicCoordinates {
-        GeographicCoordinates {
-            latitude: self.latitude,
-            longitude: self.longitude,
-            altitude: self.altitude,
-        }
+    fn position(&self) -> &GeographicCoordinates {
+        &self.transform.frame.origin
     }
 }
