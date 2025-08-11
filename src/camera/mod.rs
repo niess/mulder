@@ -280,6 +280,7 @@ impl Camera {
             // XXX Check ray start location (air, or not / inverse normal accordingly).
             let (intersection, index) = geometry.trace(self.position(), direction)?;
             let layer = intersection.after;
+            let altitude = intersection.altitude as f32;
             let distance = intersection.distance as f32;
             let normal = if (layer as usize) < layers.len() {
                 let normal = match data.get(into_usize(layer)) {
@@ -302,7 +303,7 @@ impl Camera {
                 [v.azimuth as f32, v.elevation as f32]
             };
             let normal = pack(normal);
-            picture[i] = picture::PictureData { layer, distance, normal };
+            picture[i] = picture::PictureData { layer, altitude, distance, normal };
             notifier.tic();
         }
         let pixels = array.into_bound().unbind();
@@ -447,6 +448,11 @@ impl Transform {
     #[inline]
     fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
         self.frame.to_horizontal(&[(u - 0.5) * self.ratio, self.f, (v - 0.5)])
+    }
+
+    fn exposure(&self, time: f64, sensitivity: f64) -> f64 {
+        const Q: f64 = 0.65;  // Vignetting attenuation.
+        Q * time * sensitivity * self.ratio / (78.0 * self.f.powi(2))
     }
 
     #[inline]

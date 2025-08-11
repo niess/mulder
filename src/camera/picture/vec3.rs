@@ -167,6 +167,15 @@ impl MulAssign for Vec3 {
     }
 }
 
+impl MulAssign<f64> for Vec3 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: f64) {
+        self.0[0] *= rhs;
+        self.0[1] *= rhs;
+        self.0[2] *= rhs;
+    }
+}
+
 impl Neg for Vec3 {
     type Output = Vec3;
 

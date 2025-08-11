@@ -45,6 +45,7 @@ pub struct RawPicture {
 #[derive(Clone)]
 pub struct PictureData {
     pub layer: i32,
+    pub altitude: f32,
     pub distance: f32,
     pub normal: [f32; 2],
 }
@@ -58,6 +59,7 @@ impl Dtype for PictureData {
                 .getattr("dtype")?
                 .call1(([
                         ("layer",    "i4"),
+                        ("altitude", "f4"),
                         ("distance", "f4"),
                         ("normal",   "2f4"),
                     ],
@@ -150,14 +152,17 @@ impl RawPicture {
         Ok(())
     }
 
-    #[pyo3(signature=(/, *, lights=None, materials=None, notify=None))]
+    #[pyo3(signature=(/, *, atmosphere=true, lights=None, materials=None, notify=None))]
     fn develop<'py>(
         &mut self,
         py: Python<'py>,
+        atmosphere: Option<bool>,
         lights: Option<Vec<lights::Light>>,
         materials: Option<HashMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
+        let atmosphere = atmosphere.unwrap_or(true);
+
         // Resolve lights.
         let lights = match lights {
             Some(lights) => lights,
@@ -203,6 +208,13 @@ impl RawPicture {
             properties
         };
 
+        // Instanciate the atmosphere.
+        let atmosphere = if atmosphere {
+            Some(atmosphere::Atmosphere::new(self, &directionals))
+        } else {
+            None
+        };
+
         // Loop over pixels.
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
@@ -213,7 +225,7 @@ impl RawPicture {
 
         let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
         for i in 0..data.size() {
-            let PictureData { layer, normal, .. } = data.get_item(i)?;
+            let PictureData { layer, normal, altitude, distance } = data.get_item(i)?;
             let unpack = |v: [f32; 2]| {
                 HorizontalCoordinates { azimuth: v[0] as f64, elevation: v[1] as f64 }
             };
@@ -236,9 +248,15 @@ impl RawPicture {
                         );
                         Error::new(ValueError).what("layer index").why(&why).to_err()
                     })?;
-                pbr::illuminate(normal, view, ambient, &directionals, material)
+                pbr::illuminate(
+                    u, v, altitude as f64, distance as f64, normal, view, ambient, &directionals,
+                    material, atmosphere.as_ref(),
+                )
             } else {
-                [0.0; 3]
+                match &atmosphere {
+                    Some(atmosphere) => atmosphere.sky_view(&direction),
+                    None => [0.0; 3],
+                }
             };
             let rgb: (u8, u8, u8) = materials::LinearRgb(rgb).into();
 

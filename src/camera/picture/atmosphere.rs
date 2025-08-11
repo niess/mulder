@@ -1,4 +1,4 @@
-use crate::utils::coordinates::GeographicCoordinates;
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::namespace::Namespace;
 use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
@@ -200,7 +200,11 @@ impl SkyProperties {
 //
 // ===============================================================================================
 
-struct Atmosphere;
+pub struct Atmosphere {
+    aerial: AerialView,
+    sky: SkyView,
+    transmittance: &'static Transmittance,
+}
 
 struct AerialView (Lut3);
 
@@ -239,6 +243,40 @@ struct Iter2<'a> {
     iv: usize,
     nu: usize,
     iter: std::slice::IterMut<'a, Vec3>,
+}
+
+impl Atmosphere {
+    pub fn aerial_view(&self, u: f64, v: f64, distance: f64) -> [f64; 3] {
+        self.aerial.eval(u, v, distance).0
+    }
+
+    pub fn new(picture: &RawPicture, lights: &[ResolvedLight]) -> Self {
+        let aerial = AerialView::new(&picture.transform, lights);
+        let sky = SkyView::new(picture.transform.frame.origin.altitude, lights);
+        let transmittance = Transmittance::get();
+        Self { aerial, sky, transmittance }
+    }
+
+    pub fn sky_view(&self, direction: &HorizontalCoordinates) -> [f64; 3] {
+        let azimuth = {
+            let mut azimuth = direction.azimuth * DEG;
+            while azimuth < -PI {
+                azimuth += 2.0 * PI;
+            }
+            while azimuth > PI {
+                azimuth -= 2.0 * PI;
+            }
+            azimuth
+        };
+        let mu = (direction.elevation * DEG).sin();
+        self.sky.eval(mu, azimuth).0
+    }
+
+    pub fn transmittance(&self, altitude: f64, elevation: f64) -> [f64;3] {
+        let r = Atmosphere::BOTTOM_RADIUS + altitude;
+        let mu = (elevation * DEG).sin();
+        self.transmittance.eval(r, mu).0
+    }
 }
 
 impl Atmosphere {
@@ -371,7 +409,7 @@ impl AerialView {
     const MIN_DISTANCE: f64 = 1E+01;
     const SHAPE: (usize, usize, usize) = (32, 32, 32);
 
-    fn eval(&self, u: f64, v: f64, distance: f64) -> Vec3 {
+    pub fn eval(&self, u: f64, v: f64, distance: f64) -> Vec3 {
         let w = Self::map(distance);
         self.0.interpolate(u, v, w)
     }

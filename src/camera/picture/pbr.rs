@@ -1,31 +1,37 @@
 #![allow(non_snake_case)]
 
+use super::atmosphere::Atmosphere;
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;
 use super::vec3::Vec3;
 
 
 pub fn illuminate(
-    n: [f64;3],
-    v: [f64;3],
+    u: f64,
+    v: f64,
+    altitude: f64,
+    distance: f64,
+    normal: [f64;3],
+    view: [f64;3],
     ambient_light: Vec3,
     directional_lights: &[ResolvedLight],
     material: &MaterialData,
+    atmosphere: Option<&Atmosphere>,
 ) -> [f64; 3] {
     let diffuse_colour = Vec3(material.diffuse_colour);
     let specular_colour = Vec3(material.f0);
-    let n = Vec3(n);
-    let v = Vec3(v);
-    let NoV = max(Vec3::dot(&n, &v), 1E-04);
+    let normal = Vec3(normal);
+    let view = Vec3(view);
+    let NoV = max(Vec3::dot(&normal, &view), 1E-04);
 
     let mut luminance = Vec3::ZERO;
     for light in directional_lights {
         let l = Vec3(light.direction);
-        let NoL = clamp(Vec3::dot(&n, &l), 0.0, 1.0);
+        let NoL = clamp(Vec3::dot(&normal, &l), 0.0, 1.0);
         let brdf = BRDF(
             l,
-            n,
-            v,
+            normal,
+            view,
             NoL,
             NoV,
             diffuse_colour,
@@ -34,14 +40,22 @@ pub fn illuminate(
         );
 
         let illuminance = light.intensity * Vec3(light.colour.0) * NoL;
-        luminance += brdf * illuminance;
+        let mut li = brdf * illuminance;
+        if let Some(atmosphere) = atmosphere {
+            li *= Vec3(atmosphere.transmittance(altitude, light.elevation));
+        }
+        luminance += li;
+    }
+    luminance *= PI;
+    if let Some(atmosphere) = atmosphere {
+        luminance += Vec3(atmosphere.aerial_view(u, v, distance));
     }
 
     let diffuse_ambient = EnvBRDFApprox(diffuse_colour, NoV, 1.0);
     let specular_ambient = EnvBRDFApprox(specular_colour, NoV, material.perceptual_roughness);
     let ambient = (diffuse_ambient + specular_ambient) * ambient_light;
 
-    (luminance * PI + ambient).0
+    (luminance + ambient).0
 }
 
 
