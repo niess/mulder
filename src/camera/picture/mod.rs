@@ -32,6 +32,10 @@ pub fn initialise(py: Python) -> PyResult<()> {
 pub struct RawPicture {
     pub(super) transform: Transform,
 
+    /// The picture exposure value.
+    #[pyo3(get, set)]
+    pub exposure_value: f64,
+
     /// The layers' materials.
     #[pyo3(set)]
     pub materials: Vec<String>,
@@ -78,9 +82,10 @@ impl RawPicture {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
         let transform = Default::default();
+        let exposure_value = 0.0;
         let materials = Vec::new();
         let pixels = NewArray::zeros(py, [])?.into_bound().unbind();
-        Ok(Self { transform, materials, pixels })
+        Ok(Self { transform, exposure_value, materials, pixels })
     }
 
     /// The picture latitude coordinate, in degrees.
@@ -111,7 +116,7 @@ impl RawPicture {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { transform, materials, pixels } = self;
+        let Self { transform, exposure_value, materials, pixels } = self;
         let Transform { frame, ratio, f } = transform;
         let LocalFrame { origin, rotation, .. } = frame;
         let GeographicCoordinates { latitude, longitude, altitude } = origin;
@@ -123,6 +128,7 @@ impl RawPicture {
         state.set_item("rotation", rotation)?;
         state.set_item("ratio", ratio)?;
         state.set_item("f", f)?;
+        state.set_item("exposure_value", exposure_value)?;
         state.set_item("materials", materials)?;
         state.set_item("pixels", pixels)?;
         Ok(state)
@@ -146,6 +152,7 @@ impl RawPicture {
         };
         *self = Self { // This ensures that no field is omitted.
             transform,
+            exposure_value: state.get_item("exposure_value")?.unwrap().extract()?,
             materials: state.get_item("materials")?.unwrap().extract()?,
             pixels: state.get_item("pixels")?.unwrap().extract()?,
         };
@@ -215,6 +222,9 @@ impl RawPicture {
             None
         };
 
+        // Compute the exposure.
+        let exposure = 2.0_f64.powf(-self.exposure_value) / 120.0;
+
         // Loop over pixels.
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
@@ -237,7 +247,7 @@ impl RawPicture {
             let view = direction
                 .to_ecef(self.position());
             let view = core::array::from_fn(|i| -view[i]);
-            let rgb = if (layer as usize) < materials.len() {
+            let hdr = if (layer as usize) < materials.len() {
                 let material = materials
                     .get(layer as usize)
                     .ok_or_else(|| {
@@ -255,10 +265,12 @@ impl RawPicture {
             } else {
                 match &atmosphere {
                     Some(atmosphere) => atmosphere.sky_view(&direction),
-                    None => [0.0; 3],
+                    None => vec3::Vec3::ZERO,
                 }
             };
-            let rgb: (u8, u8, u8) = materials::LinearRgb(rgb).into();
+            let hdr = hdr * exposure;
+            let ldr = ToneMapping::map(hdr);
+            let rgb: (u8, u8, u8) = materials::LinearRgb(ldr.0).into();
 
             pixels[3 * i + 0] = (rgb.0 as f32) / 255.0;
             pixels[3 * i + 1] = (rgb.1 as f32) / 255.0;
@@ -285,5 +297,16 @@ impl RawPicture {
     #[inline]
     fn position(&self) -> &GeographicCoordinates {
         &self.transform.frame.origin
+    }
+}
+
+struct ToneMapping;
+
+impl ToneMapping {
+    // Extended Reinhard tone mapping.
+    // Ref: https://64.github.io/tonemapping/
+    fn map(c: vec3::Vec3) -> vec3::Vec3 {
+        const BASE: vec3::Vec3 = vec3::Vec3([0.2126, 0.7152, 0.0722]);
+        c / (1.0 + vec3::Vec3::dot(&c, &BASE))
     }
 }

@@ -314,7 +314,10 @@ impl Camera {
 
         let transform = self.transform();
 
-        let picture = picture::RawPicture { transform, materials, pixels };
+        const SHUTTER_SPEED: f64 = 1.0 / 125.0;  // in s.
+        let exposure_value = transform.exposure_value(SHUTTER_SPEED);
+
+        let picture = picture::RawPicture { transform, exposure_value, materials, pixels };
         Ok(picture)
     }
 }
@@ -333,7 +336,7 @@ impl Camera {
     }
 
     fn focal_length(&self) -> f64 {
-        0.5 * (1.0 + self.ratio.powi(2)).sqrt() / (0.5 * (self.fov * Self::DEG)).tan()
+        0.5 * (1.0 + self.ratio.powi(2)).sqrt() / (0.5 * self.fov * Self::DEG).tan()
     }
 
     fn iter(&self) -> Iter {
@@ -450,9 +453,8 @@ impl Transform {
         self.frame.to_horizontal(&[(u - 0.5) * self.ratio, self.f, (v - 0.5)])
     }
 
-    fn exposure(&self, time: f64, sensitivity: f64) -> f64 {
-        const Q: f64 = 0.65;  // Vignetting attenuation.
-        Q * time * sensitivity * self.ratio / (78.0 * self.f.powi(2))
+    fn exposure_value(&self, time: f64) -> f64 {
+        (self.f.powi(2) / (time * self.ratio)).log2()
     }
 
     #[inline]

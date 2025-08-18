@@ -246,8 +246,9 @@ struct Iter2<'a> {
 }
 
 impl Atmosphere {
-    pub fn aerial_view(&self, u: f64, v: f64, distance: f64) -> [f64; 3] {
-        self.aerial.eval(u, v, distance).0
+    #[inline]
+    pub fn aerial_view(&self, u: f64, v: f64, distance: f64) -> Vec3 {
+        self.aerial.eval(u, v, distance)
     }
 
     pub fn new(picture: &RawPicture, lights: &[ResolvedLight]) -> Self {
@@ -257,7 +258,7 @@ impl Atmosphere {
         Self { aerial, sky, transmittance }
     }
 
-    pub fn sky_view(&self, direction: &HorizontalCoordinates) -> [f64; 3] {
+    pub fn sky_view(&self, direction: &HorizontalCoordinates) -> Vec3 {
         let azimuth = {
             let mut azimuth = direction.azimuth * DEG;
             while azimuth < -PI {
@@ -269,13 +270,13 @@ impl Atmosphere {
             azimuth
         };
         let mu = (direction.elevation * DEG).sin();
-        self.sky.eval(mu, azimuth).0
+        self.sky.eval(mu, azimuth)
     }
 
-    pub fn transmittance(&self, altitude: f64, elevation: f64) -> [f64;3] {
+    pub fn transmittance(&self, altitude: f64, elevation: f64) -> Vec3 {
         let r = Atmosphere::BOTTOM_RADIUS + altitude;
         let mu = (elevation * DEG).sin();
-        self.transmittance.eval(r, mu).0
+        self.transmittance.eval(r, mu)
     }
 }
 
@@ -378,11 +379,9 @@ impl Atmosphere {
             let multiple_scattering = psi_ms *
                 (cross_section.rayleigh_scattering + cross_section.mie_scattering);
 
-            inscattering += light.intensity * Vec3(light.colour.0) * (
-                single_scattering + multiple_scattering);
+            inscattering += light.illuminance * (single_scattering + multiple_scattering);
         }
-        const EXPOSURE: f64 = 4.0 * PI;
-        inscattering * EXPOSURE
+        inscattering
     }
 
     fn max_distance(r: f64, mu: f64) -> f64 {

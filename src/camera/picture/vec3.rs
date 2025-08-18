@@ -9,6 +9,15 @@ impl Vec3 {
     pub const ZERO: Self = Self([0.0; 3]);
 
     #[inline]
+    pub fn clamp(self, a: f64, b: f64) -> Self {
+        Self ([
+            self.0[0].clamp(a, b),
+            self.0[1].clamp(a, b),
+            self.0[2].clamp(a, b),
+        ])
+    }
+
+    #[inline]
     pub fn dot(rhs: &Self, lhs: &Self) -> f64 {
         rhs.0[0] * lhs.0[0] + rhs.0[1] * lhs.0[1] + rhs.0[2] * lhs.0[2]
     }
@@ -71,6 +80,19 @@ impl Add<f64> for Vec3 {
             self.0[0] + rhs,
             self.0[1] + rhs,
             self.0[2] + rhs,
+        ])
+    }
+}
+
+impl Add<Vec3> for f64 {
+    type Output = Vec3;
+
+    #[inline]
+    fn add(self, rhs: Vec3) -> Self::Output {
+        Vec3 ([
+            self + rhs.0[0],
+            self + rhs.0[1],
+            self + rhs.0[2],
         ])
     }
 }

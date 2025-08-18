@@ -17,7 +17,7 @@ pub fn illuminate(
     directional_lights: &[ResolvedLight],
     material: &MaterialData,
     atmosphere: Option<&Atmosphere>,
-) -> [f64; 3] {
+) -> Vec3 {
     let diffuse_colour = Vec3(material.diffuse_colour);
     let specular_colour = Vec3(material.f0);
     let normal = Vec3(normal);
@@ -39,23 +39,21 @@ pub fn illuminate(
             material.roughness,
         );
 
-        let illuminance = light.intensity * Vec3(light.colour.0) * NoL;
-        let mut li = brdf * illuminance;
+        let mut li = brdf * light.illuminance * NoL;
         if let Some(atmosphere) = atmosphere {
-            li *= Vec3(atmosphere.transmittance(altitude, light.elevation));
+            li *= atmosphere.transmittance(altitude, light.elevation);
         }
         luminance += li;
     }
-    luminance *= PI;
     if let Some(atmosphere) = atmosphere {
-        luminance += Vec3(atmosphere.aerial_view(u, v, distance));
+        luminance += atmosphere.aerial_view(u, v, distance);
     }
 
     let diffuse_ambient = EnvBRDFApprox(diffuse_colour, NoV, 1.0);
     let specular_ambient = EnvBRDFApprox(specular_colour, NoV, material.perceptual_roughness);
     let ambient = (diffuse_ambient + specular_ambient) * ambient_light;
 
-    (luminance + ambient).0
+    luminance + ambient
 }
 
 
