@@ -314,10 +314,7 @@ impl Camera {
 
         let transform = self.transform();
 
-        const SHUTTER_SPEED: f64 = 1.0 / 125.0;  // in s.
-        let exposure_value = transform.exposure_value(SHUTTER_SPEED);
-
-        let picture = picture::RawPicture { transform, exposure_value, materials, pixels };
+        let picture = picture::RawPicture { transform, materials, pixels };
         Ok(picture)
     }
 }
@@ -451,10 +448,6 @@ impl Transform {
     #[inline]
     fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
         self.frame.to_horizontal(&[(u - 0.5) * self.ratio, self.f, (v - 0.5)])
-    }
-
-    fn exposure_value(&self, time: f64) -> f64 {
-        (self.f.powi(2) / (time * self.ratio)).log2()
     }
 
     #[inline]
