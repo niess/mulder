@@ -21,10 +21,12 @@ pub fn illuminate(
     atmosphere: Option<&Atmosphere>,
 ) -> Vec3 {
     let diffuse_colour = Vec3(material.diffuse_colour);
-    let specular_colour = Vec3(material.f0);
+    let f0 = Vec3(material.f0);
     let normal = Vec3(normal);
     let view = Vec3(view);
     let nv = Vec3::dot(&normal, &view).max(1E-04);
+    let dfg = dfg_approx(nv, material.perceptual_roughness);
+    let r = dfg.0 + dfg.1;
 
     let mut directional = Vec3::ZERO;
     for light in directional_lights {
@@ -38,8 +40,9 @@ pub fn illuminate(
             nl,
             nv,
             diffuse_colour,
-            specular_colour,
+            f0,
             material.roughness,
+            r,
         );
         let mut li = brdf * light.illuminance * nl;
         if let Some(atmosphere) = atmosphere {
@@ -49,9 +52,8 @@ pub fn illuminate(
     }
 
     let ambient = if nv > 0.0 {
-        let diffuse_ambient = ambient_brdf(diffuse_colour, nv, 1.0);
-        let specular_ambient = ambient_brdf(specular_colour, nv, material.perceptual_roughness);
-        (diffuse_ambient + specular_ambient) * ambient_light
+        let specular_ambient = dfg.0 * f0 + dfg.1;
+        (diffuse_colour + specular_ambient) * ambient_light
     } else {
         Vec3::ZERO
     };
@@ -81,6 +83,7 @@ fn brdf(
     diffuse_color: Vec3,
     f0: Vec3,
     roughness: f64,
+    r: f64,
 ) -> Vec3 {
     let h = Vec3::normalize(v + l);
 
@@ -93,7 +96,8 @@ fn brdf(
     let v = v_smith_ggx(nv, nl, a2);
 
     // Specular BRDF.
-    let fr = (d * v) * f;
+    let mut fr = (d * v) * f;
+    fr *= 1.0 + f0 * (1.0 / r - 1.0);
 
     // Diffuse BRDF.
     let fd = diffuse_color * f_lambert();
@@ -124,7 +128,7 @@ const fn f_lambert() -> f64 {
 }
 
 // Ref: https://www.unrealengine.com/en-US/blog/physically-based-shading-on-mobile
-fn ambient_brdf(colour: Vec3, no: f64, perceptual_roughness: f64) -> Vec3 {
+fn dfg_approx(nv: f64, perceptual_roughness: f64) -> (f64, f64) {
     const C0: [f64; 4] = [-1.0, -0.0275, -0.572, 0.022];
     const C1: [f64; 4] = [1.0, 0.0425, 1.04, -0.04];
     let r = [
@@ -133,8 +137,8 @@ fn ambient_brdf(colour: Vec3, no: f64, perceptual_roughness: f64) -> Vec3 {
         perceptual_roughness * C0[2] + C1[2],
         perceptual_roughness * C0[3] + C1[3],
     ];
-    let a004 = r[0].powi(2).min(2.0_f64.powf(-9.28 * no)) * r[0] + r[1];
+    let a004 = r[0].powi(2).min(2.0_f64.powf(-9.28 * nv)) * r[0] + r[1];
     let x = -1.04 * a004 + r[2];
     let y = 1.04 * a004 + r[3];
-    x * colour + y
+    (x, y)
 }
