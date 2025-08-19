@@ -6,13 +6,14 @@ use pyo3::types::PyDict;
 pub fn default_materials(py: Python) -> PyResult<PyObject> {
     let materials = PyDict::new(py);
     materials.set_item("Rock", OpticalProperties {
-        colour: (139, 69, 19),
-        roughness: 0.1,
+        colour: (101, 67, 33),
+        roughness: 0.5,
         ..Default::default()
     })?;
     materials.set_item("Water", OpticalProperties {
-        colour: (15, 94, 156),
+        colour: OpticalProperties::WHITE,
         roughness: 0.2,
+        metallic: true,
         ..Default::default()
     })?;
     let materials = materials.into_any().unbind();

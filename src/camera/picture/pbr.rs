@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-
+use crate::utils::coordinates::HorizontalCoordinates;
 use super::atmosphere::Atmosphere;
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;
@@ -14,6 +13,7 @@ pub fn illuminate(
     altitude: f64,
     distance: f64,
     normal: [f64;3],
+    normal_horizontal: HorizontalCoordinates,
     view: [f64;3],
     ambient_light: Vec3,
     directional_lights: &[ResolvedLight],
@@ -52,8 +52,17 @@ pub fn illuminate(
     }
 
     let ambient = if nv > 0.0 {
+        let (diffuse_sky, specular_sky) = match atmosphere {
+            Some(atmosphere) => (
+                atmosphere.ambient_diffuse(normal_horizontal.elevation),
+                atmosphere.ambient_specular(normal_horizontal.elevation, material.roughness),
+            ),
+            None => (Vec3::ZERO, Vec3::ZERO),
+        };
+        let diffuse_light = diffuse_sky + ambient_light;
+        let specular_light = specular_sky + ambient_light;
         let specular_ambient = dfg.0 * f0 + dfg.1;
-        (diffuse_colour + specular_ambient) * ambient_light
+        diffuse_colour * diffuse_light + specular_ambient * specular_light
     } else {
         Vec3::ZERO
     };
@@ -91,7 +100,7 @@ fn brdf(
     let lh = Vec3::dot(&l, &h).clamp(0.0, 1.0);
 
     let a2 = roughness.powi(2);
-    let d = d_ggx(nh, a2);
+    let d = d_ggx(nh.powi(2), a2);
     let f = f_schlick(lh, f0);
     let v = v_smith_ggx(nv, nl, a2);
 
@@ -106,8 +115,8 @@ fn brdf(
 }
 
 #[inline]
-fn d_ggx(nh: f64, a2: f64) -> f64 {
-    let f = (nh * a2 - nh) * nh + 1.0;
+pub fn d_ggx(nh2: f64, a2: f64) -> f64 {
+    let f = (a2 - 1.0) * nh2 + 1.0;
     a2 / (PI * f * f)
 }
 
@@ -117,7 +126,7 @@ fn f_schlick(u: f64, f0: Vec3) -> Vec3 {
 }
 
 #[inline]
-fn v_smith_ggx(nv: f64, nl: f64, a2: f64) -> f64 {
+pub fn v_smith_ggx(nv: f64, nl: f64, a2: f64) -> f64 {
     let ggxv = nl * (nv.powi(2) * (1.0 - a2) + a2).sqrt();
     let ggxl = nv * (nl.powi(2) * (1.0 - a2) + a2).sqrt();
     0.5 / (ggxl + ggxv)

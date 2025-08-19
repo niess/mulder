@@ -7,6 +7,7 @@ use super::{RawPicture, Transform};
 use super::vec3::Vec3;
 use super::lights::{ResolvedLight, Light};
 use super::materials::LinearRgb;
+use super::pbr::{d_ggx, v_smith_ggx};
 use std::sync::OnceLock;
 
 
@@ -86,6 +87,78 @@ impl SkyProperties {
             ("v", v_array),
             ("distance", distance_array),
             ("light", light_array),
+        ])
+    }
+
+    #[classmethod]
+    #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
+    fn ambient_light<'py>(
+        cls: &Bound<'py, PyType>,
+        lights: &Bound<'py, PyTuple>,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        altitude: Option<f64>,
+    ) -> PyResult<Namespace<'py>> {
+        let py = cls.py();
+        let latitude = latitude.unwrap_or(-45.0);
+        let longitude = longitude.unwrap_or(0.0);
+        let altitude = altitude.unwrap_or(0.0);
+        let position = GeographicCoordinates { latitude, longitude, altitude };
+        let lights = {
+            let mut directionals = Vec::new();
+            for light in lights {
+                let light: Light = light.extract()?;
+                match light {
+                    Light::Directional(light) => {
+                        directionals.push(light.resolve(&position))
+                    },
+                    Light::Sun(light) => {
+                        directionals.push(light.to_directional(latitude)?.resolve(&position))
+                    },
+                    _ => (),
+                }
+            }
+            directionals
+        };
+
+        let sky_view = SkyView::new(altitude, &lights);
+        let average = sky_view.average();
+        let diffuse = AmbientDiffuse::new(&average);
+        let specular = AmbientSpecular::new(&average);
+        let mut elevation_array = NewArray::<f64>::empty(py, [SkyView::AVERAGE_SIZE])?;
+        let mut roughness_array = NewArray::<f64>::empty(py, [AmbientSpecular::SHAPE.1])?;
+        let mut diffuse_array = NewArray::<f64>::empty(py, [SkyView::AVERAGE_SIZE, 3])?;
+        let mut specular_array = NewArray::<f64>::empty(
+            py, [SkyView::AVERAGE_SIZE, AmbientSpecular::SHAPE.1, 3]
+        )?;
+
+        let elevation = elevation_array.as_slice_mut();
+        let roughness = roughness_array.as_slice_mut();
+        let d = diffuse_array.as_slice_mut();
+        let s = specular_array.as_slice_mut();
+        for (i, v) in specular.0.iter_v().enumerate() {
+            roughness[i] = v;
+        }
+        for (i, mu) in average.iter_u().enumerate() {
+            elevation[i] = mu.asin() / DEG;
+            let rgb: (u8, u8, u8) = LinearRgb(diffuse.eval(mu).0).into();
+            d[3 * i + 0] = (rgb.0 as f64) / 255.0;
+            d[3 * i + 1] = (rgb.1 as f64) / 255.0;
+            d[3 * i + 2] = (rgb.2 as f64) / 255.0;
+
+            for (j, roughness) in specular.0.iter_v().enumerate() {
+                let rgb: (u8, u8, u8) = LinearRgb(specular.eval(mu, roughness.powi(2)).0).into();
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 0] = (rgb.0 as f64) / 255.0;
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 1] = (rgb.1 as f64) / 255.0;
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 2] = (rgb.2 as f64) / 255.0;
+            }
+        }
+
+        Namespace::new(py, [
+            ("elevation", elevation_array),
+            ("roughness", roughness_array),
+            ("diffuse", diffuse_array),
+            ("specular", specular_array),
         ])
     }
 
@@ -202,11 +275,17 @@ impl SkyProperties {
 
 pub struct Atmosphere {
     aerial: AerialView,
+    ambient_diffuse: AmbientDiffuse,
+    ambient_specular: AmbientSpecular,
     sky: SkyView,
     transmittance: &'static Transmittance,
 }
 
 struct AerialView (Lut3);
+
+struct AmbientDiffuse (Vec3);
+
+struct AmbientSpecular (Lut2);
 
 struct MultipleScattering (Lut2);
 
@@ -218,6 +297,11 @@ struct CrossSection {
     rayleigh_scattering: Vec3,
     mie_scattering: f64,
     extinction: Vec3,
+}
+
+struct Lut1 {
+    size: usize,
+    data: Vec<Vec3>,
 }
 
 struct Lut2 {
@@ -236,7 +320,13 @@ struct Iter1 {
     n: usize,
 }
 
-struct Iter2<'a> {
+struct IterMut1<'a> {
+    du: f64,
+    i: usize,
+    iter: std::slice::IterMut<'a, Vec3>,
+}
+
+struct IterMut2<'a> {
     du: f64,
     dv: f64,
     iu: usize,
@@ -251,11 +341,34 @@ impl Atmosphere {
         self.aerial.eval(u, v, distance)
     }
 
+    #[inline]
+    pub fn ambient_diffuse(&self, elevation: f64) -> Vec3 {
+        let mu = (elevation * DEG).sin();
+        if mu < 0.0 {
+            Vec3::ZERO
+        } else {
+            self.ambient_diffuse.eval(mu)
+        }
+    }
+
+    #[inline]
+    pub fn ambient_specular(&self, elevation: f64, roughness: f64) -> Vec3 {
+        let mu = (elevation * DEG).sin();
+        if mu < 0.0 {
+            Vec3::ZERO
+        } else {
+            self.ambient_specular.eval(mu, roughness)
+        }
+    }
+
     pub fn new(picture: &RawPicture, lights: &[ResolvedLight]) -> Self {
         let aerial = AerialView::new(&picture.transform, lights);
         let sky = SkyView::new(picture.transform.frame.origin.altitude, lights);
         let transmittance = Transmittance::get();
-        Self { aerial, sky, transmittance }
+        let average = sky.average();
+        let ambient_diffuse = AmbientDiffuse::new(&average);
+        let ambient_specular = AmbientSpecular::new(&average);
+        Self { aerial, ambient_diffuse, ambient_specular, sky, transmittance }
     }
 
     pub fn sky_view(&self, direction: &HorizontalCoordinates) -> Vec3 {
@@ -493,6 +606,61 @@ impl AerialView {
     }
 }
 
+impl AmbientDiffuse {
+    pub fn eval(&self, mu: f64) -> Vec3 {
+        let mu = mu.clamp(0.0, 1.0);
+        mu * self.0
+    }
+
+    fn new(sky: &Lut1) -> Self {
+        let mut cz = Vec3::ZERO;
+        for (i, mu) in sky.iter_u().enumerate() {
+            let si = sky.data[i];
+            cz += mu * si;
+        }
+        cz  *= 2.0 * PI / (sky.size as f64);
+        Self (cz)
+    }
+}
+
+impl AmbientSpecular {
+    const SHAPE: (usize, usize) = (32, 32);
+    const N_PHI: usize = 16;
+    const N_THETA: usize = 32;
+
+    fn eval(&self, mu: f64, alpha: f64) -> Vec3 {
+        self.0.interpolate(mu, alpha)
+    }
+
+    fn new(sky: &Lut1) -> Self {
+        let mut lut = Lut2::new(Self::SHAPE);
+        for (c_n, roughness, d) in lut.iter_mut() {
+            let mut num = Vec3::ZERO;
+            let mut den = 0.0;
+            let a2 = roughness * roughness;
+            let s_n = (1.0 - c_n.powi(2)).sqrt();
+            for i in 0..Self::N_THETA {
+                let c = i as f64 / (Self::N_THETA - 1) as f64;
+                let s = (1.0 - c.powi(2)).sqrt();
+                let dvnl = d_ggx(0.5 * (1.0 + c), a2) * v_smith_ggx(1.0, c, a2) * c;
+                let mut sky_i = Vec3::ZERO;
+                for j in 0..Self::N_PHI {
+                    let phi = (j as f64) * 2.0 * PI / (Self::N_PHI - 1) as f64;
+                    let c_l = c * c_n - s * s_n * phi.cos();
+                    if c_l > 0.0 {
+                        sky_i += sky.interpolate(c_l);
+                    }
+                }
+                num += sky_i * (dvnl * PI / Self::N_PHI as f64);
+                den += dvnl;
+            }
+            *d = if den > 0.0 { num / den } else { Vec3::ZERO };
+        }
+        Self (lut)
+    }
+}
+
+
 static MULTIPLE_SCATTERING: OnceLock<MultipleScattering> = OnceLock::new();
 
 impl MultipleScattering {
@@ -619,9 +787,23 @@ impl MultipleScattering {
 }
 
 impl SkyView {
-    const SHAPE: (usize, usize) = (400, 200);
+    const AVERAGE_SIZE: usize = 91;
+    const SHAPE: (usize, usize) = (360, 180);
     const SAMPLES: usize = 16;
     const MIDPOINT_RATIO: f64 = 0.3;
+
+    fn average(&self) -> Lut1 {
+        let mut lut = Lut1::new(Self::AVERAGE_SIZE);
+        for (mu, d) in lut.iter_mut() {
+            let mut di = Vec3::ZERO;
+            for u in self.0.iter_u() {
+                let azimuth = Self::unmap_u(u);
+                di += self.eval(mu, azimuth);
+            }
+            *d = di / (Self::SHAPE.0 as f64);
+        }
+        lut
+    }
 
     fn eval(&self, mu: f64, azimuth: f64) -> Vec3 {
         let (u, v) = Self::map(mu, azimuth);
@@ -776,6 +958,33 @@ impl Transmittance {
     }
 }
 
+impl Lut1 {
+    fn interpolate(&self, u: f64) -> Vec3 {
+        let n = self.size;
+        let (i, h) = compute_index(u, n);
+        let f0 = self.data[i];
+        let f1 = self.data[i + 1];
+        f0 * (1.0 - h) + f1 * h
+    }
+
+    fn iter_mut<'a>(&'a mut self) -> IterMut1<'a> {
+        let n = self.size;
+        let du = 1.0 / (n - 1) as f64;
+        let i = 0;
+        let iter = self.data.iter_mut();
+        IterMut1 { du, i, iter }
+    }
+
+    fn iter_u(&self) -> Iter1 {
+        Iter1::new(self.size)
+    }
+
+    fn new(size: usize) -> Self {
+        let data = vec![Vec3::ZERO; size];
+        Self { size, data }
+    }
+}
+
 impl Lut2 {
     fn interpolate(&self, u: f64, v: f64) -> Vec3 {
         let (nu, nv) = self.shape;
@@ -789,14 +998,14 @@ impl Lut2 {
         (f01 * (1.0 - hu) + f11 * hu) * hv
     }
 
-    fn iter_mut<'a>(&'a mut self) -> Iter2<'a> {
+    fn iter_mut<'a>(&'a mut self) -> IterMut2<'a> {
         let (nu, nv) = self.shape;
         let du = 1.0 / (nu - 1) as f64;
         let dv = 1.0 / (nv - 1) as f64;
         let iu = 0;
         let iv = 0;
         let iter = self.data.iter_mut();
-        Iter2 { du, dv, iu, iv, nu, iter }
+        IterMut2 { du, dv, iu, iv, nu, iter }
     }
 
     fn iter_u(&self) -> Iter1 {
@@ -881,7 +1090,22 @@ impl Iterator for Iter1 {
     }
 }
 
-impl<'a> Iterator for Iter2<'a> {
+impl<'a> Iterator for IterMut1<'a> {
+    type Item = (f64, &'a mut Vec3);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            Some(d) => {
+                let u = (self.i as f64) * self.du;
+                self.i += 1;
+                Some((u, d))
+            },
+            None => None,
+        }
+    }
+}
+
+impl<'a> Iterator for IterMut2<'a> {
     type Item = (f64, f64, &'a mut Vec3);
 
     fn next(&mut self) -> Option<Self::Item> {

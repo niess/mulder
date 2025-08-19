@@ -231,7 +231,8 @@ impl RawPicture {
             let unpack = |v: [f32; 2]| {
                 HorizontalCoordinates { azimuth: v[0] as f64, elevation: v[1] as f64 }
             };
-            let normal = unpack(normal)
+            let normal = unpack(normal);
+            let normal_ecef = normal
                 .to_ecef(self.position());
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
@@ -251,8 +252,8 @@ impl RawPicture {
                         Error::new(ValueError).what("layer index").why(&why).to_err()
                     })?;
                 pbr::illuminate(
-                    u, v, altitude as f64, distance as f64, normal, view, ambient, &directionals,
-                    material, atmosphere.as_ref(),
+                    u, v, altitude as f64, distance as f64, normal_ecef, normal, view,
+                    ambient, &directionals, material, atmosphere.as_ref(),
                 )
             } else {
                 match &atmosphere {
