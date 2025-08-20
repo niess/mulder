@@ -6,7 +6,7 @@ use pyo3::types::{PyTuple, PyType};
 use super::{RawPicture, Transform};
 use super::vec3::Vec3;
 use super::lights::{ResolvedLight, Light};
-use super::materials::LinearRgb;
+use super::materials::{LinearRgb, Srgb};
 use super::pbr::{d_ggx, v_smith_ggx};
 use std::sync::OnceLock;
 
@@ -76,10 +76,10 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in aerial.0.data.iter().enumerate() {
-            let rgb: (u8, u8, u8) = LinearRgb(l.0).into();
-            light[3 * i + 0] = (rgb.0 as f64) / 255.0;
-            light[3 * i + 1] = (rgb.1 as f64) / 255.0;
-            light[3 * i + 2] = (rgb.2 as f64) / 255.0;
+            let srgb: Srgb = LinearRgb(l.0).into();
+            light[3 * i + 0] = srgb.red();
+            light[3 * i + 1] = srgb.green();
+            light[3 * i + 2] = srgb.blue();
         }
 
         Namespace::new(py, [
@@ -141,16 +141,16 @@ impl SkyProperties {
         }
         for (i, mu) in average.iter_u().enumerate() {
             elevation[i] = mu.asin() / DEG;
-            let rgb: (u8, u8, u8) = LinearRgb(diffuse.eval(mu).0).into();
-            d[3 * i + 0] = (rgb.0 as f64) / 255.0;
-            d[3 * i + 1] = (rgb.1 as f64) / 255.0;
-            d[3 * i + 2] = (rgb.2 as f64) / 255.0;
+            let srgb: Srgb = LinearRgb(diffuse.eval(mu).0).into();
+            d[3 * i + 0] = srgb.red();
+            d[3 * i + 1] = srgb.green();
+            d[3 * i + 2] = srgb.blue();
 
             for (j, roughness) in specular.0.iter_v().enumerate() {
-                let rgb: (u8, u8, u8) = LinearRgb(specular.eval(mu, roughness.powi(2)).0).into();
-                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 0] = (rgb.0 as f64) / 255.0;
-                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 1] = (rgb.1 as f64) / 255.0;
-                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 2] = (rgb.2 as f64) / 255.0;
+                let srgb: Srgb = LinearRgb(specular.eval(mu, roughness.powi(2)).0).into();
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 0] = srgb.red();
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 1] = srgb.green();
+                s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 2] = srgb.blue();
             }
         }
 
@@ -182,10 +182,10 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in ms.0.data.iter().enumerate() {
-            let rgb: (u8, u8, u8) = LinearRgb(l.0).into();
-            light[3 * i + 0] = (rgb.0 as f64) / 255.0;
-            light[3 * i + 1] = (rgb.1 as f64) / 255.0;
-            light[3 * i + 2] = (rgb.2 as f64) / 255.0;
+            let srgb: Srgb = LinearRgb(l.0).into();
+            light[3 * i + 0] = srgb.red();
+            light[3 * i + 1] = srgb.green();
+            light[3 * i + 2] = srgb.blue();
         }
 
         Namespace::new(py, [
@@ -241,10 +241,10 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in sky_view.0.data.iter().enumerate() {
-            let rgb: (u8, u8, u8) = LinearRgb(l.0).into();
-            light[3 * i + 0] = (rgb.0 as f64) / 255.0;
-            light[3 * i + 1] = (rgb.1 as f64) / 255.0;
-            light[3 * i + 2] = (rgb.2 as f64) / 255.0;
+            let srgb: Srgb = LinearRgb(l.0).into();
+            light[3 * i + 0] = srgb.red();
+            light[3 * i + 1] = srgb.green();
+            light[3 * i + 2] = srgb.blue();
         }
 
         Namespace::new(py, [

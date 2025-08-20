@@ -6,12 +6,12 @@ use pyo3::types::PyDict;
 pub fn default_materials(py: Python) -> PyResult<PyObject> {
     let materials = PyDict::new(py);
     materials.set_item("Rock", OpticalProperties {
-        colour: (101, 67, 33),
+        colour: Srgb::Triplet((101.0 / 255.0, 67.0 / 255.0, 33.0 / 255.0)),
         roughness: 0.5,
         ..Default::default()
     })?;
     materials.set_item("Water", OpticalProperties {
-        colour: OpticalProperties::WHITE,
+        colour: Srgb::WHITE,
         roughness: 0.2,
         metallic: true,
         ..Default::default()
@@ -25,7 +25,7 @@ pub fn default_materials(py: Python) -> PyResult<PyObject> {
 pub struct OpticalProperties {
     /// Perceived colour (albedo), in sRGB space.
     #[pyo3(get, set)]
-    pub colour: (u8, u8, u8),
+    pub colour: Srgb,
 
     /// Dielectric (false) or conductor (true).
     #[pyo3(get, set)]
@@ -40,6 +40,12 @@ pub struct OpticalProperties {
     pub reflectance: f64,
 }
 
+#[derive(Copy, Clone, Debug, FromPyObject, IntoPyObject)]
+pub enum Srgb {
+    Triplet((f64, f64, f64)),
+    Scalar(f64),
+}
+
 pub struct MaterialData {
     pub diffuse_colour: [f64; 3],
     pub f0: [f64; 3],
@@ -49,14 +55,10 @@ pub struct MaterialData {
 
 pub struct LinearRgb (pub [f64; 3]);
 
-impl OpticalProperties {
-    const WHITE: (u8, u8, u8) = (255, 255, 255);
-}
-
 impl Default for OpticalProperties {
     fn default() -> Self {
         Self {
-            colour: Self::WHITE,
+            colour: Srgb::WHITE,
             metallic: false,
             roughness: 0.0,
             reflectance: 0.5,
@@ -87,10 +89,24 @@ impl From<&OpticalProperties> for MaterialData {
 }
 
 impl LinearRgb {
+    #[inline]
+    pub const fn red(&self) -> f64 {
+        self.0[0]
+    }
+
+    #[inline]
+    pub const fn green(&self) -> f64 {
+        self.0[1]
+    }
+
+    #[inline]
+    pub const fn blue(&self) -> f64 {
+        self.0[2]
+    }
+
     // Convert a standard value to a linear one.
     // Ref: https://en.wikipedia.org/wiki/Gamma_correction.
-    pub fn to_linear(value: u8) -> f64 {
-        let value = value as f64 / 255.0;
+    pub fn to_linear(value: f64) -> f64 {
         if value <= 0.04045 {
             value / 12.92
         } else {
@@ -100,8 +116,8 @@ impl LinearRgb {
 
     // Convert a linear value to a standard one.
     // Ref: https://en.wikipedia.org/wiki/Gamma_correction.
-    pub fn to_standard(value: f64) -> u8 {
-        let value = if value <= 0.0 {
+    pub fn to_standard(value: f64) -> f64 {
+        if value <= 0.0 {
             0.0
         } else if value <= 0.0031308 {
             value * 12.92
@@ -109,29 +125,62 @@ impl LinearRgb {
             1.055 * value.powf(1.0 / 2.4) - 0.055
         } else {
             1.0
-        };
-        (value * 255.0) as u8
+        }
     }
 }
 
-impl From<LinearRgb> for (u8, u8, u8) {
+impl From<LinearRgb> for Srgb {
     #[inline]
     fn from(value: LinearRgb) -> Self {
-        (
-            LinearRgb::to_standard(value.0[0]),
-            LinearRgb::to_standard(value.0[1]),
-            LinearRgb::to_standard(value.0[2]),
-        )
+        Self::Triplet((
+            LinearRgb::to_standard(value.red()),
+            LinearRgb::to_standard(value.green()),
+            LinearRgb::to_standard(value.blue()),
+        ))
     }
 }
 
-impl From<(u8, u8, u8)> for LinearRgb {
+impl Srgb {
+    pub const WHITE: Self = Self::Triplet((1.0, 1.0, 1.0));
+
     #[inline]
-    fn from(value: (u8, u8, u8)) -> Self {
-        Self ([
-            Self::to_linear(value.0),
-            Self::to_linear(value.1),
-            Self::to_linear(value.2),
-        ])
+    pub const fn red(&self) -> f64 {
+        match self {
+            Self::Triplet(value) => value.0,
+            Self::Scalar(value) => *value,
+        }
+    }
+
+    #[inline]
+    pub const fn green(&self) -> f64 {
+        match self {
+            Self::Triplet(value) => value.1,
+            Self::Scalar(value) => *value,
+        }
+    }
+
+    #[inline]
+    pub const fn blue(&self) -> f64 {
+        match self {
+            Self::Triplet(value) => value.2,
+            Self::Scalar(value) => *value,
+        }
+    }
+}
+
+impl From<Srgb> for LinearRgb {
+    #[inline]
+    fn from(value: Srgb) -> Self {
+        match value {
+            Srgb::Triplet(value) => Self ([
+                Self::to_linear(value.0),
+                Self::to_linear(value.1),
+                Self::to_linear(value.2),
+            ]),
+            Srgb::Scalar(value) => {
+                let value = Self::to_linear(value);
+                Self ([value, value, value])
+            },
+        }
     }
 }

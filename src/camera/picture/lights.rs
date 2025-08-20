@@ -1,27 +1,39 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use crate::utils::convert::LightModel;
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use super::materials::LinearRgb;
+use super::materials::{LinearRgb, Srgb};
 use super::vec3::Vec3;
 
 
 #[inline]
 pub fn default_lights(py: Python) -> PyResult<PyObject> {
     let lights = PyList::new(py, [
-        AmbientLight::default().into_pyobject(py)?.into_any(),
         SunLight::new(None, None)?.into_pyobject(py)?.into_any(),
     ])?.into_any().unbind();
     Ok(lights)
 }
 
-#[derive(FromPyObject)]
+#[derive(Clone, Debug, FromPyObject)]
 pub enum Light {
     Ambient(AmbientLight),
     Directional(DirectionalLight),
     Sun(SunLight),
+}
+
+#[derive(Clone, Debug, FromPyObject)]
+pub enum LightArg {
+    Model(LightModel),
+    Light(Light),
+}
+
+#[derive(Clone, Debug, FromPyObject)]
+pub enum Lights {
+    Single(LightArg),
+    Sequence(Vec<LightArg>),
 }
 
 #[pyclass(module="mulder")]
@@ -29,7 +41,7 @@ pub enum Light {
 pub struct AmbientLight {
     /// The light colour.
     #[pyo3(get, set)]
-    pub colour: (u8, u8, u8),  // XXX Set from scalar / float.
+    pub colour: Srgb,
 }
 
 #[pyclass(module="mulder")]
@@ -37,7 +49,7 @@ pub struct AmbientLight {
 pub struct DirectionalLight {
     /// The light colour.
     #[pyo3(get, set)]
-    pub colour: (u8, u8, u8),
+    pub colour: Srgb,
 
     /// The light azimuth direction, in deg.
     #[pyo3(get, set)]
@@ -53,7 +65,7 @@ pub struct DirectionalLight {
 pub struct SunLight {
     /// The sun light colour.
     #[pyo3(get, set)]
-    pub colour: (u8, u8, u8),
+    pub colour: Srgb,
 
     /// The local date and solar time.
     #[pyo3(get, set)]
@@ -90,14 +102,14 @@ pub struct ResolvedLight {
 impl AmbientLight {
     #[new]
     #[pyo3(signature=(colour=None))]
-    fn new(colour: Option<(u8, u8, u8)>) -> Self {
+    fn new(colour: Option<Srgb>) -> Self {
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
         Self { colour }
     }
 }
 
 impl AmbientLight {
-    const DEFAULT_COLOUR: (u8, u8, u8) = (7, 7, 7);
+    const DEFAULT_COLOUR: Srgb = Srgb::Scalar(0.5);
 
     pub fn luminance(&self) -> Vec3 {
         let colour: LinearRgb = self.colour.into();
@@ -118,7 +130,7 @@ impl DirectionalLight {
     fn new(
         azimuth: f64,
         elevation: f64,
-        colour: Option<(u8, u8, u8)>,
+        colour: Option<Srgb>,
     ) -> Self {
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
         Self { azimuth, elevation, colour }
@@ -126,7 +138,7 @@ impl DirectionalLight {
 }
 
 impl DirectionalLight {
-    const DEFAULT_COLOUR: (u8, u8, u8) = (255, 255, 255);
+    const DEFAULT_COLOUR: Srgb = Srgb::WHITE;
 
     #[inline]
     fn direction(&self) -> HorizontalCoordinates {
@@ -148,7 +160,7 @@ impl SunLight {
     #[new]
     #[pyo3(signature=(/, *, colour=None, datetime=None))]
     fn new(
-        colour: Option<(u8, u8, u8)>,
+        colour: Option<Srgb>,
         datetime: Option<DateTimeArg>,
     ) -> PyResult<Self> {
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
@@ -202,7 +214,7 @@ impl SunLight {
 }
 
 impl SunLight {
-    const DEFAULT_COLOUR: (u8, u8, u8) = (255, 255, 255);
+    const DEFAULT_COLOUR: Srgb = Srgb::WHITE;
 
     pub fn to_directional(&self, latitude: f64) -> PyResult<DirectionalLight> {
         let datetime = self.datetime.and_utc();
@@ -212,6 +224,12 @@ impl SunLight {
         let elevation = 90.0 - position.zenith_angle;
         let azimuth = position.azimuth;
         Ok(DirectionalLight { azimuth, elevation, colour: self.colour })
+    }
+}
+
+impl Default for SunLight {
+    fn default() -> Self {
+        Self::new(None, None).unwrap()
     }
 }
 
@@ -264,6 +282,30 @@ impl TimeArg {
                         Error::new(ValueError).what("time").why(&why).to_err()
                     })
             },
+        }
+    }
+}
+
+impl LightArg {
+    fn resolve(self) -> Light {
+        match self {
+            Self::Light(light) => light,
+            Self::Model(model) => match model {
+                LightModel::Ambient => Light::Ambient(AmbientLight::default()),
+                LightModel::Sun => Light::Sun(SunLight::default()),
+            },
+        }
+    }
+}
+
+impl Lights {
+    pub fn into_vec(self) -> Vec<Light> {
+        match self {
+            Self::Single(light) => vec![light.resolve()],
+            Self::Sequence(lights) => lights
+                .into_iter()
+                .map(|light| light.resolve())
+                .collect(),
         }
     }
 }

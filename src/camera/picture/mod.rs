@@ -159,7 +159,7 @@ impl RawPicture {
         &mut self,
         py: Python<'py>,
         atmosphere: Option<bool>,
-        lights: Option<Vec<lights::Light>>,
+        lights: Option<lights::Lights>,
         materials: Option<HashMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
@@ -167,7 +167,7 @@ impl RawPicture {
 
         // Resolve lights.
         let lights = match lights {
-            Some(lights) => lights,
+            Some(lights) => lights.into_vec(),
             None => Self::default_lights(py)?.extract()?,
         };
         let (ambient, directionals) = {
@@ -262,11 +262,11 @@ impl RawPicture {
                 }
             };
             let ldr = ToneMapping::map(hdr);
-            let rgb: (u8, u8, u8) = materials::LinearRgb(ldr.0).into();
+            let srgb: materials::Srgb = materials::LinearRgb(ldr.0).into();
 
-            pixels[3 * i + 0] = (rgb.0 as f32) / 255.0;
-            pixels[3 * i + 1] = (rgb.1 as f32) / 255.0;
-            pixels[3 * i + 2] = (rgb.2 as f32) / 255.0;
+            pixels[3 * i + 0] = srgb.red() as f32;
+            pixels[3 * i + 1] = srgb.green() as f32;
+            pixels[3 * i + 2] = srgb.blue() as f32;
 
             notifier.tic();
         }
