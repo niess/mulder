@@ -33,6 +33,7 @@ pub fn initialise(py: Python) -> PyResult<()> {
 #[pyclass(module="mulder")]
 pub struct RawPicture {
     pub(super) transform: Transform,
+    pub layer: i32,
 
     /// The layers' materials.
     #[pyo3(set)]
@@ -80,9 +81,10 @@ impl RawPicture {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
         let transform = Default::default();
+        let layer = 0;
         let materials = Vec::new();
         let pixels = NewArray::zeros(py, [])?.into_bound().unbind();
-        Ok(Self { transform, materials, pixels })
+        Ok(Self { transform, layer, materials, pixels })
     }
 
     /// The picture latitude coordinate, in degrees.
@@ -113,7 +115,7 @@ impl RawPicture {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { transform, materials, pixels } = self;
+        let Self { transform, layer, materials, pixels } = self;
         let Transform { frame, ratio, f } = transform;
         let LocalFrame { origin, rotation, .. } = frame;
         let GeographicCoordinates { latitude, longitude, altitude } = origin;
@@ -125,6 +127,7 @@ impl RawPicture {
         state.set_item("rotation", rotation)?;
         state.set_item("ratio", ratio)?;
         state.set_item("f", f)?;
+        state.set_item("layer", layer)?;
         state.set_item("materials", materials)?;
         state.set_item("pixels", pixels)?;
         Ok(state)
@@ -148,6 +151,7 @@ impl RawPicture {
         };
         *self = Self { // This ensures that no field is omitted.
             transform,
+            layer: state.get_item("layer")?.unwrap().extract()?,
             materials: state.get_item("materials")?.unwrap().extract()?,
             pixels: state.get_item("pixels")?.unwrap().extract()?,
         };
@@ -211,7 +215,7 @@ impl RawPicture {
         };
 
         // Instanciate the atmosphere.
-        let atmosphere = if atmosphere {
+        let atmosphere = if atmosphere && (self.layer as usize == materials.len()) {
             Some(atmosphere::Atmosphere::new(self, &directionals))
         } else {
             None
@@ -240,7 +244,9 @@ impl RawPicture {
             let view = direction
                 .to_ecef(self.position());
             let view = core::array::from_fn(|i| -view[i]);
-            let hdr = if (layer as usize) < materials.len() {
+            let hdr = if layer < 0 {
+                vec3::Vec3::ZERO
+            } else if (layer as usize) < materials.len() {
                 let material = materials
                     .get(layer as usize)
                     .ok_or_else(|| {

@@ -24,7 +24,10 @@ pub fn illuminate(
     let f0 = Vec3(material.f0);
     let normal = Vec3(normal);
     let view = Vec3(view);
-    let nv = Vec3::dot(&normal, &view).max(1E-04);
+    let nv = Vec3::dot(&normal, &view).clamp(0.0, 1.0);
+    if nv == 0.0 {
+        return Vec3::ZERO
+    };
     let dfg = dfg_approx(nv, material.perceptual_roughness);
     let r = dfg.0 + dfg.1;
 
@@ -51,7 +54,7 @@ pub fn illuminate(
         directional += li;
     }
 
-    let ambient = if nv > 0.0 {
+    let ambient = {
         let (diffuse_sky, specular_sky) = match atmosphere {
             Some(atmosphere) => (
                 atmosphere.ambient_diffuse(normal_horizontal.elevation),
@@ -63,8 +66,6 @@ pub fn illuminate(
         let specular_light = specular_sky + ambient_light;
         let specular_ambient = dfg.0 * f0 + dfg.1;
         diffuse_colour * diffuse_light + specular_ambient * specular_light
-    } else {
-        Vec3::ZERO
     };
 
     let aerial = match atmosphere {

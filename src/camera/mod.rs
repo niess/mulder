@@ -271,25 +271,36 @@ impl Camera {
             }
         };
 
+        geometry.reset_stepper();
+        let camera_layer = geometry.locate(self.position())?;
+
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while shooting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             geometry.reset_stepper();
 
-            // XXX Check ray start location (air, or not / inverse normal accordingly).
             let (intersection, index) = geometry.trace(self.position(), direction)?;
-            let layer = intersection.after;
+            let (backface, layer) = if intersection.after > camera_layer {
+                (true, intersection.before)
+            } else if intersection.after == camera_layer {
+                (false, -1)
+            } else {
+                (false, intersection.after)
+            };
             let altitude = intersection.altitude as f32;
             let distance = intersection.distance as f32;
-            let normal = if (layer as usize) < layers.len() {
+            let normal = if ((layer as usize) < layers.len()) && (layer >= 0) {
                 let normal = match data.get(into_usize(layer)) {
                     Some(data) => match data.get(into_usize(index)) {
-                        Some(data) => normalised(data.gradient(
-                            intersection.latitude,
-                            intersection.longitude,
-                            intersection.altitude,
-                        )),
+                        Some(data) => {
+                            let n = normalised(data.gradient(
+                                intersection.latitude,
+                                intersection.longitude,
+                                intersection.altitude,
+                            ));
+                            if backface { [ -n[0], -n[1], -n[2] ] } else { n }
+                        },
                         None => [0.0; 3],
                     }
                     None => [0.0; 3],
@@ -314,7 +325,7 @@ impl Camera {
 
         let transform = self.transform();
 
-        let picture = picture::RawPicture { transform, materials, pixels };
+        let picture = picture::RawPicture { transform, layer: camera_layer, materials, pixels };
         Ok(picture)
     }
 }

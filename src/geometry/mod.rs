@@ -179,8 +179,8 @@ impl Geometry {
             })
     }
 
-    #[pyo3(signature=(position=None, /, *, notify=None, **kwargs))]
-    fn locate<'py>(
+    #[pyo3(name="locate", signature=(position=None, /, *, notify=None, **kwargs))]
+    fn py_locate<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
@@ -213,25 +213,7 @@ impl Geometry {
                 longitude: position.get_f64(Name::Longitude, i)?,
                 altitude: position.get_f64(Name::Altitude, i)?,
             };
-            let mut r = geographic.to_ecef();
-            let mut index = [ -2; 2 ];
-            error::to_result(
-                unsafe {
-                    turtle::stepper_step(
-                        self.stepper,
-                        r.as_mut_ptr(),
-                        null(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        index.as_mut_ptr(),
-                    )
-                },
-                None::<&str>,
-            )?;
-            layer[i] = layer_index(index[0]);
+            layer[i] = self.locate(geographic)?;
             notifier.tic();
         }
         Ok(array)
@@ -469,6 +451,28 @@ impl Geometry {
             self.stepper = self.create_steppers(py, None)?.layers.stepper;
         }
         Ok(())
+    }
+
+    pub fn locate(&self, position: GeographicCoordinates) -> PyResult<i32> {
+        let mut r = position.to_ecef();
+        let mut index = [ -2; 2 ];
+        error::to_result(
+            unsafe {
+                turtle::stepper_step(
+                    self.stepper,
+                    r.as_mut_ptr(),
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    index.as_mut_ptr(),
+                )
+            },
+            None::<&str>,
+        )?;
+        Ok(layer_index(index[0]))
     }
 
     pub fn reset_stepper(&mut self) {
