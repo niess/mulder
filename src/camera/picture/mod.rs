@@ -105,6 +105,36 @@ impl RawPicture {
         self.position().altitude
     }
 
+    /// The shot azimuth direction, in deg.
+    #[getter]
+    pub fn get_azimuth(&self) -> f64 {
+        self.transform.direction(0.5, 0.5).azimuth
+    }
+
+    /// The shot elevation direction, in deg.
+    #[getter]
+    pub fn get_elevation(&self) -> f64 {
+        self.transform.direction(0.5, 0.5).elevation
+    }
+
+    /// The altitudes at intersections.
+    #[getter]
+    fn get_altitudes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.pixels.bind(py).as_any().get_item("altitude")
+    }
+
+    /// The distances to intersections.
+    #[getter]
+    fn get_distances<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.pixels.bind(py).as_any().get_item("distance")
+    }
+
+    /// The visible layers.
+    #[getter]
+    fn get_layers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.pixels.bind(py).as_any().get_item("layer")
+    }
+
     #[getter]
     fn get_materials<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         PyTuple::new(
@@ -160,7 +190,7 @@ impl RawPicture {
 
     #[pyo3(signature=(/, *, atmosphere=true, lights=None, materials=None, notify=None))]
     fn develop<'py>(
-        &mut self,
+        &self,
         py: Python<'py>,
         atmosphere: Option<bool>,
         lights: Option<lights::Lights>,
@@ -278,6 +308,51 @@ impl RawPicture {
         }
 
         Ok(array)
+    }
+
+    fn normal<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
+        let data = self.pixels.bind(py);
+        let mut shape = data.shape();
+        shape.push(3);
+        let mut normal_array = NewArray::empty(py, shape)?;
+        let normal = normal_array.as_slice_mut();
+
+        for i in 0..data.size() {
+            let di = data.get_item(i)?;
+            let n = HorizontalCoordinates {
+                azimuth: di.normal[0] as f64,
+                elevation: di.normal[1] as f64,
+            };
+            let n = n.to_ecef(self.position());
+            for j in 0..3 {
+                normal[3 * i + j] = n[j] as f32;
+            }
+        }
+
+        Ok(normal_array)
+    }
+
+    fn view<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
+        let data = self.pixels.bind(py);
+        let mut shape = data.shape();
+        let (nv, nu) = (shape[0], shape[1]);
+        shape.push(3);
+        let mut view_array = NewArray::empty(py, shape)?;
+        let view = view_array.as_slice_mut();
+
+        for i in 0..data.size() {
+            let u = Transform::uv(i % nu, nu);
+            let v = Transform::uv(i / nu, nv);
+            let direction = self.transform.direction(u, v);
+            let v = direction
+                .to_ecef(self.position());
+            let v: [f32; 3] = core::array::from_fn(|i| -v[i] as f32);
+            for j in 0..3 {
+                view[3 * i + j] = v[j];
+            }
+        }
+
+        Ok(view_array)
     }
 }
 

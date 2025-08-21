@@ -50,7 +50,6 @@ pub struct MaterialData {
     pub diffuse_colour: [f64; 3],
     pub f0: [f64; 3],
     pub roughness: f64,
-    pub perceptual_roughness: f64,
 }
 
 pub struct LinearRgb (pub [f64; 3]);
@@ -84,7 +83,7 @@ impl From<&OpticalProperties> for MaterialData {
         let perceptual_roughness = value.roughness
             .clamp(Self::MIN_ROUGHNESS, 1.0);
         let roughness = perceptual_roughness.powi(2);
-        Self { diffuse_colour, f0, roughness, perceptual_roughness }
+        Self { diffuse_colour, f0, roughness }
     }
 }
 

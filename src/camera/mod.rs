@@ -280,17 +280,18 @@ impl Camera {
 
             geometry.reset_stepper();
 
+            let air_layer = layers.len() as i32;
             let (intersection, index) = geometry.trace(self.position(), direction)?;
-            let (backface, layer) = if intersection.after > camera_layer {
-                (true, intersection.before)
-            } else if intersection.after == camera_layer {
+            let (backface, layer) = if intersection.after == camera_layer {
                 (false, -1)
+            } else if (camera_layer < air_layer) && (intersection.after == air_layer) {
+                (true, intersection.before)
             } else {
                 (false, intersection.after)
             };
             let altitude = intersection.altitude as f32;
             let distance = intersection.distance as f32;
-            let normal = if ((layer as usize) < layers.len()) && (layer >= 0) {
+            let normal = if (layer < air_layer) && (layer >= 0) {
                 let normal = match data.get(into_usize(layer)) {
                     Some(data) => match data.get(into_usize(index)) {
                         Some(data) => {

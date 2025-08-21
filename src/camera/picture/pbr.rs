@@ -24,11 +24,8 @@ pub fn illuminate(
     let f0 = Vec3(material.f0);
     let normal = Vec3(normal);
     let view = Vec3(view);
-    let nv = Vec3::dot(&normal, &view).clamp(0.0, 1.0);
-    if nv == 0.0 {
-        return Vec3::ZERO
-    };
-    let dfg = dfg_approx(nv, material.perceptual_roughness);
+    let nv = Vec3::dot(&normal, &view).clamp(1E-04, 1.0);
+    let dfg = dfg_approx(nv, material.roughness);
     let r = dfg.0 + dfg.1;
 
     let mut directional = Vec3::ZERO;
@@ -138,14 +135,14 @@ const fn f_lambert() -> f64 {
 }
 
 // Ref: https://www.unrealengine.com/en-US/blog/physically-based-shading-on-mobile
-fn dfg_approx(nv: f64, perceptual_roughness: f64) -> (f64, f64) {
+fn dfg_approx(nv: f64, roughness: f64) -> (f64, f64) {
     const C0: [f64; 4] = [-1.0, -0.0275, -0.572, 0.022];
     const C1: [f64; 4] = [1.0, 0.0425, 1.04, -0.04];
     let r = [
-        perceptual_roughness * C0[0] + C1[0],
-        perceptual_roughness * C0[1] + C1[1],
-        perceptual_roughness * C0[2] + C1[2],
-        perceptual_roughness * C0[3] + C1[3],
+        roughness * C0[0] + C1[0],
+        roughness * C0[1] + C1[1],
+        roughness * C0[2] + C1[2],
+        roughness * C0[3] + C1[3],
     ];
     let a004 = r[0].powi(2).min(2.0_f64.powf(-9.28 * nv)) * r[0] + r[1];
     let x = -1.04 * a004 + r[2];
