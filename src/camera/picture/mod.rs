@@ -188,11 +188,12 @@ impl RawPicture {
         Ok(())
     }
 
-    #[pyo3(signature=(/, *, atmosphere=true, lights=None, materials=None, notify=None))]
+    #[pyo3(signature=(/, *, atmosphere=true, exposure=None, lights=None, materials=None, notify=None))]
     fn develop<'py>(
         &self,
         py: Python<'py>,
         atmosphere: Option<bool>,
+        exposure: Option<f64>,
         lights: Option<lights::Lights>,
         materials: Option<HashMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
@@ -251,6 +252,12 @@ impl RawPicture {
             None
         };
 
+        // Exposure compensation (in stops).
+        let exposure = match exposure {
+            Some(exposure) => 2.0_f64.powf(exposure),
+            None => 1.0,
+        };
+
         // Loop over pixels.
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
@@ -293,11 +300,15 @@ impl RawPicture {
                 )
             } else {
                 match &atmosphere {
-                    Some(atmosphere) => atmosphere.sky_view(&direction) * PI,
+                    Some(atmosphere) => {
+                        let sky = atmosphere.sky_view(&direction);
+                        let sun = atmosphere.sun_view(direction.elevation, &view);
+                        (sky + sun) * PI
+                    },
                     None => vec3::Vec3::ZERO,
                 }
             };
-            let ldr = ToneMapping::map(hdr);
+            let ldr = ToneMapping::map(hdr * exposure);
             let srgb: materials::Srgb = materials::LinearRgb(ldr.0).into();
 
             pixels[3 * i + 0] = srgb.red() as f32;

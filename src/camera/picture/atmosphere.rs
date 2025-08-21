@@ -275,8 +275,10 @@ impl SkyProperties {
 
 pub struct Atmosphere {
     aerial: AerialView,
+    altitude: f64,
     ambient_diffuse: AmbientDiffuse,
     ambient_specular: AmbientSpecular,
+    lights: Vec<ResolvedLight>,
     sky: SkyView,
     transmittance: &'static Transmittance,
 }
@@ -363,12 +365,14 @@ impl Atmosphere {
 
     pub fn new(picture: &RawPicture, lights: &[ResolvedLight]) -> Self {
         let aerial = AerialView::new(&picture.transform, lights);
-        let sky = SkyView::new(picture.transform.frame.origin.altitude, lights);
+        let altitude = picture.transform.frame.origin.altitude;
+        let sky = SkyView::new(altitude, lights);
         let transmittance = Transmittance::get();
         let average = sky.average();
         let ambient_diffuse = AmbientDiffuse::new(&average);
         let ambient_specular = AmbientSpecular::new(&average);
-        Self { aerial, ambient_diffuse, ambient_specular, sky, transmittance }
+        let lights = lights.into_iter().cloned().collect();
+        Self { aerial, altitude, ambient_diffuse, ambient_specular, lights, sky, transmittance }
     }
 
     pub fn sky_view(&self, direction: &HorizontalCoordinates) -> Vec3 {
@@ -384,6 +388,32 @@ impl Atmosphere {
         };
         let mu = (direction.elevation * DEG).sin();
         self.sky.eval(mu, azimuth)
+    }
+
+    pub fn sun_view(&self, elevation: f64, view: &[f64; 3]) -> Vec3 {
+        const HALF_WIDTH: f64 = 0.5 * 0.545 * DEG;
+        const SOLID_ANGLE: f64 = HALF_WIDTH * HALF_WIDTH * PI;
+
+        let mut luminance = Vec3::ZERO;
+        for light in self.lights.iter() {
+            let nv = -Vec3::dot(&Vec3(light.direction), &Vec3(*view));
+            let angle = nv.acos();
+            if angle <= HALF_WIDTH {
+                // Limb factor.
+                // Ref: Hilaire 2016 (Nec96 model).
+                const A: [f64; 3] = [0.397, 0.503, 0.652];
+                let mu = (1.0 - (angle / HALF_WIDTH).powi(2)).sqrt();
+                let limb_factor = Vec3::new(
+                    mu.powf(A[0]),
+                    mu.powf(A[1]),
+                    mu.powf(A[2]),
+                );
+
+                let transmittance = self.transmittance(self.altitude, elevation);
+                luminance += light.illuminance * transmittance * limb_factor;
+            }
+        }
+        luminance / SOLID_ANGLE
     }
 
     pub fn transmittance(&self, altitude: f64, elevation: f64) -> Vec3 {
@@ -925,7 +955,7 @@ impl Transmittance {
         for (u, v, d) in data.iter_mut() {
             let (r, mu) = Self::unmap(u, v);
 
-            let t_max = Atmosphere::max_distance(r, mu);
+            let t_max = Atmosphere::distance_to_top(r, mu);  // the ground should be ignored.
             let mut optical_depth = Vec3::ZERO;
             let mut prev_t = 0.0;
             for i in 0..Self::SAMPLES {

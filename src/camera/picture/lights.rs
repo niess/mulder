@@ -91,6 +91,7 @@ enum TimeArg {
     String(String),
 }
 
+#[derive(Clone, Debug)]
 pub struct ResolvedLight {
     pub azimuth: f64,
     pub elevation: f64,
