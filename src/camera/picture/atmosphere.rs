@@ -466,7 +466,7 @@ impl Atmosphere {
         ray_dir: &Vec3,
         local_r: f64,
         lights: &[ResolvedLight],
-        multiple_scattering: &MultipleScattering,
+        multiple_scattering: Option<&MultipleScattering>,
         transmittance: &Transmittance,
     ) -> Vec3 {
         let mut inscattering = Vec3::ZERO;
@@ -488,9 +488,13 @@ impl Atmosphere {
             };
 
             // Multiple scattering.
-            let psi_ms = multiple_scattering.eval(local_r, mu_light);
-            let multiple_scattering = psi_ms *
-                (cross_section.rayleigh_scattering + cross_section.mie_scattering);
+            let multiple_scattering = match multiple_scattering {
+                Some(multiple_scattering) => {
+                    let psi_ms = multiple_scattering.eval(local_r, mu_light);
+                    psi_ms * (cross_section.rayleigh_scattering + cross_section.mie_scattering)
+                },
+                None => Vec3::ZERO,
+            };
 
             inscattering += light.illuminance * (single_scattering + multiple_scattering);
         }
@@ -539,7 +543,6 @@ impl AerialView {
     fn new(transform: &Transform, lights: &[ResolvedLight]) -> Self {
         let r = transform.frame.origin.altitude + Atmosphere::BOTTOM_RADIUS;
         let mut lut = Lut3::new(Self::SHAPE);
-        let multiple_scattering = MultipleScattering::get();
         let transmittance = Transmittance::get();
         for (iv, v) in lut.iter_v().enumerate() {
             for (iu, u) in lut.iter_u().enumerate() {
@@ -577,7 +580,7 @@ impl AerialView {
                         &ray_dir,
                         local_r,
                         lights,
-                        multiple_scattering,
+                        None,
                         transmittance,
                     );
 
@@ -848,7 +851,7 @@ impl SkyView {
                     &ray_dir,
                     local_r,
                     lights,
-                    multiple_scattering,
+                    Some(multiple_scattering),
                     transmittance,
                 );
 
