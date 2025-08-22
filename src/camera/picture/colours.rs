@@ -1,14 +1,13 @@
+use crate::utils::error::Error;
+use crate::utils::error::ErrorKind::ValueError;
 use pyo3::prelude::*;
 use super::vec3::Vec3;
 
 
 pub struct LinearRgb (pub [f64; 3]);
 
-#[derive(Copy, Clone, Debug, FromPyObject, IntoPyObject)]
-pub enum StandardRgb {
-    Triplet((f64, f64, f64)),
-    Scalar(f64),
-}
+#[derive(Copy, Clone, Debug, IntoPyObject)]
+pub struct StandardRgb (pub f64, pub f64, pub f64);
 
 impl LinearRgb {
     #[inline]
@@ -51,14 +50,35 @@ impl LinearRgb {
     }
 }
 
+impl<'py> FromPyObject<'py> for StandardRgb {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let value: [f64; 3] = ob.extract()?;
+        for i in 0..3 {
+            let vi = value[i];
+            if (vi < 0.0) || (vi > 1.0) {
+                let why = format!(
+                    "#{}: expected a value in [0,1], found '{}'",
+                    i,
+                    vi,
+                );
+                let err = Error::new(ValueError)
+                    .what("colour")
+                    .why(&why);
+                return Err(err.to_err())
+            }
+        }
+        Ok(Self (value[0], value[1], value[2]))
+    }
+}
+
 impl From<LinearRgb> for StandardRgb {
     #[inline]
     fn from(value: LinearRgb) -> Self {
-        Self::Triplet((
+        Self(
             LinearRgb::to_standard(value.red()),
             LinearRgb::to_standard(value.green()),
             LinearRgb::to_standard(value.blue()),
-        ))
+        )
     }
 }
 
@@ -71,47 +91,32 @@ impl From<Vec3> for StandardRgb {
 }
 
 impl StandardRgb {
-    pub const WHITE: Self = Self::Triplet((1.0, 1.0, 1.0));
+    pub const WHITE: Self = Self (1.0, 1.0, 1.0);
 
     #[inline]
     pub const fn red(&self) -> f64 {
-        match self {
-            Self::Triplet(value) => value.0,
-            Self::Scalar(value) => *value,
-        }
+        self.0
     }
 
     #[inline]
     pub const fn green(&self) -> f64 {
-        match self {
-            Self::Triplet(value) => value.1,
-            Self::Scalar(value) => *value,
-        }
+        self.1
     }
 
     #[inline]
     pub const fn blue(&self) -> f64 {
-        match self {
-            Self::Triplet(value) => value.2,
-            Self::Scalar(value) => *value,
-        }
+        self.2
     }
 }
 
 impl From<StandardRgb> for LinearRgb {
     #[inline]
     fn from(value: StandardRgb) -> Self {
-        match value {
-            StandardRgb::Triplet(value) => Self ([
-                Self::to_linear(value.0),
-                Self::to_linear(value.1),
-                Self::to_linear(value.2),
-            ]),
-            StandardRgb::Scalar(value) => {
-                let value = Self::to_linear(value);
-                Self ([value, value, value])
-            },
-        }
+        Self ([
+            Self::to_linear(value.red()),
+            Self::to_linear(value.green()),
+            Self::to_linear(value.blue()),
+        ])
     }
 }
 

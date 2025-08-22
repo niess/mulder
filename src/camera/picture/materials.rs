@@ -7,7 +7,7 @@ use super::colours::{LinearRgb, StandardRgb};
 pub fn default_materials(py: Python) -> PyResult<PyObject> {
     let materials = PyDict::new(py);
     materials.set_item("Rock", OpticalProperties {
-        colour: StandardRgb::Triplet((101.0 / 255.0, 67.0 / 255.0, 33.0 / 255.0)),
+        colour: StandardRgb (101.0 / 255.0, 67.0 / 255.0, 33.0 / 255.0),
         roughness: 0.5,
         ..Default::default()
     })?;
