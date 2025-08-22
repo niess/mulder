@@ -22,7 +22,7 @@ pub use lights::{AmbientLight, DirectionalLight, SunLight};
 pub use materials::OpticalProperties;
 
 
-const PI: f64 = std::f64::consts::PI;
+const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
 pub fn initialise(py: Python) -> PyResult<()> {
     let raw_picture = RawPicture::type_object(py);
@@ -258,7 +258,7 @@ impl RawPicture {
         };
 
         // Exposure compensation (in stops).
-        let exposure = match exposure {
+        let exposure_compensation = match exposure {
             Some(exposure) => 2.0_f64.powf(exposure),
             None => 1.0,
         };
@@ -308,12 +308,12 @@ impl RawPicture {
                     Some(atmosphere) => {
                         let sky = atmosphere.sky_view(&direction);
                         let sun = atmosphere.sun_view(direction.elevation, &view);
-                        (sky + sun) * PI
+                        (sky + sun) * DEFAULT_EXPOSURE
                     },
                     None => vec3::Vec3::ZERO,
                 }
             };
-            let srgb = colours::StandardRgb::from(hdr * exposure);
+            let srgb = colours::StandardRgb::from(hdr * exposure_compensation);
 
             pixels[3 * i + 0] = srgb.red() as f32;
             pixels[3 * i + 1] = srgb.green() as f32;

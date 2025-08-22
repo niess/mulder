@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 use super::{RawPicture, Transform};
 use super::colours::StandardRgb;
+use super::DEFAULT_EXPOSURE;
 use super::lights::{ResolvedLight, Light};
 use super::pbr::{d_ggx, v_smith_ggx};
 use super::vec3::Vec3;
@@ -76,7 +77,7 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in aerial.0.data.iter().enumerate() {
-            let hdr = *l * PI;
+            let hdr = *l * DEFAULT_EXPOSURE;
             let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
@@ -142,14 +143,14 @@ impl SkyProperties {
         }
         for (i, mu) in average.iter_u().enumerate() {
             elevation[i] = mu.asin() / DEG;
-            let hdr = diffuse.eval(mu);
+            let hdr = diffuse.eval(mu) * DEFAULT_EXPOSURE;
             let srgb = StandardRgb::from(hdr);
             d[3 * i + 0] = srgb.red();
             d[3 * i + 1] = srgb.green();
             d[3 * i + 2] = srgb.blue();
 
             for (j, roughness) in specular.0.iter_v().enumerate() {
-                let hdr = specular.eval(mu, roughness.powi(2));
+                let hdr = specular.eval(mu, roughness.powi(2)) * DEFAULT_EXPOSURE;
                 let srgb = StandardRgb::from(hdr);
                 s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 0] = srgb.red();
                 s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 1] = srgb.green();
@@ -185,7 +186,7 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in ms.0.data.iter().enumerate() {
-            let hdr = *l * PI;
+            let hdr = *l * DEFAULT_EXPOSURE;
             let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
@@ -245,7 +246,7 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in sky_view.0.data.iter().enumerate() {
-            let hdr = *l * PI;
+            let hdr = *l * DEFAULT_EXPOSURE;
             let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
@@ -656,7 +657,7 @@ impl AmbientDiffuse {
             let si = sky.data[i];
             cz += mu * si;
         }
-        cz  *= 2.0 * PI / (sky.size as f64);
+        cz  *= 2.0 / (sky.size as f64);
         Self (cz)
     }
 }
@@ -689,7 +690,7 @@ impl AmbientSpecular {
                         sky_i += sky.interpolate(c_l);
                     }
                 }
-                num += sky_i * (dvnl * PI / Self::N_PHI as f64);
+                num += sky_i * (dvnl / Self::N_PHI as f64);
                 den += dvnl;
             }
             *d = if den > 0.0 { num / den } else { Vec3::ZERO };

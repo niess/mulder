@@ -9,6 +9,8 @@ use super::colours::{LinearRgb, StandardRgb};
 use super::vec3::Vec3;
 
 
+const AMBIENT_SCALING: f64 = 1.0 / std::f64::consts::PI;
+
 #[inline]
 pub fn default_lights(py: Python) -> PyResult<PyObject> {
     let lights = PyList::new(py, [
@@ -128,7 +130,7 @@ impl AmbientLight {
 
     pub fn luminance(&self) -> Vec3 {
         let colour: LinearRgb = self.colour.into();
-        Vec3(colour.0) * self.intensity
+        Vec3(colour.0) * (self.intensity * AMBIENT_SCALING)
     }
 }
 

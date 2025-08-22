@@ -2,6 +2,7 @@ use crate::utils::coordinates::HorizontalCoordinates;
 use super::atmosphere::Atmosphere;
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;
+use super::DEFAULT_EXPOSURE;
 use super::vec3::Vec3;
 
 
@@ -70,7 +71,7 @@ pub fn illuminate(
         None => Vec3::ZERO,
     };
 
-    (directional + aerial) * PI + ambient
+    (directional + aerial + ambient) * DEFAULT_EXPOSURE
 }
 
 
