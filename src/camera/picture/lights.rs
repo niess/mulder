@@ -4,20 +4,11 @@ use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 use super::colours::{LinearRgb, StandardRgb};
 use super::vec3::Vec3;
 
 
 const AMBIENT_SCALING: f64 = 1.0 / (2.0 * std::f64::consts::PI);
-
-#[inline]
-pub fn default_lights(py: Python) -> PyResult<PyObject> {
-    let lights = PyList::new(py, [
-        SunLight::default().into_pyobject(py)?.into_any(),
-    ])?.into_any().unbind();
-    Ok(lights)
-}
 
 #[derive(Clone, Debug, FromPyObject)]
 pub enum Light {
@@ -330,6 +321,9 @@ impl LightArg {
 }
 
 impl Lights {
+    pub const DIRECTIONAL: Self = Self::Single(LightArg::Model(LightModel::Directional));
+    pub const SUN: Self = Self::Single(LightArg::Model(LightModel::Sun));
+
     pub fn into_vec(self, camera_direction: HorizontalCoordinates) -> Vec<Light> {
         match self {
             Self::Single(light) => vec![light.resolve(camera_direction)],

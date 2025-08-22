@@ -26,7 +26,6 @@ const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
 pub fn initialise(py: Python) -> PyResult<()> {
     let raw_picture = RawPicture::type_object(py);
-    raw_picture.setattr("lights", lights::default_lights(py)?)?;
     raw_picture.setattr("materials", materials::default_materials(py)?)?;
     Ok(())
 }
@@ -201,11 +200,34 @@ impl RawPicture {
     ) -> PyResult<NewArray<'py, f32>> {
         let atmosphere = atmosphere.unwrap_or(true);
 
-        // Resolve lights.
-        let lights = match lights {
-            Some(lights) => lights.into_vec(self.direction()),
-            None => Self::default_lights(py)?.extract()?,
+        // Resolve materials.
+        let materials = match materials {
+            Some(materials) => materials,
+            None => Self::default_materials(py)?.extract()?,
         };
+        let materials = {
+            let mut properties = Vec::new();
+            for material in self.materials.iter() {
+                let property = materials
+                    .get(material)
+                    .map(|material| materials::MaterialData::from(material))
+                    .unwrap_or_else(|| materials::MaterialData::from(
+                        &OpticalProperties::default()
+                    ));
+                properties.push(property);
+            }
+            properties
+        };
+
+        // Resolve lights.
+        let lights = lights
+            .unwrap_or_else(|| if self.layer as usize == materials.len() {
+                lights::Lights::SUN
+            } else {
+                lights::Lights::DIRECTIONAL
+            })
+            .into_vec(self.direction());
+
         let (ambient, directionals) = {
             let mut ambient = vec3::Vec3::ZERO;
             let mut directionals = Vec::<lights::ResolvedLight>::new();
@@ -225,25 +247,6 @@ impl RawPicture {
                 }
             }
             (ambient, directionals)
-        };
-
-        // Resolve materials.
-        let materials = match materials {
-            Some(materials) => materials,
-            None => Self::default_materials(py)?.extract()?,
-        };
-        let materials = {
-            let mut properties = Vec::new();
-            for material in self.materials.iter() {
-                let property = materials
-                    .get(material)
-                    .map(|material| materials::MaterialData::from(material))
-                    .unwrap_or_else(|| materials::MaterialData::from(
-                        &OpticalProperties::default()
-                    ));
-                properties.push(property);
-            }
-            properties
         };
 
         // Instanciate the atmosphere.
@@ -372,11 +375,6 @@ impl RawPicture {
 }
 
 impl RawPicture {
-    #[inline]
-    fn default_lights(py: Python) -> PyResult<Bound<PyAny>> {
-        RawPicture::type_object(py).getattr("lights")
-    }
-
     #[inline]
     fn default_materials(py: Python) -> PyResult<Bound<PyAny>> {
         RawPicture::type_object(py).getattr("materials")
