@@ -32,15 +32,15 @@ pub struct Camera {
     #[pyo3(get)]
     elevation: f64,
 
-    /// The camera diagonal field-of-view, in degrees.
+    /// The camera horizontal field-of-view, in degrees.
     #[pyo3(get)]
     fov: f64,
 
-    /// The camera screen ratio.
+    /// The camera screen ratio (width / height).
     #[pyo3(get)]
     ratio: f64,
 
-    /// The camera screen resolution, in pixels.
+    /// The camera screen resolution (height, width), in pixels.
     #[pyo3(get)]
     resolution: (usize, usize),
 
@@ -77,11 +77,11 @@ pub struct PixelsCoordinates {
     #[pyo3(get)]
     v: Py<PyArray<f64>>,
 
-    /// The screen ratio.
+    /// The screen ratio (width / height).
     #[pyo3(get)]
     ratio: f64,
 
-    /// The screen resolution.
+    /// The screen resolution (height, width).
     #[pyo3(get)]
     resolution: (usize, usize),
 }
@@ -153,8 +153,14 @@ impl Camera {
 
     /// The camera focal length.
     #[getter]
-    fn get_focal_length(&mut self) -> f64 { // XXX setter as well?
+    fn get_focal_length(&self) -> f64 {
         self.focal_length()
+    }
+
+    #[setter]
+    fn set_focal_length(&mut self, value: f64) {
+        let value = Self::compute_fov(value);
+        self.set_fov(value)
     }
 
     #[getter]
@@ -344,8 +350,12 @@ impl Camera {
         }
     }
 
+    fn compute_fov(f: f64) -> f64 {
+        2.0 * (1.0 / f).atan() / Self::DEG
+    }
+
     fn focal_length(&self) -> f64 {
-        0.5 * (1.0 + self.ratio.powi(2)).sqrt() / (0.5 * self.fov * Self::DEG).tan()
+        1.0 / (0.5 * self.fov * Self::DEG).tan()
     }
 
     fn iter(&self) -> Iter {
@@ -459,7 +469,7 @@ impl Iterator for Iter {
 impl Transform {
     #[inline]
     fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
-        self.frame.to_horizontal(&[(u - 0.5) * self.ratio, self.f, (v - 0.5)])
+        self.frame.to_horizontal(&[u - 0.5, self.f, (v - 0.5) / self.ratio])
     }
 
     #[inline]
