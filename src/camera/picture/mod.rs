@@ -202,7 +202,7 @@ impl RawPicture {
 
         // Resolve lights.
         let lights = match lights {
-            Some(lights) => lights.into_vec(),
+            Some(lights) => lights.into_vec(self.direction()),
             None => Self::default_lights(py)?.extract()?,
         };
         let (ambient, directionals) = {
@@ -376,6 +376,11 @@ impl RawPicture {
     #[inline]
     fn default_materials(py: Python) -> PyResult<Bound<PyAny>> {
         RawPicture::type_object(py).getattr("materials")
+    }
+
+    #[inline]
+    fn direction(&self) -> HorizontalCoordinates {
+        self.transform.direction(0.5, 0.5)
     }
 
     #[inline]

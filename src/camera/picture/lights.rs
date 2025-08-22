@@ -288,11 +288,18 @@ impl TimeArg {
 }
 
 impl LightArg {
-    fn resolve(self) -> Light {
+    fn resolve(self, camera_direction: HorizontalCoordinates) -> Light {
         match self {
             Self::Light(light) => light,
             Self::Model(model) => match model {
                 LightModel::Ambient => Light::Ambient(AmbientLight::default()),
+                LightModel::Directional => Light::Directional(
+                    DirectionalLight::new(
+                        camera_direction.azimuth + 180.0,
+                        -camera_direction.elevation,
+                        None,
+                    )
+                ),
                 LightModel::Sun => Light::Sun(SunLight::default()),
             },
         }
@@ -300,12 +307,12 @@ impl LightArg {
 }
 
 impl Lights {
-    pub fn into_vec(self) -> Vec<Light> {
+    pub fn into_vec(self, camera_direction: HorizontalCoordinates) -> Vec<Light> {
         match self {
-            Self::Single(light) => vec![light.resolve()],
+            Self::Single(light) => vec![light.resolve(camera_direction)],
             Self::Sequence(lights) => lights
                 .into_iter()
-                .map(|light| light.resolve())
+                .map(|light| light.resolve(camera_direction))
                 .collect(),
         }
     }

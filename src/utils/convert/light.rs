@@ -6,8 +6,9 @@ use pyo3::prelude::*;
 #[derive(Clone, Copy, Debug, Default, EnumVariantsStrings, PartialEq)]
 #[enum_variants_strings_transform(transform="lower_case")]
 pub enum LightModel {
-    Ambient,
     #[default]
+    Ambient,
+    Directional,
     Sun,
 }
 
