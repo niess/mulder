@@ -21,8 +21,7 @@ pub fn illuminate(
     material: &MaterialData,
     atmosphere: Option<&Atmosphere>,
 ) -> Vec3 {
-    let diffuse_colour = Vec3(material.diffuse_colour);
-    let f0 = Vec3(material.f0);
+    let (diffuse_colour, f0) = material.resolve_colour(altitude);
     let normal = Vec3(normal);
     let view = Vec3(view);
     let nv = Vec3::dot(&normal, &view).clamp(1E-04, 1.0);

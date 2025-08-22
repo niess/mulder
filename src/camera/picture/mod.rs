@@ -18,6 +18,7 @@ mod pbr;
 mod vec3;
 
 pub use atmosphere::SkyProperties;
+pub use colours::ColourMap;
 pub use lights::{AmbientLight, DirectionalLight, SunLight};
 pub use materials::OpticalProperties;
 

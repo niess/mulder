@@ -55,6 +55,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     // Register class object(s).
     module.add_class::<camera::Camera>()?;
     module.add_class::<camera::picture::AmbientLight>()?;
+    module.add_class::<camera::picture::ColourMap>()?;
     module.add_class::<camera::picture::DirectionalLight>()?;
     module.add_class::<camera::picture::OpticalProperties>()?;
     module.add_class::<camera::picture::RawPicture>()?;

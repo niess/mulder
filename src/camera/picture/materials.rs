@@ -1,18 +1,19 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use super::colours::{LinearRgb, StandardRgb};
+use super::colours::MaterialColour;
+use super::vec3::Vec3;
 
 
 #[inline]
 pub fn default_materials(py: Python) -> PyResult<PyObject> {
     let materials = PyDict::new(py);
     materials.set_item("Rock", OpticalProperties {
-        colour: StandardRgb (101.0 / 255.0, 67.0 / 255.0, 33.0 / 255.0),
+        colour: MaterialColour::standard(101.0 / 255.0, 67.0 / 255.0, 33.0 / 255.0),
         roughness: 0.5,
         ..Default::default()
     })?;
     materials.set_item("Water", OpticalProperties {
-        colour: StandardRgb::WHITE,
+        colour: MaterialColour::WHITE,
         roughness: 0.2,
         metallic: true,
         ..Default::default()
@@ -26,7 +27,7 @@ pub fn default_materials(py: Python) -> PyResult<PyObject> {
 pub struct OpticalProperties {
     /// Perceived colour (albedo), in sRGB space.
     #[pyo3(get, set)]
-    pub colour: StandardRgb,
+    pub colour: MaterialColour,
 
     /// Dielectric (false) or conductor (true).
     #[pyo3(get, set)]
@@ -42,15 +43,17 @@ pub struct OpticalProperties {
 }
 
 pub struct MaterialData {
-    pub diffuse_colour: [f64; 3],
-    pub f0: [f64; 3],
+    colour: MaterialColour,
+    metallic: bool,
+
     pub roughness: f64,
+    pub reflectance: f64,
 }
 
 impl Default for OpticalProperties {
     fn default() -> Self {
         Self {
-            colour: StandardRgb::WHITE,
+            colour: MaterialColour::WHITE,
             metallic: false,
             roughness: 0.0,
             reflectance: 0.5,
@@ -60,22 +63,26 @@ impl Default for OpticalProperties {
 
 impl MaterialData {
     const MIN_ROUGHNESS: f64 = 0.045;
+
+    pub fn resolve_colour(&self, value: f64) -> (Vec3, Vec3) {
+        let colour = Vec3(self.colour.to_linear(value).0);
+        if self.metallic {
+            (Vec3::ZERO, colour)
+        } else {
+            (colour, Vec3::splat(self.reflectance))
+        }
+    }
 }
 
 impl From<&OpticalProperties> for MaterialData {
     fn from(value: &OpticalProperties) -> Self {
-        let colour = LinearRgb::from(value.colour).0;
-        let (diffuse_colour, f0) = if value.metallic {
-            ([0.0; 3], colour)
-        } else {
-            let r = 0.16 * value.reflectance
-                .clamp(0.0, 1.0)
-                .powi(2);
-            (colour, [r; 3])
-        };
-        let perceptual_roughness = value.roughness
-            .clamp(Self::MIN_ROUGHNESS, 1.0);
-        let roughness = perceptual_roughness.powi(2);
-        Self { diffuse_colour, f0, roughness }
+        let colour = value.colour.clone();
+        let roughness = value.roughness
+            .clamp(Self::MIN_ROUGHNESS, 1.0)
+            .powi(2);
+        let reflectance = 0.16 * value.reflectance
+            .clamp(0.0, 1.0)
+            .powi(2);
+        Self { colour, metallic: value.metallic, roughness, reflectance }
     }
 }
