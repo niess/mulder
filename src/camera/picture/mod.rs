@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use super::Transform;
 
 mod atmosphere;
+mod colours;
 mod lights;
 mod materials;
 mod pbr;
@@ -246,7 +247,11 @@ impl RawPicture {
         };
 
         // Instanciate the atmosphere.
-        let atmosphere = if atmosphere && (self.layer as usize == materials.len()) {
+        let atmosphere = if
+            atmosphere &&
+            (self.layer as usize == materials.len()) &&
+            (directionals.len() > 0) 
+        {
             Some(atmosphere::Atmosphere::new(self, &directionals))
         } else {
             None
@@ -308,8 +313,7 @@ impl RawPicture {
                     None => vec3::Vec3::ZERO,
                 }
             };
-            let ldr = ToneMapping::map(hdr * exposure);
-            let srgb: materials::Srgb = materials::LinearRgb(ldr.0).into();
+            let srgb = colours::StandardRgb::from(hdr * exposure);
 
             pixels[3 * i + 0] = srgb.red() as f32;
             pixels[3 * i + 1] = srgb.green() as f32;
@@ -386,17 +390,5 @@ impl RawPicture {
     #[inline]
     fn position(&self) -> &GeographicCoordinates {
         &self.transform.frame.origin
-    }
-}
-
-struct ToneMapping;
-
-impl ToneMapping {
-    // Extended Reinhard tone mapping.
-    // Ref: https://64.github.io/tonemapping/
-    fn map(c: vec3::Vec3) -> vec3::Vec3 {
-        const BASE: vec3::Vec3 = vec3::Vec3([0.2126, 0.7152, 0.0722]);
-        let c = c / (1.0 + vec3::Vec3::dot(&c, &BASE));
-        c.clamp(0.0, 1.0)
     }
 }

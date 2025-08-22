@@ -4,10 +4,10 @@ use crate::utils::numpy::NewArray;
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 use super::{RawPicture, Transform};
-use super::vec3::Vec3;
+use super::colours::StandardRgb;
 use super::lights::{ResolvedLight, Light};
-use super::materials::{LinearRgb, Srgb};
 use super::pbr::{d_ggx, v_smith_ggx};
+use super::vec3::Vec3;
 use std::sync::OnceLock;
 
 
@@ -76,7 +76,8 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in aerial.0.data.iter().enumerate() {
-            let srgb: Srgb = LinearRgb(l.0).into();
+            let hdr = *l * PI;
+            let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
             light[3 * i + 2] = srgb.blue();
@@ -141,13 +142,15 @@ impl SkyProperties {
         }
         for (i, mu) in average.iter_u().enumerate() {
             elevation[i] = mu.asin() / DEG;
-            let srgb: Srgb = LinearRgb(diffuse.eval(mu).0).into();
+            let hdr = diffuse.eval(mu);
+            let srgb = StandardRgb::from(hdr);
             d[3 * i + 0] = srgb.red();
             d[3 * i + 1] = srgb.green();
             d[3 * i + 2] = srgb.blue();
 
             for (j, roughness) in specular.0.iter_v().enumerate() {
-                let srgb: Srgb = LinearRgb(specular.eval(mu, roughness.powi(2)).0).into();
+                let hdr = specular.eval(mu, roughness.powi(2));
+                let srgb = StandardRgb::from(hdr);
                 s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 0] = srgb.red();
                 s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 1] = srgb.green();
                 s[3 * (i * AmbientSpecular::SHAPE.1 + j) + 2] = srgb.blue();
@@ -182,7 +185,8 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in ms.0.data.iter().enumerate() {
-            let srgb: Srgb = LinearRgb(l.0).into();
+            let hdr = *l * PI;
+            let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
             light[3 * i + 2] = srgb.blue();
@@ -241,7 +245,8 @@ impl SkyProperties {
         }
         let light = light_array.as_slice_mut();
         for (i, l) in sky_view.0.data.iter().enumerate() {
-            let srgb: Srgb = LinearRgb(l.0).into();
+            let hdr = *l * PI;
+            let srgb = StandardRgb::from(hdr);
             light[3 * i + 0] = srgb.red();
             light[3 * i + 1] = srgb.green();
             light[3 * i + 2] = srgb.blue();

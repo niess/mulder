@@ -5,14 +5,14 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use super::materials::{LinearRgb, Srgb};
+use super::colours::{LinearRgb, StandardRgb};
 use super::vec3::Vec3;
 
 
 #[inline]
 pub fn default_lights(py: Python) -> PyResult<PyObject> {
     let lights = PyList::new(py, [
-        SunLight::new(None, None)?.into_pyobject(py)?.into_any(),
+        SunLight::default().into_pyobject(py)?.into_any(),
     ])?.into_any().unbind();
     Ok(lights)
 }
@@ -41,7 +41,11 @@ pub enum Lights {
 pub struct AmbientLight {
     /// The light colour.
     #[pyo3(get, set)]
-    pub colour: Srgb,
+    pub colour: StandardRgb,
+
+    /// The light intensity.
+    #[pyo3(get, set)]
+    pub intensity: f64,
 }
 
 #[pyclass(module="mulder")]
@@ -49,7 +53,11 @@ pub struct AmbientLight {
 pub struct DirectionalLight {
     /// The light colour.
     #[pyo3(get, set)]
-    pub colour: Srgb,
+    pub colour: StandardRgb,
+
+    /// The light intensity.
+    #[pyo3(get, set)]
+    pub intensity: f64,
 
     /// The light azimuth direction, in deg.
     #[pyo3(get, set)]
@@ -65,7 +73,11 @@ pub struct DirectionalLight {
 pub struct SunLight {
     /// The sun light colour.
     #[pyo3(get, set)]
-    pub colour: Srgb,
+    pub colour: StandardRgb,
+
+    /// The sun light intensity.
+    #[pyo3(get, set)]
+    pub intensity: f64,
 
     /// The local date and solar time.
     #[pyo3(get, set)]
@@ -102,44 +114,49 @@ pub struct ResolvedLight {
 #[pymethods]
 impl AmbientLight {
     #[new]
-    #[pyo3(signature=(colour=None))]
-    fn new(colour: Option<Srgb>) -> Self {
-        let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
-        Self { colour }
+    #[pyo3(signature=(intensity=None, colour=None))]
+    fn new(intensity: Option<f64>, colour: Option<StandardRgb>) -> Self {
+        let intensity = intensity.unwrap_or(Self::DEFAULT_INTENSITY);
+        let colour = colour.unwrap_or(Self::DEFAULT_COLOUR);
+        Self { colour, intensity }
     }
 }
 
 impl AmbientLight {
-    const DEFAULT_COLOUR: Srgb = Srgb::Scalar(0.5);
+    const DEFAULT_COLOUR: StandardRgb = StandardRgb::Scalar(0.5);
+    const DEFAULT_INTENSITY: f64 = 1.0;
 
     pub fn luminance(&self) -> Vec3 {
         let colour: LinearRgb = self.colour.into();
-        Vec3(colour.0)
+        Vec3(colour.0) * self.intensity
     }
 }
 
 impl Default for AmbientLight {
     fn default() -> Self {
-        Self { colour: Self::DEFAULT_COLOUR }
+        Self { colour: Self::DEFAULT_COLOUR, intensity: Self::DEFAULT_INTENSITY }
     }
 }
 
 #[pymethods]
 impl DirectionalLight {
     #[new]
-    #[pyo3(signature=(azimuth, elevation, *, colour=None))]
+    #[pyo3(signature=(azimuth, elevation, *, colour=None, intensity=None))]
     fn new(
         azimuth: f64,
         elevation: f64,
-        colour: Option<Srgb>,
+        colour: Option<StandardRgb>,
+        intensity: Option<f64>,
     ) -> Self {
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
-        Self { azimuth, elevation, colour }
+        let intensity = intensity.unwrap_or(Self::DEFAULT_INTENSITY);
+        Self { azimuth, elevation, colour, intensity }
     }
 }
 
 impl DirectionalLight {
-    const DEFAULT_COLOUR: Srgb = Srgb::WHITE;
+    const DEFAULT_COLOUR: StandardRgb = StandardRgb::WHITE;
+    const DEFAULT_INTENSITY: f64 = 1.0;
 
     #[inline]
     fn direction(&self) -> HorizontalCoordinates {
@@ -151,7 +168,7 @@ impl DirectionalLight {
         let colour: LinearRgb = self.colour.into();
         ResolvedLight {
             azimuth: self.azimuth, elevation: self.elevation, direction,
-            illuminance: Vec3(colour.0),
+            illuminance: Vec3(colour.0) * self.intensity,
         }
     }
 }
@@ -159,10 +176,11 @@ impl DirectionalLight {
 #[pymethods]
 impl SunLight {
     #[new]
-    #[pyo3(signature=(/, *, colour=None, datetime=None))]
+    #[pyo3(signature=(/, *, colour=None, datetime=None, intensity=None))]
     fn new(
-        colour: Option<Srgb>,
+        colour: Option<StandardRgb>,
         datetime: Option<DateTimeArg>,
+        intensity: Option<f64>,
     ) -> PyResult<Self> {
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
         let datetime = datetime
@@ -175,7 +193,8 @@ impl SunLight {
                 DateTimeArg::NaiveDateTime(datetime)
             })
             .into_datetime()?;
-        Ok(Self { colour, datetime })
+        let intensity = intensity.unwrap_or(Self::DEFAULT_INTENSITY);
+        Ok(Self { colour, datetime, intensity })
     }
 
     /// The local date.
@@ -215,7 +234,8 @@ impl SunLight {
 }
 
 impl SunLight {
-    const DEFAULT_COLOUR: Srgb = Srgb::WHITE;
+    const DEFAULT_COLOUR: StandardRgb = StandardRgb::WHITE;
+    const DEFAULT_INTENSITY: f64 = 1.0;
 
     pub fn to_directional(&self, latitude: f64) -> PyResult<DirectionalLight> {
         let datetime = self.datetime.and_utc();
@@ -224,13 +244,13 @@ impl SunLight {
         ).unwrap(); 
         let elevation = 90.0 - position.zenith_angle;
         let azimuth = position.azimuth;
-        Ok(DirectionalLight { azimuth, elevation, colour: self.colour })
+        Ok(DirectionalLight { azimuth, elevation, colour: self.colour, intensity: self.intensity })
     }
 }
 
 impl Default for SunLight {
     fn default() -> Self {
-        Self::new(None, None).unwrap()
+        Self::new(None, None, None).unwrap()
     }
 }
 
@@ -297,6 +317,7 @@ impl LightArg {
                     DirectionalLight::new(
                         camera_direction.azimuth + 180.0,
                         -camera_direction.elevation,
+                        None,
                         None,
                     )
                 ),
