@@ -64,21 +64,32 @@ impl LinearRgb {
 
 impl<'py> FromPyObject<'py> for StandardRgb {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let value: [f64; 3] = ob.extract()?;
-        for i in 0..3 {
-            let vi = value[i];
-            if (vi < 0.0) || (vi > 1.0) {
-                let why = format!(
-                    "#{}: expected a value in [0,1], found '{}'",
-                    i,
-                    vi,
-                );
-                let err = Error::new(ValueError)
-                    .what("colour")
-                    .why(&why);
-                return Err(err.to_err())
+        let py = ob.py();
+        let value: [f64; 3] = if ob.extract::<String>().is_ok() {
+            let to_rgb = py
+                .import("matplotlib.colors")?
+                .getattr("to_rgb")?;
+            let rgb = to_rgb.call1((ob,))?;
+            rgb.extract()?
+        } else {
+            let value: [f64; 3] = ob.extract()?;
+            for i in 0..3 {
+                let vi = value[i];
+                if (vi < 0.0) || (vi > 1.0) {
+                    let why = format!(
+                        "#{}: expected a value in [0,1], found '{}'",
+                        i,
+                        vi,
+                    );
+                    let err = Error::new(ValueError)
+                        .what("colour")
+                        .why(&why);
+                    return Err(err.to_err())
+                }
             }
-        }
+            value
+        };
+
         Ok(Self (value[0], value[1], value[2]))
     }
 }
