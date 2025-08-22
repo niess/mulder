@@ -1,6 +1,6 @@
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::namespace::Namespace;
-use crate::utils::numpy::NewArray;
+use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 use super::{RawPicture, Transform};
@@ -260,14 +260,32 @@ impl SkyProperties {
         ])
     }
 
-    // XXX Vectorise this method.
+    #[pyo3(signature=(elevation, /, *, altitude=None))]
     #[classmethod]
-    fn transmittance(_cls: &Bound<PyType>, altitude: f64, elevation: f64) -> [f64; 3] {
+    fn transmittance<'py>(
+        _cls: &Bound<'py, PyType>,
+        elevation: AnyArray<'py, f64>,
+        altitude: Option<f64>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let py = elevation.py();
+
+        let altitude = altitude.unwrap_or(0.0);
         let r = altitude + Atmosphere::BOTTOM_RADIUS;
-        let mu = (elevation * DEG).sin();
-        let t = Transmittance::get()
-            .eval(r, mu);
-        t.0
+
+        let mut shape = elevation.shape();
+        shape.push(3);
+        let mut array = NewArray::empty(py, shape)?;
+        let values = array.as_slice_mut();
+        let transmittance = Transmittance::get();
+        for i in 0..elevation.size() {
+            let mu = (elevation.get_item(i)? * DEG).sin();
+            let ti = transmittance.eval(r, mu);
+            for j in 0..3 {
+                values[3 * i + j] = ti.0[j];
+            }
+        }
+
+        Ok(array)
     }
 }
 
