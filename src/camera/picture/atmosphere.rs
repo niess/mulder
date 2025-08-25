@@ -23,7 +23,7 @@ const PI: f64 = std::f64::consts::PI;
 const HALF_PI: f64 = 0.5 * PI;
 
 /// Optical properties of the atmosphere.
-#[pyclass]
+#[pyclass(module="mulder.picture")]
 pub struct SkyProperties;
 
 #[pymethods]

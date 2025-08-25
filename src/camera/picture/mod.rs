@@ -4,7 +4,6 @@ use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, PyArray};
 use pyo3::prelude::*;
-use pyo3::type_object::PyTypeInfo;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
@@ -20,18 +19,12 @@ mod vec3;
 pub use atmosphere::SkyProperties;
 pub use colours::ColourMap;
 pub use lights::{AmbientLight, DirectionalLight, SunLight};
-pub use materials::OpticalProperties;
+pub use materials::{default_materials, OpticalProperties};
 
 
 const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
-pub fn initialise(py: Python) -> PyResult<()> {
-    let raw_picture = RawPicture::type_object(py);
-    raw_picture.setattr("materials", materials::default_materials(py)?)?;
-    Ok(())
-}
-
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 pub struct RawPicture {
     pub(super) transform: Transform,
     pub layer: i32,
@@ -378,7 +371,7 @@ impl RawPicture {
 impl RawPicture {
     #[inline]
     fn default_materials(py: Python) -> PyResult<Bound<PyAny>> {
-        RawPicture::type_object(py).getattr("materials")
+        py.import("mulder.picture")?.getattr("materials")
     }
 
     #[inline]

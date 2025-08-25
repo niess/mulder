@@ -22,7 +22,7 @@ pub fn default_materials(py: Python) -> PyResult<PyObject> {
     Ok(materials)
 }
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 #[derive(Clone)]
 pub struct OpticalProperties {
     /// Perceived colour (albedo), in sRGB space.

@@ -29,7 +29,7 @@ pub enum Lights {
     Sequence(Vec<LightArg>),
 }
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 #[derive(Clone, Debug)]
 pub struct AmbientLight {
     /// The light colour.
@@ -41,7 +41,7 @@ pub struct AmbientLight {
     pub intensity: f64,
 }
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 #[derive(Clone, Debug)]
 pub struct DirectionalLight {
     /// The light colour.
@@ -61,7 +61,7 @@ pub struct DirectionalLight {
     pub elevation: f64,
 }
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 #[derive(Clone, Debug)]
 pub struct SunLight {
     /// The sun light colour.

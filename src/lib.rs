@@ -33,7 +33,7 @@ fn set_prefix(py: Python) -> PyResult<()> {
 #[pyclass(frozen, module="mulder")]
 struct Config ();
 
-#[pymodule]
+#[pymodule(name="_core")]
 fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     let py = module.py();
 
@@ -49,18 +49,8 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     // Initialise the materials.
     simulation::materials::initialise(py)?;
 
-    // Initialise the picture interface.
-    camera::picture::initialise(py)?;
-
     // Register class object(s).
     module.add_class::<camera::Camera>()?;
-    module.add_class::<camera::picture::AmbientLight>()?;
-    module.add_class::<camera::picture::ColourMap>()?;
-    module.add_class::<camera::picture::DirectionalLight>()?;
-    module.add_class::<camera::picture::OpticalProperties>()?;
-    module.add_class::<camera::picture::RawPicture>()?;
-    module.add_class::<camera::picture::SkyProperties>()?;
-    module.add_class::<camera::picture::SunLight>()?;
     module.add_class::<geometry::Geometry>()?;
     module.add_class::<geometry::atmosphere::Atmosphere>()?;
     module.add_class::<geometry::grid::Grid>()?;
@@ -68,6 +58,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<geometry::magnet::Magnet>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::physics::Physics>()?;
+    module.add_class::<simulation::random::Random>()?;
     module.add_class::<simulation::reference::Reference>()?;
 
     // Register function(s).
@@ -75,6 +66,18 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Set config wrapper.
     module.add("config", Config())?;
+
+    // Set the picture submodule.
+    let picture = PyModule::new(py, "picture")?;
+    picture.add("materials", camera::picture::default_materials(py)?)?;
+    picture.add_class::<camera::picture::AmbientLight>()?;
+    picture.add_class::<camera::picture::ColourMap>()?;
+    picture.add_class::<camera::picture::DirectionalLight>()?;
+    picture.add_class::<camera::picture::OpticalProperties>()?;
+    picture.add_class::<camera::picture::RawPicture>()?;
+    picture.add_class::<camera::picture::SkyProperties>()?;
+    picture.add_class::<camera::picture::SunLight>()?;
+    module.add_submodule(&picture)?;
 
     Ok(())
 }

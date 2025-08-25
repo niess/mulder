@@ -11,7 +11,7 @@ pub enum MaterialColour {
 }
 
 #[derive(Clone, Debug)]
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 pub struct ColourMap {
     data: Vec<(f64, StandardRgb)>,
 }
