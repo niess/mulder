@@ -14,7 +14,7 @@ use std::ptr::null_mut;
 #[pyclass(module="mulder")]
 pub struct Magnet {
     /// The calendar day.
-    #[pyo3(get)]
+    #[pyo3(get)] // XXX Use date object instead?
     day: usize,
 
     /// The calendar month.
@@ -26,7 +26,7 @@ pub struct Magnet {
     year: usize,
 
     /// The model limits along the z-coordinates.
-    #[pyo3(get)]
+    #[pyo3(get)]  // XXX Change to zlim (everywhere)?
     altitude: (f64, f64),
 
     snapshot: *mut gull::Snapshot,

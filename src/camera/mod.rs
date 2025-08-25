@@ -102,7 +102,7 @@ struct Transform {
 
 #[pymethods]
 impl Camera {
-    #[new]
+    #[new] // XXX Hide resolution, etc. under kwargs.
     #[pyo3(signature=(coordinates=None, /, *, resolution=None, fov=None, ratio=None, **kwargs))]
     fn new(
         coordinates: Option<&Bound<PyAny>>,

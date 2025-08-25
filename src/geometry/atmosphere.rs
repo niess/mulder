@@ -172,17 +172,19 @@ impl Atmosphere {
         Ok(Atmosphere { lambda, z, rho })
     }
 
-    #[pyo3(signature=(z, /))]
-    fn density<'py>(&self, z: AnyArray<'py, f64>) -> PyResult<NewArray<'py, f64>> {
-        let py = z.py();
-        let mut array = NewArray::<f64>::empty(py, z.shape())?;
+    #[pyo3(signature=(altitude, /))]
+    fn density<'py>(&self, altitude: AnyArray<'py, f64>) -> PyResult<NewArray<'py, f64>> {
+        let py = altitude.py();
+        let mut array = NewArray::<f64>::empty(py, altitude.shape())?;
         let rho = array.as_slice_mut();
-        for i in 0..z.size() {
-            let zi = z.get_item(i)?;
+        for i in 0..altitude.size() {
+            let zi = altitude.get_item(i)?;
             rho[i] = self.compute_density(zi).value;
         }
         Ok(array)
     }
+
+    // XXX export the model as attribute?
 }
 
 impl Atmosphere {

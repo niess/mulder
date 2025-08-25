@@ -94,7 +94,7 @@ impl Geometry {
     #[new]
     pub fn new(
         layers: &Bound<PyTuple>,
-        atmosphere: Option<AtmosphereArg>,
+        atmosphere: Option<AtmosphereArg>, // XXX hide in kwargs?
         magnet: Option<MagnetArg>,
     ) -> PyResult<Self> {
         let py = layers.py();
