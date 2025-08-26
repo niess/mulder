@@ -143,7 +143,7 @@ impl Physics {
             self.context = context;
 
             // Map materials indices.
-            for material in materials.data.0.keys() {
+            for material in materials.data.map.keys() {
                 let mut index: c_int = 0;
                 unsafe {
                     let rc = pumas::physics_material_index(
@@ -186,7 +186,7 @@ impl Physics {
             .join(format!("{}-{}.pumas", materials, tag));
         let dedx_path = TempDir::new()?;
         let mdf_path = dedx_path.path().join("materials.xml");
-        Mdf::new(py, &description)
+        Mdf::new(&description)
             .dump(&mdf_path)?;
 
         let c_bremsstrahlung: CString = self.bremsstrahlung.into();

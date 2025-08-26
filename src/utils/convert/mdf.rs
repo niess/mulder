@@ -1,4 +1,4 @@
-use crate::simulation::materials::{AtomicElement, Component, ELEMENTS, Material, MaterialsData};
+use crate::simulation::materials::{AtomicElement, Component, Material, MaterialsData};
 use pyo3::prelude::*;
 use ::std::path::Path;
 
@@ -12,13 +12,13 @@ use ::std::path::Path;
 pub struct Mdf (String);
 
 impl Mdf {
-    pub fn new(py: Python, materials: &MaterialsData) -> Self {
+    pub fn new(materials: &MaterialsData) -> Self {
+        let table = materials.table();
         let mut lines = Vec::<String>::new();
         lines.push("<pumas>".to_string());
 
-        let table = ELEMENTS.get(py).unwrap();
         let mut elements = Vec::<&str>::new();
-        for material in materials.0.values() {
+        for material in materials.map.values() {
             for Component { name, .. } in material.composition.iter() {
                 elements.push(name)
             }
@@ -27,15 +27,15 @@ impl Mdf {
         elements.dedup();
 
         for key in elements {
-            let element = table.0.get(key).unwrap();
+            let element = table.get(key).unwrap();
             let element = element.to_xml(key);
             lines.push(element);
         }
 
-        let mut keys: Vec<_> = materials.0.keys().collect();
+        let mut keys: Vec<_> = materials.map.keys().collect();
         keys.sort();
         for key in keys.drain(..) {
-            let material = &materials.0[key];
+            let material = &materials.map[key];
             let material = material.to_xml(key);
             lines.push(material);
         }

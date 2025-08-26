@@ -47,7 +47,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     utils::numpy::initialise(py)?;
 
     // Initialise the materials.
-    simulation::materials::initialise(py)?;
+    simulation::materials::initialise()?;
 
     // Register class object(s).
     module.add_class::<camera::Camera>()?;

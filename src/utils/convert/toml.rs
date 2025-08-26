@@ -1,4 +1,5 @@
 use crate::simulation::materials::{Component, Material, MaterialsData};
+use std::cmp::Ordering::{Less, Equal, Greater};
 
 
 // ===============================================================================================
@@ -13,17 +14,45 @@ pub trait ToToml {
 
 impl ToToml for MaterialsData {
     fn to_toml(&self) -> String {
-        let mut keys: Vec<_> = self.0.keys().collect();
-        keys.sort();
+        const EV: f64 = 1E-09;
         let mut lines = Vec::<String>::new();
+
+        if let Some(elements) = self.raw_table() {
+            let mut elements: Vec<_> = elements.iter().collect();
+            elements.sort_by(|a, b| match a.1.Z.cmp(&b.1.Z) {
+                Equal => match a.1.A.partial_cmp(&b.1.A).unwrap() {
+                    Equal => a.0.cmp(&b.0),
+                    Less => Less,
+                    Greater => Greater,
+                },
+                Less => Less,
+                Greater => Greater,
+
+            });
+            lines.push("[elements]".to_string());
+            for element in elements {
+                lines.push(format!(
+                    "\"{}\" = {{ Z = {}, A = {}, I = {} }}",
+                    element.0,
+                    element.1.Z,
+                    element.1.A,
+                    element.1.I * EV,
+                ));
+            }
+            lines.push("".to_string());
+        }
+
+        let mut keys: Vec<_> = self.map.keys().collect();
+        keys.sort();
         let n = keys.len();
         for (i, key) in keys.iter().enumerate() {
             lines.push(format!("[{}]", key));
-            lines.push(self.0[key.as_str()].to_toml());
+            lines.push(self.map[key.as_str()].to_toml());
             if i < n - 1 {
                 lines.push("".to_string());
             }
         }
+
         lines.join("\n")
     }
 }

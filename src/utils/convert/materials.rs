@@ -1,9 +1,12 @@
-use crate::simulation::materials::{Component, Material, MaterialsData};
+use crate::simulation::materials::{
+    AtomicElement, Component, ElementsTable, Material, MaterialsData
+};
 use crate::utils::error::{Error, ErrorKind};
 use crate::utils::error::ErrorKind::{KeyError, TypeError, ValueError};
 use crate::utils::namespace::Namespace;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use std::collections::HashMap;
 
 
 // ===============================================================================================
@@ -26,13 +29,33 @@ impl<'py> TryFrom<Bound<'py, PyDict>> for MaterialsData {
         };
 
         let mut materials = Self::new();
+        materials = match value.get_item("elements")? {
+            Some(elements) => {
+                let mut table = HashMap::new();
+                let elements = elements.downcast::<PyDict>()
+                    .map_err(|_| to_err("dict", &elements))?;
+                for (k, v) in elements.iter() {
+                    let k: String = k.extract()
+                        .map_err(|_| to_err("string", &k))?;
+                    let v: Bound<PyDict> = v.extract()
+                        .map_err(|_| to_err("dict", &v))?;
+                    let element: AtomicElement = (k.as_str(), &v).try_into()?;
+                    table.insert(k, element);
+                }
+                let table = ElementsTable::new(table);
+                materials.with_table(table)
+            },
+            None => materials,
+        };
+
         for (k, v) in value.iter() {
             let k: String = k.extract()
                 .map_err(|_| to_err("string", &k))?;
+            if k == "elements" { continue }
             let v: Bound<PyDict> = v.extract()
                 .map_err(|_| to_err("dict", &v))?;
             let material: Material = (k.as_str(), &v, &materials).try_into()?;
-            materials.0.insert(k, material);
+            materials.map.insert(k, material);
         }
 
         Ok(materials)
@@ -41,18 +64,81 @@ impl<'py> TryFrom<Bound<'py, PyDict>> for MaterialsData {
 
 // ===============================================================================================
 //
+// Elements extraction.
+//
+// ===============================================================================================
+
+type ElementContext<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>);
+
+impl<'a, 'py> TryFrom<ElementContext<'a, 'py>> for AtomicElement {
+    type Error = PyErr;
+
+    #[allow(non_snake_case)]
+    fn try_from(value: ElementContext) -> PyResult<Self> {
+        const EV: f64 = 1E-09;
+        let (name, data) = value;
+        let to_err = |kind: ErrorKind, why: &str| -> PyErr {
+            let what = format!("'{}' element", name);
+            Error::new(kind)
+                .what(&what)
+                .why(why)
+                .to_err()
+        };
+
+        let mut Z: Option<u32> = None;
+        let mut A: Option<f64> = None;
+        let mut I: Option<f64> = None;
+
+        for (k, v) in data.iter() {
+            let k: String = k.extract()
+                .map_err(|_| to_err(TypeError, "key is not a string"))?;
+            match k.as_str() {
+                "Z" => {
+                    let v: u32 = v.extract()
+                        .map_err(|_| to_err(ValueError, "'Z' is not an unsigned integer"))?;
+                    Z = Some(v);
+                },
+                "A" => {
+                    let v: f64 = v.extract()
+                        .map_err(|_| to_err(ValueError, "'A' is not a float"))?;
+                    A = Some(v);
+                },
+                "I" => {
+                    let v: f64 = v.extract()
+                        .map_err(|_| to_err(ValueError, "'I' is not a float"))?;
+                    I = Some(v / EV);
+                },
+                _ => {
+                    return Err(to_err(KeyError, &format!("invalid property '{}'", k)));
+                },
+            }
+        }
+        let Z = Z
+            .ok_or_else(|| to_err(KeyError, "missing 'Z'"))?;
+        let A = A
+            .ok_or_else(|| to_err(KeyError, "missing 'A'"))?;
+        let I = I
+            .ok_or_else(|| to_err(KeyError, "missing 'I'"))?;
+
+        Ok(Self { Z, A, I })
+    }
+}
+
+
+// ===============================================================================================
+//
 // Material extraction.
 //
 // ===============================================================================================
 
-type Context<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>, &'a MaterialsData);
+type MaterialContext<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>, &'a MaterialsData);
 
-impl<'a, 'py> TryFrom<Context<'a, 'py>> for Material {
+impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Material {
     type Error = PyErr;
 
-    fn try_from(value: Context) -> PyResult<Self> {
+    fn try_from(value: MaterialContext) -> PyResult<Self> {
         let (name, data, others) = value;
-        let py = data.py();
+        let table = others.table();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' material", name);
             Error::new(kind)
@@ -91,7 +177,7 @@ impl<'a, 'py> TryFrom<Context<'a, 'py>> for Material {
 
         let formula: Option<String> = composition.extract().ok();
         let material = match formula {
-            Some(formula) => Material::from_formula(py, density, formula.as_str(), mee)
+            Some(formula) => Material::from_formula(density, formula.as_str(), mee, table)
                 .map_err(|(kind, why)| to_err(kind, &why))?,
             None => {
                 let composition: Bound<PyDict> = composition.extract()
@@ -116,7 +202,7 @@ impl<'a, 'py> TryFrom<Context<'a, 'py>> for Material {
                         components.push(Component::new(name, weight))
                     }
                 }
-                Material::from_composition(py, density, &components, others, mee)
+                Material::from_composition(density, &components, others, mee)
                     .map_err(|(kind, why)| to_err(kind, &why))?
             },
         };
