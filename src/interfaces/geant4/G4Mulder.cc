@@ -1,0 +1,347 @@
+// Geant4 interface.
+#include "G4Navigator.hh"
+#include "G4Material.hh"
+#include "G4VPhysicalVolume.hh"
+// Mulder C interface.
+#include "mulder.h"
+// Mulder Geant4 interface.
+#include "G4Mulder.hh"
+// C++ standard library.
+#include <unordered_map>
+
+// Entry point for Mulder.
+#ifndef G4MULDER_INITIALISE
+#define G4MULDER_INITIALISE mulder_initialise
+#endif
+
+
+// ============================================================================
+//
+// Local interface, bridging Geant4 and Mulder.
+//
+// ============================================================================
+
+namespace G4Mulder{
+    struct GeometryDefinition: public mulder_geometry_definition {
+        GeometryDefinition(const G4VPhysicalVolume * world);
+        ~GeometryDefinition() {};
+
+        size_t GetMediumIndex(const G4VPhysicalVolume * volume) const;
+        const G4VPhysicalVolume * GetWorld() const;
+
+        std::vector<const G4Material *> materials;
+        std::vector<const G4VPhysicalVolume *> volumes;
+        std::unordered_map<const G4VPhysicalVolume *, size_t> mediaIndices;
+    };
+
+    struct MaterialDefinition: public mulder_material_definition {
+        MaterialDefinition(const G4Material * material);
+        ~MaterialDefinition() {};
+
+        const G4Material * g4Material;
+    };
+
+    struct GeometryMedium: public mulder_geometry_medium {
+        GeometryMedium(const G4VPhysicalVolume * volume);
+        ~GeometryMedium() {};
+
+        const G4VPhysicalVolume * g4Volume;
+    };
+
+    struct WeightedElement: public mulder_weighted_element {
+        WeightedElement(const G4Element * element, double weight);
+        ~WeightedElement() {};
+
+        const G4Element * g4Element;
+        double molarWeight;
+    };
+}
+
+// ============================================================================
+//
+// Implementation of Mulder C interface.
+//
+// ============================================================================
+
+static struct mulder_geometry_definition * interface_definition(void) {
+    auto && topVolume = G4Mulder::NewGeometry();
+    return new G4Mulder::GeometryDefinition(topVolume);
+}
+
+extern "C" struct mulder_interface G4MULDER_INITIALISE (void) {
+    struct mulder_interface interface;
+    interface.definition = &interface_definition;
+    interface.tracer = nullptr;
+    return interface;
+}
+
+// ============================================================================
+//
+// Implementation of geometry definition.
+//
+// ============================================================================
+
+static void geometry_destroy(struct mulder_geometry_definition * self) {
+    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    G4Mulder::DropGeometry(geometry->GetWorld());
+    delete geometry;
+}
+
+static struct mulder_material_definition * geometry_get_material(
+    const struct mulder_geometry_definition * self,
+    size_t index
+){
+    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    return new G4Mulder::MaterialDefinition(geometry->materials.at(index));
+}
+
+static struct mulder_geometry_medium * geometry_get_medium(
+    const struct mulder_geometry_definition * self,
+    size_t index
+){
+    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    return new G4Mulder::GeometryMedium(geometry->volumes.at(index));
+}
+
+static size_t geometry_materials_len(
+    const struct mulder_geometry_definition * self
+){
+    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    return geometry->materials.size();
+}
+
+static size_t geometry_media_len(
+const struct mulder_geometry_definition * self)
+{
+    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    return geometry->volumes.size();
+}
+
+static void append(
+    std::vector<const G4Material *> &materials,
+    std::vector<const G4VPhysicalVolume *> &volumes,
+    std::unordered_map<const G4Material *, size_t> &materialsIndices,
+    std::unordered_map<const G4VPhysicalVolume *, size_t> &mediaIndices,
+    const G4VPhysicalVolume * current
+){
+    if (mediaIndices.count(current) == 0) {
+        size_t n = volumes.size();
+        mediaIndices.insert({current, n});
+        volumes.push_back(current);
+
+        auto && material = current->GetLogicalVolume()->GetMaterial();
+        if (materialsIndices.count(material) == 0) {
+            size_t m = materials.size();
+            materialsIndices.insert({material, m});
+            materials.push_back(material);
+        }
+    }
+    auto && logical = current->GetLogicalVolume();
+    G4int n = logical->GetNoDaughters();
+    for (G4int i = 0; i < n; i++) {
+        auto && volume = logical->GetDaughter(i);
+        append(materials, volumes, materialsIndices, mediaIndices, volume);
+    }
+}
+
+G4Mulder::GeometryDefinition::GeometryDefinition(
+    const G4VPhysicalVolume * world)
+{
+    // Set interface.
+    this->destroy = &geometry_destroy;
+    this->material = &geometry_get_material;
+    this->materials_len = &geometry_materials_len;
+    this->medium = &geometry_get_medium;
+    this->media_len = &geometry_media_len;
+
+
+    // Scan volumes hierarchy.
+    std::unordered_map<const G4Material *, size_t> materialsIndices;
+    append(
+        this->materials,
+        this->volumes,
+        materialsIndices,
+        this->mediaIndices,
+        world
+    );
+}
+
+size_t G4Mulder::GeometryDefinition::GetMediumIndex(
+    const G4VPhysicalVolume * volume) const
+{
+    try {
+        return this->mediaIndices.at(volume);
+    } catch (...) {
+        return this->mediaIndices.size();
+    }
+}
+
+const G4VPhysicalVolume * G4Mulder::GeometryDefinition::GetWorld() const {
+    return (this->volumes.size() > 0) ?
+        this->volumes[0] :
+        nullptr;
+}
+
+// ============================================================================
+//
+// Implementation of material definition.
+//
+// ============================================================================
+
+static void material_destroy(struct mulder_material_definition * self) {
+    auto material = (G4Mulder::MaterialDefinition *)self;
+    delete material;
+}
+
+static double material_density(
+    const struct mulder_material_definition * self
+){
+    auto material = (G4Mulder::MaterialDefinition *)self;
+    return material->g4Material->GetDensity() * (CLHEP::m3 / CLHEP::kg);
+}
+
+static struct mulder_weighted_element * material_get_element(
+    const struct mulder_material_definition * self,
+    size_t index
+){
+    auto material = ((G4Mulder::MaterialDefinition *)self)->g4Material;
+    auto element = material->GetElement(index);
+    double weight = double (
+        material->GetVecNbOfAtomsPerVolume()[index] /
+        material->GetTotNbOfAtomsPerVolume()
+    );
+    return new G4Mulder::WeightedElement(element, weight);
+}
+
+static size_t material_elements_len(
+    const struct mulder_material_definition * self
+){
+    auto material = (G4Mulder::MaterialDefinition *)self;
+    return material->g4Material->GetNumberOfElements();
+}
+
+static double material_I(
+    const struct mulder_material_definition * self
+){
+    auto material = (G4Mulder::MaterialDefinition *)self;
+    return material->g4Material->GetIonisation()->GetMeanExcitationEnergy() /
+        CLHEP::GeV;
+}
+
+static const char * material_name(
+    const struct mulder_material_definition * self
+){
+    auto material = (G4Mulder::MaterialDefinition *)self;
+    return material->g4Material->GetName().c_str();
+}
+
+G4Mulder::MaterialDefinition::MaterialDefinition(
+    const G4Material * material
+):
+    g4Material(material)
+{
+    // Set interface.
+    this->destroy = &material_destroy;
+    this->density = &material_density;
+    this->elements_len = &material_elements_len;
+    this->element = &material_get_element;
+    this->I = (material->GetIonisation() == nullptr) ?
+        nullptr : &material_I;
+    this->name = &material_name;
+}
+
+// ============================================================================
+//
+// Implementation of weighted element.
+//
+// ============================================================================
+
+static void element_destroy(struct mulder_weighted_element * self) {
+    auto element = (G4Mulder::WeightedElement *)self;
+    delete element;
+}
+
+static int element_Z(
+    const struct mulder_weighted_element * self
+){
+    auto element = (G4Mulder::WeightedElement *)self;
+    return int(element->g4Element->GetZ());
+}
+
+static double element_A(
+    const struct mulder_weighted_element * self
+){
+    auto element = (G4Mulder::WeightedElement *)self;
+    return element->g4Element->GetA() * (CLHEP::mole / CLHEP::g);
+}
+
+static double element_I(
+    const struct mulder_weighted_element * self
+){
+    auto element = (G4Mulder::WeightedElement *)self;
+    return element->g4Element->GetIonisation()->GetMeanExcitationEnergy() /
+        CLHEP::GeV;
+}
+
+static const char * element_symbol(
+    const struct mulder_weighted_element * self
+){
+    auto element = (G4Mulder::WeightedElement *)self;
+    return element->g4Element->GetSymbol().c_str();
+}
+
+static double element_weight(
+    const struct mulder_weighted_element * self
+){
+    auto element = (G4Mulder::WeightedElement *)self;
+    return element->molarWeight;
+}
+
+G4Mulder::WeightedElement::WeightedElement(
+    const G4Element * element, double weight_
+):
+    g4Element(element), molarWeight(weight_)
+{
+    // Set interface.
+    this->destroy = &element_destroy;
+    this->Z = &element_Z;
+    this->A = &element_A;
+    this->I = &element_I;
+    this->symbol = &element_symbol;
+    this->weight = &element_weight;
+}
+
+// ============================================================================
+//
+// Implementation of geometry medium.
+//
+// ============================================================================
+
+static void medium_destroy(struct mulder_geometry_medium * self) {
+    auto medium = (G4Mulder::GeometryMedium *)self;
+    delete medium;
+}
+
+static const char * medium_material(
+    const struct mulder_geometry_medium * self
+){
+    auto medium = (G4Mulder::GeometryMedium *)self;
+    return medium->g4Volume->GetLogicalVolume()->GetMaterial()->GetName().c_str();
+}
+
+static const char * medium_description(
+    const struct mulder_geometry_medium * self
+){
+    auto medium = (G4Mulder::GeometryMedium *)self;
+    return medium->g4Volume->GetName().c_str();
+}
+
+G4Mulder::GeometryMedium::GeometryMedium(const G4VPhysicalVolume * volume):
+    g4Volume(volume)
+{
+    // Set interface.
+    this->destroy = &medium_destroy;
+    this->material = &medium_material;
+    this->density = nullptr;
+    this->description = &medium_description;
+}

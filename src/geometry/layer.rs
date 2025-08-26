@@ -23,6 +23,8 @@ pub struct Layer {
     #[pyo3(get)]
     pub z: (f64, f64),
 
+    // XXX Add a description field, or derive from Medium?
+
     pub data: Vec<Data>,
     pub stepper: *mut turtle::Stepper,
 }

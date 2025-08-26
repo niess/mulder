@@ -43,7 +43,7 @@ pub enum MaterialsArg<'py> {
 impl Materials {
     #[new]
     #[pyo3(signature=(path=None, /))]
-    pub fn new(py: Python, path: Option<&str>) -> PyResult<Self> {
+    pub fn py_new(py: Python, path: Option<&str>) -> PyResult<Self> {
         let is_default = path.is_none();
         let path = match path {
             Some(path) => Cow::Borrowed(Path::new(path)),
@@ -54,7 +54,7 @@ impl Materials {
             },
         };
 
-        let (tag, data) = match path.extension().and_then(OsStr::to_str) {
+        match path.extension().and_then(OsStr::to_str) {
             Some("toml") => {
                 let tag = path
                     .file_stem()
@@ -95,20 +95,16 @@ impl Materials {
                     }
                     data
                 };
-                data.sync(py, tag)?;
-                (tag.to_string(), data)
+                Self::new(py, tag.to_string(), data)
             },
             _ => {
                 let why = format!("invalid file format '{}'", path.display());
                 let err = Error::new(ValueError)
                     .what("materials")
                     .why(&why);
-                return Err(err.to_err())
+                Err(err.to_err())
             },
-        };
-
-        let materials = Self { tag, data };
-        Ok(materials)
+        }
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -126,7 +122,7 @@ impl Materials {
 
 impl Materials {
     pub(crate) fn empty() -> Self {
-        Self { tag: String::new(), data: MaterialsData::new() }
+        Self { tag: String::new(), data: MaterialsData::empty() }
     }
 
     pub(crate) fn from_arg<'py>(
@@ -138,9 +134,14 @@ impl Materials {
                 Ok(materials.unbind())
             },
             MaterialsArg::Path(materials) => {
-                Py::new(py, Materials::new(py, Some(materials.as_str()))?)
+                Py::new(py, Materials::py_new(py, Some(materials.as_str()))?)
             },
         }
+    }
+
+    pub fn new(py: Python, tag: String, data: MaterialsData) -> PyResult<Self> {
+        data.sync(py, tag.as_str())?;
+        Ok(Self { data, tag })
     }
 }
 
@@ -310,6 +311,15 @@ impl ElementsTable {
         ]);
         let _unused = ELEMENTS
             .set(Self { data, default: None });
+    }
+
+    pub fn insert(&mut self, key: String, value: AtomicElement) {
+        self.data.insert(key, value);
+    }
+
+    pub fn empty() -> Self {
+        let data = HashMap::new();
+        Self::new(data)
     }
 
     pub fn new(data: HashMap<String, AtomicElement>) -> Self {
@@ -538,7 +548,7 @@ pub struct MaterialsData {
 }
 
 impl MaterialsData {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         let map = HashMap::new();
         let table = None;
         Self { map, table }
@@ -547,6 +557,11 @@ impl MaterialsData {
     pub fn from_file<P: AsRef<Path>>(py: Python, path: P) -> PyResult<Self> {
         Toml::load_dict(py, path.as_ref())?
             .try_into()
+    }
+
+    pub fn new(map: HashMap<String, Material>) -> Self {
+        let table = None;
+        Self { map, table }
     }
 
     pub fn sync(&self, py: Python, tag: &str) -> PyResult<bool> {

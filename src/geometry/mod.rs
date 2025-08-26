@@ -14,6 +14,7 @@ use std::ffi::c_int;
 use std::ptr::{null, null_mut};
 
 pub mod atmosphere;
+pub mod external;
 pub mod grid;
 pub mod layer;
 pub mod magnet;

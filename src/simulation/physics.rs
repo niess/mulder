@@ -73,7 +73,7 @@ impl Physics {
             }
         }
         if set_materials {
-            let materials = Materials::new(py, None)?;
+            let materials = Materials::py_new(py, None)?;
             let materials = Bound::new(py, materials)?;
             let materials = MaterialsArg::Materials(materials);
             physics

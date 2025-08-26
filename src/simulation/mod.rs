@@ -56,13 +56,13 @@ pub struct Fluxmeter {
 unsafe impl Send for Fluxmeter {}
 unsafe impl Sync for Fluxmeter {}
 
-struct Medium (Pin<Box<MediumData>>);
+struct Medium (Pin<Box<MediumData>>); // XXX Change to RawMedium?
 
 #[repr(C)]
 struct MediumData {
-    medium: pumas::Medium,
+    medium: pumas::Medium, // XXX change to pumas?.
     density: f64,
-    layer: usize,
+    layer: usize, // XXX change to medium/index.
 }
 
 #[repr(C)]

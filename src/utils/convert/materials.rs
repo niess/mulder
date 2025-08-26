@@ -28,7 +28,7 @@ impl<'py> TryFrom<Bound<'py, PyDict>> for MaterialsData {
                 .to_err()
         };
 
-        let mut materials = Self::new();
+        let mut materials = Self::empty();
         materials = match value.get_item("elements")? {
             Some(elements) => {
                 let mut table = HashMap::new();
