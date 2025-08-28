@@ -5,11 +5,14 @@ use crate::simulation::materials::{
 };
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
+use crate::utils::extract::Size;
 use crate::utils::io::PathString;
+use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
 use libloading::Library;
 use paste::paste;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
+use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_double, c_int, CStr};
 use std::ptr::NonNull;
@@ -30,7 +33,9 @@ pub struct ExternalGeometry {
     materials: Option<Py<Materials>>,
 
     #[pyo3(get)]
-    media: Py<PyTuple>, // sequence of Py<Medium>.
+    media: Py<PyTuple>, // sequence of Py<Medium>. XXX Use Vec & harmonize with EarthGeometry.
+
+    // XXX add local frame.
 }
 
 #[pyclass(module="mulder")]
@@ -46,7 +51,8 @@ pub struct Medium {
 }
 
 pub struct ExternalTracer<'a> {
-    definition: &'a ExternalGeometry,
+    #[allow(dead_code)]
+    definition: &'a ExternalGeometry, // for lifetime guarantee.
     ptr: OwnedPtr<CTracer>,
 }
 
@@ -141,20 +147,43 @@ struct CElement {
 
 #[repr(C)]
 struct CTracer {
-    geometry: *const CGeometry,
-
     destroy: Option<
         extern "C" fn(*mut CTracer)
     >,
-    trace: Option<
-        extern "C" fn(
-            *mut CTracer,
-            position: *const c_double,
-            direction: *const c_double,
-            medium: *mut usize,
-            step: *mut c_double,
-        )
+    locate: Option<
+        extern "C" fn(*mut CTracer, position: CVec3) -> usize
     >,
+    reset: Option<
+        extern "C" fn(*mut CTracer, position: CVec3, direction: CVec3)
+    >,
+    trace: Option<
+        extern "C" fn(*mut CTracer, max_length: c_double) -> c_double
+    >,
+    update: Option<
+        extern "C" fn(*mut CTracer, length: c_double, direction: CVec3)
+    >,
+    medium: Option<
+        extern "C" fn(*mut CTracer) -> usize
+    >,
+    position: Option<
+        extern "C" fn(*mut CTracer) -> CVec3
+    >,
+}
+
+#[repr(C)]
+struct CVec3 {
+    x: c_double,
+    y: c_double,
+    z: c_double,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+struct Intersection {
+    pub before: i32,
+    pub after: i32,
+    pub position: [f64; 3],
+    pub distance: f64,
 }
 
 fn null_pointer_err() -> PyErr {
@@ -170,6 +199,14 @@ macro_rules! null_pointer_fmt {
     }
 }
 
+unsafe impl Send for ExternalGeometry {}
+unsafe impl Sync for ExternalGeometry {}
+
+#[inline]
+fn type_error(what: &str, why: &str) -> PyErr {
+    Error::new(TypeError).what(what).why(&why).to_err()
+}
+
 #[pymethods]
 impl ExternalGeometry {
     #[new]
@@ -180,15 +217,15 @@ impl ExternalGeometry {
         const INITIALISE: &[u8] = b"mulder_initialise\0";
 
         let library = Library::new(path.as_str())
-            .map_err(|err| {
-                let why = format!("{}: {}", path.as_str(), err);
-                Error::new(TypeError).what("geometry").why(&why).to_err()
-            })?;
+            .map_err(|err| type_error(
+                "geometry",
+                &format!("{}: {}", path.as_str(), err)
+            ))?;
         let initialise = library.get::<Initialise>(INITIALISE)
-            .map_err(|err| {
-                let why = format!("{}: {}", path.as_str(), err);
-                Error::new(TypeError).what("geometry").why(&why).to_err()
-            })?;
+            .map_err(|err| type_error(
+                "geometry",
+                &format!("{}: {}", path.as_str(), err)
+            ))?;
         let interface = unsafe { initialise() };
         let geometry = interface.definition()?;
 
@@ -228,10 +265,186 @@ impl ExternalGeometry {
         };
         Ok(external_geometry)
     }
+
+    #[pyo3(name="locate", signature=(*, position))]
+    fn py_locate<'py>(&self, position: AnyArray<'py, f64>) -> PyResult<NewArray<'py, i32>> {
+        let py = position.py();
+
+        let size = Size::try_from_vec3(&position)
+            .map_err(|why| type_error("position", &why))?;
+
+        let tracer = self.tracer()?;
+        let mut array = NewArray::empty(py, size.shape())?;
+        let n = array.size();
+        let media = array.as_slice_mut();
+        for i in 0..n {
+            let ri = [
+                position.get_item(3 * i + 0)?,
+                position.get_item(3 * i + 1)?,
+                position.get_item(3 * i + 2)?,
+            ];
+            media[i] = tracer.locate(ri) as i32;
+        }
+
+        Ok(array)
+    }
+
+    #[pyo3(name="scan", signature=(*, position, direction))]
+    #[allow(unused)] // XXX remove.
+    fn py_scan<'py>(
+        &self,
+        position: AnyArray<'py, f64>,
+        direction: AnyArray<'py, f64>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        // XXX implement this.
+        // XXX Use dict as return type?
+        unimplemented!()
+    }
+
+    #[pyo3(name="trace", signature=(*, position, direction))]
+    fn py_trace<'py>(
+        &self,
+        position: AnyArray<'py, f64>,
+        direction: AnyArray<'py, f64>,
+    ) -> PyResult<NewArray<'py, Intersection>> {
+        let py = position.py();
+
+        let sizes = [
+            Size::try_from_vec3(&position)
+                .map_err(|why| type_error("position", &why))?,
+            Size::try_from_vec3(&direction)
+                .map_err(|why| type_error("direction", &why))?,
+        ];
+        let common_size = Size::join(&sizes)
+            .map_err(|why| type_error("coordinates", why))?;
+
+        let tracer = self.tracer()?;
+        let mut array = NewArray::empty(py, common_size.shape())?;
+        let n = array.size();
+        let intersections = array.as_slice_mut();
+        for i in 0..n {
+            let ri = [
+                position.get_item(3 * i + 0)?,
+                position.get_item(3 * i + 1)?,
+                position.get_item(3 * i + 2)?,
+            ];
+            let ui = [
+                direction.get_item(3 * i + 0)?,
+                direction.get_item(3 * i + 1)?,
+                direction.get_item(3 * i + 2)?,
+            ];
+            tracer.reset(ri, ui);
+            let before = tracer.medium() as i32;
+            let distance = tracer.trace(f64::INFINITY);
+            tracer.update(distance, ui);
+            let after = tracer.medium() as i32;
+            let position = tracer.position();
+            intersections[i] = Intersection {
+                before, after, position, distance
+            }
+        }
+
+        Ok(array)
+    }
 }
 
-unsafe impl Send for ExternalGeometry {}
-unsafe impl Sync for ExternalGeometry {}
+impl ExternalGeometry {
+    pub fn tracer<'a>(&'a self) -> PyResult<ExternalTracer<'a>> {
+        let tracer = self.interface.tracer(&self.geometry)?;
+        if tracer.is_none_locate() {
+            return Err(null_pointer_fmt!("ExternalTracer::locate"))
+        }
+        if tracer.is_none_reset() {
+            return Err(null_pointer_fmt!("ExternalTracer::reset"))
+        }
+        if tracer.is_none_trace() {
+            return Err(null_pointer_fmt!("ExternalTracer::trace"))
+        }
+        if tracer.is_none_update() {
+            return Err(null_pointer_fmt!("ExternalTracer::update"))
+        }
+        if tracer.is_none_medium() {
+            return Err(null_pointer_fmt!("ExternalTracer::medium"))
+        }
+        if tracer.is_none_position() {
+            return Err(null_pointer_fmt!("ExternalTracer::position"))
+        }
+        Ok(ExternalTracer { definition: self, ptr: tracer })
+    }
+}
+
+impl<'a> ExternalTracer<'a> {
+    #[inline]
+    pub fn locate(&self, position: [f64; 3]) -> usize {
+        let func = unsafe { self.ptr.0.as_ref() }.locate.unwrap();
+        func(self.ptr.0.as_ptr(), position.into())
+    }
+
+    #[inline]
+    pub fn reset(&self, position: [f64; 3], direction: [f64; 3]) {
+        let func = unsafe { self.ptr.0.as_ref() }.reset.unwrap();
+        func(self.ptr.0.as_ptr(), position.into(), direction.into())
+    }
+
+    #[inline]
+    pub fn trace(&self, max_length: f64) -> f64 {
+        let func = unsafe { self.ptr.0.as_ref() }.trace.unwrap();
+        func(self.ptr.0.as_ptr(), max_length)
+    }
+
+    #[inline]
+    pub fn update(&self, length: f64, direction: [f64; 3]) {
+        let func = unsafe { self.ptr.0.as_ref() }.update.unwrap();
+        func(self.ptr.0.as_ptr(), length, direction.into())
+    }
+
+    #[inline]
+    pub fn medium(&self) -> usize {
+        let func = unsafe { self.ptr.0.as_ref() }.medium.unwrap();
+        func(self.ptr.0.as_ptr())
+    }
+
+    #[inline]
+    pub fn position(&self) -> [f64; 3] {
+        let func = unsafe { self.ptr.0.as_ref() }.position.unwrap();
+        func(self.ptr.0.as_ptr()).into()
+    }
+}
+
+impl From<[f64; 3]> for CVec3 {
+    fn from(value: [f64; 3]) -> Self {
+        Self { x: value[0], y: value[1], z: value[2] }
+    }
+}
+
+impl From<CVec3> for [f64; 3] {
+    fn from(value: CVec3) -> Self {
+        [ value.x, value.y, value.z ]
+    }
+}
+
+static INTERSECTION_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+
+impl Dtype for Intersection {
+    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
+        let ob = INTERSECTION_DTYPE.get_or_try_init(py, || -> PyResult<_> {
+            let ob = PyModule::import(py, "numpy")?
+                .getattr("dtype")?
+                .call1(([
+                        ("before",    "i4"),
+                        ("after",     "i4"),
+                        ("position",  "3f8"),
+                        ("distance",  "f8")
+                    ],
+                    true,
+                ))?
+                .unbind();
+            Ok(ob)
+        })?
+        .bind(py);
+        Ok(ob)
+    }
+}
 
 #[pymethods]
 impl Medium {
@@ -311,7 +524,6 @@ impl TryFrom<OwnedPtr<CMedium>> for Medium {
         Ok(Self { material, density, description })
     }
 }
-
 
 // ===============================================================================================
 // C structs wrappers.
@@ -414,16 +626,20 @@ macro_rules! impl_get_item {
 macro_rules! impl_is_some {
     ($name:tt) => {
         paste! {
-            #[allow(unused)]
-            fn [< is_none_ $name >](&self) -> bool {
-                unsafe { self.0.as_ref().$name }
-                    .is_none()
-            }
-
-            #[allow(unused)]
             fn [< is_some_ $name >] (&self) -> bool {
                 unsafe { self.0.as_ref().$name }
                     .is_some()
+            }
+        }
+    }
+}
+
+macro_rules! impl_is_none {
+    ($name:tt) => {
+        paste! {
+            fn [< is_none_ $name >](&self) -> bool {
+                unsafe { self.0.as_ref().$name }
+                    .is_none()
             }
         }
     }
@@ -435,8 +651,6 @@ macro_rules! impl_get_opt_attr {
             unsafe { self.0.as_ref().$name }
                 .map(|func| func(self.0.as_ptr()))
         }
-
-        impl_is_some!($name);
     }
 }
 
@@ -450,8 +664,6 @@ macro_rules! impl_get_opt_str {
                 })
                 .transpose()
         }
-
-        impl_is_some!($name);
     }
 }
 
@@ -462,8 +674,6 @@ macro_rules! impl_get_opt_item {
                 .map(|func| OwnedPtr::new(func(self.0.as_ptr(), index)))
                 .transpose()
         }
-
-        impl_is_some!($name);
     }
 }
 
@@ -477,9 +687,14 @@ impl OwnedPtr<CGeometry> {
 impl OwnedPtr<CMaterial> {
     impl_get_str_attr!(name);
     impl_get_opt_attr!(density, c_double);
-    impl_get_opt_attr!(elements_len, usize);
     impl_get_opt_item!(element, CElement);
+    impl_get_opt_attr!(elements_len, usize);
     impl_get_opt_attr!(I, c_double);
+
+    impl_is_none!(density);
+    impl_is_none!(element);
+    impl_is_none!(elements_len);
+    impl_is_none!(I);
 }
 
 impl OwnedPtr<CElement> {
@@ -488,10 +703,23 @@ impl OwnedPtr<CElement> {
     impl_get_opt_attr!(Z, c_int);
     impl_get_opt_attr!(A, c_double);
     impl_get_opt_attr!(I, c_double);
+
+    impl_is_some!(Z);
+    impl_is_some!(A);
+    impl_is_some!(I);
 }
 
 impl OwnedPtr<CMedium> {
     impl_get_str_attr!(material);
     impl_get_opt_attr!(density, c_double);
     impl_get_opt_str!(description);
+}
+
+impl OwnedPtr<CTracer> {
+    impl_is_none!(locate);
+    impl_is_none!(reset);
+    impl_is_none!(trace);
+    impl_is_none!(update);
+    impl_is_none!(medium);
+    impl_is_none!(position);
 }

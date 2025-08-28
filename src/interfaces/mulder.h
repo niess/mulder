@@ -55,20 +55,45 @@ struct mulder_geometry_definition {
  *  Geometry tracer interface.
  * ============================================================================
  */
-struct mulder_geometry_tracer {
-    const struct mulder_geometry_definition * definition;
+struct mulder_vec3 {
+    double x, y, z;
+};
 
+struct mulder_geometry_tracer {
     /* Destroys the geometry tracer. */
     void (*destroy)(struct mulder_geometry_tracer * self);
 
-    /* Performs a tracing step. */
-    void (*trace)(
+    // Locates the medium at the given position. //
+    size_t (*locate)(
         struct mulder_geometry_tracer * self,
-        const double position[3],
-        const double direction[3],
-        size_t * medium,
-        double * step
+        struct mulder_vec3 position
     );
+
+    // Resets the tracer for a new run. //
+    void (*reset)(
+        struct mulder_geometry_tracer * self,
+        struct mulder_vec3 position,
+        struct mulder_vec3 direction
+    );
+
+    // Performs a tracing step. //
+    double (*trace)(
+        struct mulder_geometry_tracer * self,
+        double max_length
+    );
+
+    // Updates the tracer position.
+    void (*update)(
+        struct mulder_geometry_tracer * self,
+        double length,
+        struct mulder_vec3 direction
+    );
+
+    // Returns the current medium. //
+    size_t (*medium)(struct mulder_geometry_tracer * self);
+
+    // Returns the current position. //
+    struct mulder_vec3 (*position)(struct mulder_geometry_tracer * self);
 };
 
 

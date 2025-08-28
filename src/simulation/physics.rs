@@ -30,7 +30,7 @@ pub struct Physics {
     photonuclear: Photonuclear,
     #[pyo3(get)]
     /// The materials definition.
-    materials: Py<Materials>,
+    materials: Py<Materials>, // XXX Move to geometry?
 
     pub physics: *mut pumas::Physics,
     pub context: *mut pumas::Context,

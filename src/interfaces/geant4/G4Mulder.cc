@@ -55,6 +55,24 @@ namespace G4Mulder{
         const G4Element * g4Element;
         double molarWeight;
     };
+
+    struct GeometryTracer: public mulder_geometry_tracer {
+        GeometryTracer(const GeometryDefinition * definition);
+        ~GeometryTracer();
+
+        // Geometry data.
+        const GeometryDefinition * definition;
+
+        // State data.
+        G4ThreeVector currentDirection;
+        size_t currentIndex;
+        G4ThreeVector currentPosition;
+        double stepLength;
+        double stepSafety;
+
+        G4TouchableHistory * history;
+        G4Navigator navigator;
+    };
 }
 
 // ============================================================================
@@ -68,10 +86,16 @@ static struct mulder_geometry_definition * interface_definition(void) {
     return new G4Mulder::GeometryDefinition(topVolume);
 }
 
+static struct mulder_geometry_tracer * interface_tracer(
+    const struct mulder_geometry_definition * definition_) {
+    auto definition = (G4Mulder::GeometryDefinition *)definition_;
+    return new G4Mulder::GeometryTracer(definition);
+}
+
 extern "C" struct mulder_interface G4MULDER_INITIALISE (void) {
     struct mulder_interface interface;
     interface.definition = &interface_definition;
-    interface.tracer = nullptr;
+    interface.tracer = &interface_tracer;
     return interface;
 }
 
@@ -344,4 +368,168 @@ G4Mulder::GeometryMedium::GeometryMedium(const G4VPhysicalVolume * volume):
     this->material = &medium_material;
     this->density = nullptr;
     this->description = &medium_description;
+}
+
+// ============================================================================
+//
+// Implementation of geometry tracer.
+//
+// ============================================================================
+
+static void tracer_destroy(struct mulder_geometry_tracer * self) {
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+    delete tracer;
+}
+
+static size_t tracer_locate(
+    struct mulder_geometry_tracer * self,
+    struct mulder_vec3 position_
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+
+    auto position = G4ThreeVector(
+        position_.x * CLHEP::m,
+        position_.y * CLHEP::m,
+        position_.z * CLHEP::m
+    );
+    auto volume = tracer->navigator.LocateGlobalPointAndSetup(position);
+
+    return tracer->definition->GetMediumIndex(volume);
+}
+
+static void tracer_reset(
+    struct mulder_geometry_tracer * self,
+    struct mulder_vec3 position,
+    struct mulder_vec3 direction
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+
+    // Reset Geant4 navigation.
+    tracer->currentPosition = G4ThreeVector(
+        position.x * CLHEP::m,
+        position.y * CLHEP::m,
+        position.z * CLHEP::m
+    );
+
+    tracer->currentDirection = G4ThreeVector(
+        direction.x,
+        direction.y,
+        direction.z
+    );
+
+    tracer->navigator.ResetStackAndState();
+    tracer->navigator.LocateGlobalPointAndUpdateTouchable(
+        tracer->currentPosition,
+        tracer->currentDirection,
+        tracer->history,
+        false // Do not use history.
+    );
+
+    // Reset internal state.
+    tracer->currentIndex = tracer->definition->GetMediumIndex(
+        tracer->history->GetVolume()
+    );
+    tracer->stepLength = 0.0;
+    tracer->stepSafety = 0.0;
+}
+
+static double tracer_trace(
+    struct mulder_geometry_tracer * self,
+    double max_length
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+
+    G4double safety = 0.0;
+    G4double s = tracer->navigator.ComputeStep(
+        tracer->currentPosition,
+        tracer->currentDirection,
+        max_length * CLHEP::m,
+        safety
+    );
+    double step = s / CLHEP::m;
+    tracer->stepLength = step;
+    tracer->stepSafety = safety / CLHEP::m;
+
+    return (step < max_length) ? step : max_length;
+}
+
+static void tracer_update(
+    struct mulder_geometry_tracer * self,
+    double length,
+    struct mulder_vec3 direction
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+
+    tracer->currentPosition += (length * CLHEP::m) * tracer->currentDirection;
+
+    if (length < tracer->stepSafety) {
+        tracer->navigator.LocateGlobalPointWithinVolume(
+            tracer->currentPosition
+        );
+    } else {
+        if (length >= tracer->stepLength) {
+            tracer->navigator.SetGeometricallyLimitedStep();
+        }
+        tracer->navigator.LocateGlobalPointAndUpdateTouchable(
+            tracer->currentPosition,
+            tracer->currentDirection,
+            tracer->history
+        );
+        auto geometry = (const G4Mulder::GeometryDefinition *)tracer->definition;
+        tracer->currentIndex = geometry->GetMediumIndex(
+            tracer->history->GetVolume()
+        );
+    }
+
+    tracer->currentDirection = G4ThreeVector(
+        direction.x,
+        direction.y,
+        direction.z
+    );
+}
+
+static size_t tracer_medium(struct mulder_geometry_tracer * self){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+    return tracer->currentIndex;
+}
+
+static struct mulder_vec3 tracer_position(
+    struct mulder_geometry_tracer * self
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto && r = tracer->currentPosition;
+    return {
+        r[0] / CLHEP::m,
+        r[1] / CLHEP::m,
+        r[2] / CLHEP::m
+    };
+}
+
+G4Mulder::GeometryTracer::GeometryTracer(
+    const G4Mulder::GeometryDefinition * definition_
+): definition(definition_) {
+    // Initialise Geant4 navigator.
+    this->navigator.SetWorldVolume(
+        (G4VPhysicalVolume *) definition_->GetWorld());
+    this->history = this->navigator.CreateTouchableHistory();
+
+    // Initialise internal data.
+    this->currentDirection = G4ThreeVector(0.0, 0.0, 1.0);
+    this->currentIndex = 0;
+    this->currentPosition = G4ThreeVector(0.0, 0.0, 0.0);
+    this->stepLength = 0.0;
+    this->stepSafety = 0.0;
+
+    // Set C interface.
+    this->destroy = &tracer_destroy;
+    this->locate = &tracer_locate;
+    this->reset = &tracer_reset;
+    this->trace = &tracer_trace;
+    this->update = &tracer_update;
+    this->medium = &tracer_medium;
+    this->position = &tracer_position;
+}
+
+G4Mulder::GeometryTracer::~GeometryTracer() {
+    delete this->history;
 }
