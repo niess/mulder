@@ -1,6 +1,8 @@
 use crate::utils::convert::Convert;
+use crate::bindings::pumas;
 use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
+use std::ffi::c_int;
 
 
 #[derive(Clone, Copy, Default, EnumVariantsStrings, PartialEq)]
@@ -32,5 +34,15 @@ impl<'py> IntoPyObject<'py> for TransportMode {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         self.into_bound(py)
+    }
+}
+
+impl TransportMode {
+    pub fn to_pumas_mode(self) -> c_int {
+        match self {
+            Self::Continuous => pumas::MODE_CSDA,
+            Self::Discrete => pumas::MODE_STRAGGLED,
+            Self::Mixed => pumas::MODE_MIXED,
+        }
     }
 }

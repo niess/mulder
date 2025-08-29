@@ -950,7 +950,7 @@ impl<'a> Agent<'a> {
         fluxmeter.create_geometry(py, &geometry, &physics, &reference)?;
 
         // Configure Pumas context.
-        let context = unsafe { &mut *physics.context };
+        let context = physics.borrow_mut_context();
         context.user_data = random.deref_mut() as *mut random::Random as *mut c_void;
         context.random = Some(uniform01);
 
@@ -1161,11 +1161,11 @@ impl<'a> Agent<'a> {
             let mut dedx1 = 0.0;
             unsafe {
                 pumas::physics_property_stopping_power(
-                    self.physics.physics, pumas::MODE_CSDA, material, e0, &mut dedx0,
+                    self.physics.borrow_physics_ptr(), pumas::MODE_CSDA, material, e0, &mut dedx0,
                 );
                 pumas::physics_property_stopping_power(
-                    self.physics.physics, pumas::MODE_CSDA, material, self.state.energy,
-                    &mut dedx1,
+                    self.physics.borrow_physics_ptr(), pumas::MODE_CSDA, material,
+                    self.state.energy, &mut dedx1,
                 );
             }
             if (dedx0 <= 0.0) || (dedx1 <= 0.0) {

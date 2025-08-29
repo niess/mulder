@@ -8,6 +8,7 @@ use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::Size;
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
+use crate::utils::ptr::{Destroy, null_pointer_err, OwnedPtr};
 use libloading::Library;
 use paste::paste;
 use pyo3::prelude::*;
@@ -184,10 +185,6 @@ struct Intersection {
     pub after: i32,
     pub position: [f64; 3],
     pub distance: f64,
-}
-
-fn null_pointer_err() -> PyErr {
-    Error::new(ValueError).what("pointer").why("null").to_err()
 }
 
 macro_rules! null_pointer_fmt {
@@ -528,32 +525,6 @@ impl TryFrom<OwnedPtr<CMedium>> for Medium {
 // ===============================================================================================
 // C structs wrappers.
 // ===============================================================================================
-
-struct OwnedPtr<T> (NonNull<T>) where NonNull<T>: Destroy;
-
-impl<T> OwnedPtr<T>
-where
-    NonNull<T>: Destroy
-{
-    fn new(ptr: *mut T) -> PyResult<Self> {
-        NonNull::new(ptr)
-            .map(|ptr| Self(ptr))
-            .ok_or_else(|| null_pointer_err())
-    }
-}
-
-impl<T> Drop for OwnedPtr<T>
-where
-    NonNull<T>: Destroy
-{
-    fn drop(&mut self) {
-        self.0.destroy();
-    }
-}
-
-trait Destroy {
-    fn destroy(self);
-}
 
 macro_rules! impl_destroy {
     ($($type:ty),+) => {
