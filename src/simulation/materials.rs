@@ -4,12 +4,13 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, ValueError};
 use crate::utils::io::{ConfigFormat, PathString, Toml};
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 
 // ===============================================================================================
@@ -28,9 +29,10 @@ pub fn initialise() -> PyResult<()> {
 }
 
 #[pyclass(frozen, module="mulder")]
+#[derive(Clone)]
 pub struct Materials {
-    pub tag: String,
-    pub data: MaterialsData,
+    pub cache_key: String,
+    pub data: Arc<MaterialsData>,
 }
 
 #[derive(FromPyObject)]
@@ -43,59 +45,42 @@ pub enum MaterialsArg<'py> {
 impl Materials {
     #[new]
     #[pyo3(signature=(path=None, /))]
-    pub fn py_new(py: Python, path: Option<&str>) -> PyResult<Self> {
-        let is_default = path.is_none();
-        let path = match path {
-            Some(path) => Cow::Borrowed(Path::new(path)),
+    pub fn py_new(py: Python, path: Option<PathString>) -> PyResult<Self> {
+        let path = match path.as_ref() {
+            Some(path) => Cow::Borrowed(Path::new(&path.0)),
             None => {
-                let path = Path::new(crate::PREFIX.get(py).unwrap())
-                    .join(format!("data/materials/{}.toml", DEFAULT_MATERIALS));
-                Cow::Owned(path)
+                let data = Arc::clone(MaterialsData::default(py)?);
+                return Ok(Self{ cache_key: DEFAULT_MATERIALS.to_string(), data })
             },
         };
 
         match path.extension().and_then(OsStr::to_str) {
             Some("toml") => {
-                let tag = path
+                let cache_key = path
                     .file_stem()
                     .and_then(OsStr::to_str)
                     .ok_or_else(|| {
                         let stem = path.file_stem()
                             .and_then(|stem| Some(stem.to_string_lossy()))
                             .unwrap_or(path.to_string_lossy());
-                        let why = format!("invalid tag '{}'", stem);
+                        let why = format!("invalid file name '{}'", stem);
                         Error::new(ValueError)
                             .what("materials")
                             .why(&why)
                             .to_err()
                     })?;
-                if (tag == DEFAULT_MATERIALS) && !is_default {
-                    let why = format!("cannot modify '{}'", DEFAULT_MATERIALS);
-                    let err = Error::new(ValueError)
-                        .what("materials")
-                        .why(&why);
-                    return Err(err.to_err())
-                }
 
                 let data = {
                     let mut data = MaterialsData::from_file(py, &path)?;
-                    let mut default_data: Option<MaterialsData> = None;
+                    let default_data = MaterialsData::default(py)?;
                     for material in ["Air", "Rock", "Water"] {
                         data.map.entry(material.to_string()).or_insert_with(|| {
-                            let default_data = default_data.get_or_insert_with(|| {
-                                let path = Path::new(crate::PREFIX.get(py).unwrap())
-                                    .join(format!(
-                                        "data/materials/{}.toml",
-                                        DEFAULT_MATERIALS
-                                    ));
-                                MaterialsData::from_file(py, path).unwrap()
-                            });
                             default_data.map[material].clone()
                         });
                     }
                     data
                 };
-                Self::new(py, tag.to_string(), data)
+                Self::new(cache_key.to_string(), data)
             },
             _ => {
                 let why = format!("invalid file format '{}'", path.display());
@@ -121,27 +106,66 @@ impl Materials {
 }
 
 impl Materials {
-    pub(crate) fn empty() -> Self {
-        Self { tag: String::new(), data: MaterialsData::empty() }
+    pub fn default(py: Python) -> PyResult<Self> {
+        Self::py_new(py, None)
     }
 
-    pub(crate) fn from_arg<'py>(
+    pub fn from_arg<'py>(
         py: Python<'py>,
-        arg: MaterialsArg
-    ) -> PyResult<Py<Materials>> {
+        arg: Option<MaterialsArg>
+    ) -> PyResult<Self> {
         match arg {
-            MaterialsArg::Materials(materials) => {
-                Ok(materials.unbind())
+            Some(arg) => match arg {
+                MaterialsArg::Materials(materials) => Ok(materials.borrow().clone()),
+                MaterialsArg::Path(materials) => Materials::py_new(py, Some(materials)),
             },
-            MaterialsArg::Path(materials) => {
-                Py::new(py, Materials::py_new(py, Some(materials.as_str()))?)
-            },
+            None => Self::default(py),
         }
     }
 
-    pub fn new(py: Python, tag: String, data: MaterialsData) -> PyResult<Self> {
-        data.sync(py, tag.as_str())?;
-        Ok(Self { data, tag })
+    pub fn is_cached(&self, py: Python) -> PyResult<bool> {
+        let materials_cache = cache::path()?
+            .join("materials");
+        let path = materials_cache
+            .join(format!("{}.toml", self.cache_key));
+        let cached = if path.try_exists().unwrap_or(false) {
+            let cached = MaterialsData::from_file(py, &path)?;
+            cached == *self.data
+        } else {
+            false
+        };
+        Ok(cached)
+    }
+
+    pub fn new(cache_key: String, data: MaterialsData) -> PyResult<Self> {
+        let data = Arc::new(data);
+        Ok(Self { data, cache_key })
+    }
+
+    pub fn update_cache(&self) -> PyResult<()> {
+        let materials_cache = cache::path()?
+            .join("materials");
+        match std::fs::read_dir(&materials_cache) {
+            Ok(content) => {
+                // Remove any cached tables.
+                for entry in content {
+                    if let Ok(entry) = entry {
+                        if let Some(filename) = entry.file_name().to_str() {
+                            if filename.starts_with(&self.cache_key) &&
+                               filename.ends_with(".pumas") {
+                                std::fs::remove_file(&entry.path())?;
+                            }
+                        }
+                    }
+                }
+            },
+            Err(_) => std::fs::create_dir_all(&materials_cache)?,
+        }
+
+        let path = materials_cache
+            .join(format!("{}.toml", self.cache_key));
+        std::fs::write(path, self.data.to_toml())?;
+        Ok(())
     }
 }
 
@@ -547,11 +571,22 @@ pub struct MaterialsData {
     table: Option<ElementsTable>,
 }
 
+static DEFAULT_MATERIALS_DATA: GILOnceCell<Arc<MaterialsData>> = GILOnceCell::new();
+
 impl MaterialsData {
     pub fn empty() -> Self {
         let map = HashMap::new();
         let table = None;
         Self { map, table }
+    }
+
+    pub fn default(py: Python) -> PyResult<&Arc<Self>> {
+        DEFAULT_MATERIALS_DATA.get_or_try_init(py, || -> PyResult<_> {
+            let path = Path::new(crate::PREFIX.get(py).unwrap())
+                .join(format!("data/materials/{}.toml", DEFAULT_MATERIALS));
+            let data = Self::from_file(py, path)?;
+            Ok(Arc::new(data))
+        })
     }
 
     pub fn from_file<P: AsRef<Path>>(py: Python, path: P) -> PyResult<Self> {
@@ -562,53 +597,6 @@ impl MaterialsData {
     pub fn new(map: HashMap<String, Material>) -> Self {
         let table = None;
         Self { map, table }
-    }
-
-    pub fn sync(&self, py: Python, tag: &str) -> PyResult<bool> {
-        let materials_cache = cache::path()?
-            .join("materials");
-        let cached = materials_cache
-            .join(format!("{}.toml", tag));
-
-        let update_materials_definition = || -> PyResult<()> {
-            match std::fs::read_dir(&materials_cache) {
-                Ok(content) => {
-                    // Remove any cached data.
-                    for entry in content {
-                        if let Ok(entry) = entry {
-                            if let Some(filename) = entry.file_name().to_str() {
-                                if filename.starts_with(tag) &&
-                                   filename.ends_with(".pumas") {
-                                    std::fs::remove_file(&entry.path())?;
-                                }
-                            }
-                        }
-                    }
-                },
-                Err(_) => std::fs::create_dir_all(&materials_cache)?,
-            }
-
-            std::fs::write(&cached, self.to_toml())?;
-            Ok(())
-        };
-
-        let updated = if cached
-            .try_exists()
-            .unwrap_or(false) {
-            // Compare the materials definitions.
-            let cached = MaterialsData::from_file(py, &cached)?;
-            if cached != *self {
-                update_materials_definition()?;
-                true
-            } else {
-                false
-            }
-        } else {
-            // Apply the materials definition.
-            update_materials_definition()?;
-            true
-        };
-        Ok(updated)
     }
 
     pub fn table(&self) -> &ElementsTable {

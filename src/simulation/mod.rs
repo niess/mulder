@@ -946,7 +946,7 @@ impl<'a> Agent<'a> {
         reference: &'a reference::Reference,
     ) -> PyResult<Self> {
         // Configure physics and geometry.
-        physics.compile(py, None)?;
+        physics.update(py, &materials::Materials::default(py)?)?; // XXX get materials from the geometry.
         fluxmeter.create_geometry(py, &geometry, &physics, &reference)?;
 
         // Configure Pumas context.

@@ -237,8 +237,8 @@ impl ExternalGeometry {
         }
         let materials = if materials.len() > 0 {
             let materials = MaterialsData::new(materials).with_table(table);
-            let tag = "external".to_owned();
-            Some(Py::new(py, Materials::new(py, tag, materials)?)?)
+            let tag = "external".to_owned(); // XXX use path stem?
+            Some(Py::new(py, Materials::new(tag, materials)?)?)
         } else {
             None
         };
