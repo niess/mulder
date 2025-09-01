@@ -1,6 +1,6 @@
 use console::style;
 use crate::bindings::pumas;
-use crate::simulation::materials::{Materials, MaterialsArg};
+use crate::simulation::materials::{Material, Materials, MaterialsArg, MaterialsData};
 use crate::utils::cache;
 use crate::utils::convert::{Bremsstrahlung, Mdf, PairProduction, Photonuclear, TransportMode};
 use crate::utils::error::{self, Error};
@@ -38,12 +38,9 @@ pub struct Physics {
     materials_indices: HashMap<String, c_int>,
 }
 
-#[pyclass(module="mulder", frozen, mapping)]
-struct CompiledMaterials (Py<PyDict>);
-
 #[pyclass(module="mulder", frozen)]
-pub struct MaterialTable {
-    // XXX Forward definition.
+pub struct CompiledMaterial {
+    definitions: Arc<MaterialsData>,
     physics: Arc<OwnedPtr<pumas::Physics>>,
     index: c_int,
 }
@@ -107,24 +104,22 @@ impl Physics {
     #[pyo3(signature=(materials=None, /))]
     fn compile<'py>(
         &mut self,
-        py: Python,
+        py: Python<'py>,
         materials: Option<MaterialsArg>
-    ) -> PyResult<CompiledMaterials> {
+    ) -> PyResult<Bound<'py, PyDict>> {
         let materials = Materials::from_arg(py, materials)?;
         self.update(py, &materials)?;
 
-        let mut items: Vec<_> = self.materials_indices.iter().collect();
-        items.sort_by(|a, b| a.1.cmp(b.1));
-
         let compiled_materials = PyDict::new(py);
-        for (material, index) in items {
-            let table = MaterialTable {
+        for (material, index) in self.materials_indices.iter() {
+            let table = CompiledMaterial {
+                definitions: Arc::clone(&materials.data),
                 index: *index,
                 physics: Arc::clone(self.physics.as_ref().unwrap()),
             };
             compiled_materials.set_item(material, table)?;
         }
-        Ok(CompiledMaterials(compiled_materials.unbind()))
+        Ok(compiled_materials)
     }
 }
 
@@ -145,13 +140,17 @@ impl Physics {
     }
 
     pub fn update<'py>(&mut self, py: Python, materials: &Materials) -> PyResult<()> {
-        if let Some(current_materials) = self.materials_definitions.as_ref() {
-            if !Arc::ptr_eq(&materials.data, &current_materials.data) {
+        match self.materials_definitions.as_ref() {
+            Some(current_materials) => if !Arc::ptr_eq(&materials.data, &current_materials.data) {
                 if !materials.data.eq(&current_materials.data) {
                     self.materials_definitions = Some(materials.clone());
                     self.destroy_physics();
                 }
-            }
+            },
+            None => {
+                self.materials_definitions = Some(materials.clone());
+                self.destroy_physics();
+            },
         }
         if self.physics.is_none() {
             // Load or create Pumas physics.
@@ -384,56 +383,18 @@ impl Destroy for NonNull<pumas::Physics> {
 // ===============================================================================================
 
 #[pymethods]
-impl CompiledMaterials {
-    #[inline]
-    fn __len__(&self, py: Python) -> usize {
-        self.0.bind(py).len()
-    }
-
-    #[inline]
-    fn __contains__<'py>(&self, key: Bound<'py, PyAny>) -> PyResult<bool> {
-        self.0.bind(key.py()).contains(key)
-    }
-
-    #[inline]
-    fn __getitem__<'py>(&self, key: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(key.py()).as_any().get_item(key)
-    }
-
-    #[inline]
-    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(py).as_any().call_method0("__iter__")
-    }
-
-    #[inline]
-    fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(py).as_any().call_method0("__repr__")
-    }
-
-    #[inline]
-    fn items<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(py).as_any().call_method0("items")
-    }
-
-    #[inline]
-    fn keys<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(py).as_any().call_method0("keys")
-    }
-
-    #[inline]
-    fn values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.0.bind(py).as_any().call_method0("values")
-    }
-}
-
-#[pymethods]
-impl MaterialTable {
+impl CompiledMaterial {
     fn __repr__(&self) -> String {
         format!(
-            "MaterialTable({:?}, {})",
+            "CompiledMaterial({:?}, {})",
             self.physics.as_ref().0.as_ptr(), // XXX use hashtag instead?
             self.index,
         )
+    }
+
+    #[getter]
+    fn get_definition(&self) -> &Material {
+        self.definitions.map.get_index(self.index as usize).unwrap().1
     }
 
     fn stopping_power<'py>( // XXX Notifier?

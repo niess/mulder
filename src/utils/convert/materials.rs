@@ -217,6 +217,8 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Material {
 //
 // ===============================================================================================
 
+// XXX Add a Material type?
+
 impl<'a, 'py> IntoPyObject<'py> for &'a Material {
     type Target = PyAny;
     type Output = Bound<'py, Self::Target>;
