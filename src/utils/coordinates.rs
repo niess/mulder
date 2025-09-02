@@ -1,7 +1,6 @@
 use crate::bindings::turtle;
-use crate::utils::numpy::Dtype;
+use crate::utils::numpy::{Dtype, impl_dtype};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 
 
 // ===============================================================================================
@@ -10,7 +9,7 @@ use pyo3::sync::GILOnceCell;
 //
 // ===============================================================================================
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, IntoPyObject)]
 pub struct GeographicCoordinates {
     pub latitude: f64,
     pub longitude: f64,
@@ -98,26 +97,13 @@ impl HorizontalCoordinates {
     }
 }
 
-static HORIZONTAL_COORDINATES_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for HorizontalCoordinates {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = HORIZONTAL_COORDINATES_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("azimuth",  "f8"),
-                        ("elevation",  "f8")
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    HorizontalCoordinates,
+    [
+        ("azimuth", "f8"),
+        ("elevation", "f8")
+    ]
+);
 
 
 // ===============================================================================================
@@ -127,11 +113,34 @@ impl Dtype for HorizontalCoordinates {
 // ===============================================================================================
 
 #[derive(Clone, Default)]
+#[pyclass(module="mulder")]
 pub struct LocalFrame {
+    #[pyo3(get)]
     pub origin: GeographicCoordinates,
+
     pub rotation: [[f64; 3]; 3],
     #[allow(unused)] // XXX needed?
     pub translation: [f64; 3],
+}
+
+#[pymethods]
+impl LocalFrame {
+
+    #[new]
+    #[pyo3(signature=(*, latitude, longitude, altitude=None, declination=None, inclination=None))]
+    fn py_new(
+        latitude: f64,
+        longitude: f64,
+        altitude: Option<f64>,
+        declination: Option<f64>,
+        inclination: Option<f64>,
+    ) -> Self {
+        let altitude = altitude.unwrap_or(0.0);
+        let declination = declination.unwrap_or(0.0);
+        let inclination = inclination.unwrap_or(0.0);
+        let origin = GeographicCoordinates { latitude, longitude, altitude };
+        Self::new(origin, declination, inclination)
+    }
 }
 
 impl LocalFrame {

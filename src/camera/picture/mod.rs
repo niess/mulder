@@ -2,10 +2,9 @@ use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, Lo
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, PyArray};
+use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, impl_dtype, PyArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 use super::Transform;
 
@@ -47,28 +46,15 @@ pub struct PictureData {
     pub normal: [f32; 2],
 }
 
-static PICTURE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for PictureData {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = PICTURE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("layer",    "i4"),
-                        ("altitude", "f4"),
-                        ("distance", "f4"),
-                        ("normal",   "2f4"),
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    PictureData,
+    [
+        ("layer",    "i4"),
+        ("altitude", "f4"),
+        ("distance", "f4"),
+        ("normal",   "2f4"),
+    ]
+);
 
 #[pymethods]
 impl RawPicture {

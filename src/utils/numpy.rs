@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use paste::paste;
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::{ffi, PyTypeInfo};
@@ -44,6 +43,12 @@ struct PyArrayObject<T> {
 
 pub struct Data<'a, T> {
     object: &'a PyArrayObject<T>,
+}
+
+#[derive(FromPyObject)]
+pub enum ShapeArg {
+    Scalar(usize),
+    Array(Vec<usize>),
 }
 
 #[allow(non_camel_case_types)]
@@ -630,8 +635,9 @@ pub trait Dtype {
 
 macro_rules! impl_dtype {
     ($type:ty, $def:tt) => {
-        paste! {
-            static [< $type:upper _DTYPE >]: GILOnceCell<PyObject> = GILOnceCell::new();
+        paste::paste! {
+            static [< $type:upper _DTYPE >]: pyo3::sync::GILOnceCell<PyObject> =
+                pyo3::sync::GILOnceCell::new();
 
             impl Dtype for $type {
                 fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
@@ -650,6 +656,8 @@ macro_rules! impl_dtype {
     }
 }
 
+pub(crate) use impl_dtype;
+
 impl_dtype!(bool, "bool");
 impl_dtype!(i8, "i1");
 impl_dtype!(i16, "i2");
@@ -661,3 +669,20 @@ impl_dtype!(u8, "u1");
 impl_dtype!(u16, "u2");
 impl_dtype!(u32, "u4");
 impl_dtype!(u64, "u8");
+
+impl ShapeArg {
+    #[inline]
+    pub fn into_vec(self) -> Vec<usize> {
+        self.into()
+    }
+}
+
+impl From<ShapeArg> for Vec<usize> {
+    #[inline]
+    fn from(value: ShapeArg) -> Self {
+        match value {
+            ShapeArg::Scalar(s) => vec![s],
+            ShapeArg::Array(a) => a,
+        }
+    }
+}

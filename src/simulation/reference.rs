@@ -3,9 +3,8 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
 use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::io::PathString;
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::types::PyDict;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -443,26 +442,13 @@ impl Flux {
     const ZERO: Self = Self { muon: 0.0, anti: 0.0 };
 }
 
-static FLUX_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for Flux {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = FLUX_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("value", "f8"),
-                        ("ratio", "f8"),
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    Flux,
+    [
+        ("value", "f8"),
+        ("ratio", "f8"),
+    ]
+);
 
 impl Altitude {
     pub fn min(&self) -> f64 {

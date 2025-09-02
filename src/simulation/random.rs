@@ -1,4 +1,4 @@
-use crate::utils::numpy::NewArray;
+use crate::utils::numpy::{NewArray, ShapeArg};
 use pyo3::prelude::*;
 use pyo3::exceptions::PySystemError;
 use rand::Rng;
@@ -24,12 +24,6 @@ pub struct Random {
     /// Prng initial seed.
     #[pyo3(get)]
     seed: u128,
-}
-
-#[derive(FromPyObject)]
-enum ShapeArg {
-    Scalar(usize),
-    Array(Vec<usize>),
 }
 
 #[pymethods]
@@ -77,7 +71,7 @@ impl Random {
                 Ok(value.into_pyobject(py)?.into_any().unbind())
             },
             Some(shape) => {
-                let shape: Vec<usize> = shape.into();
+                let shape = shape.into_vec();
                 let n = shape.iter().product();
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let u = array.as_slice_mut();
@@ -130,15 +124,6 @@ impl From<Index> for u128 {
         match value {
             Index::Array(value) => ((value[0] as u128) << 64) + (value[1] as u128),
             Index::Scalar(value) => value,
-        }
-    }
-}
-
-impl From<ShapeArg> for Vec<usize> {
-    fn from(value: ShapeArg) -> Self {
-        match value {
-            ShapeArg::Scalar(s) => vec![s],
-            ShapeArg::Array(a) => a,
         }
     }
 }

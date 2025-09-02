@@ -6,11 +6,10 @@ use crate::utils::error::ErrorKind::IndexError;
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{Dtype, NewArray};
+use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use pyo3::sync::GILOnceCell;
 use std::ffi::c_int;
 use std::ptr::{null, null_mut};
 
@@ -606,30 +605,17 @@ impl MagnetArg {
     }
 }
 
-static INTERSECTION_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for Intersection {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = INTERSECTION_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("before",    "i4"),
-                        ("after",     "i4"),
-                        ("latitude",  "f8"),
-                        ("longitude", "f8"),
-                        ("altitude",  "f8"),
-                        ("distance",  "f8")
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    Intersection,
+    [
+        ("before",    "i4"),
+        ("after",     "i4"),
+        ("latitude",  "f8"),
+        ("longitude", "f8"),
+        ("altitude",  "f8"),
+        ("distance",  "f8"),
+    ]
+);
 
 impl Default for GeometryStepper {
     fn default() -> Self {

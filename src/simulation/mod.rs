@@ -3,7 +3,7 @@ use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, Lo
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{ArrayMethods, Dtype, NewArray};
+use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{Doublet, Geometry, GeometryStepper};
 use crate::geometry::atmosphere::Atmosphere;
@@ -13,7 +13,6 @@ use crate::utils::convert::TransportMode;
 use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use std::ffi::{c_uint, c_void};
 use std::ops::DerefMut;
@@ -24,6 +23,7 @@ pub mod materials;
 pub mod physics;
 pub mod random;
 pub mod reference;
+pub mod states;
 
 
 #[pyclass(module="mulder")]
@@ -440,6 +440,7 @@ impl Fluxmeter {
         Ok(array)
     }
 
+    // XXX move to geometry?
     /// Compute grammage(s) along line of sight(s).
     #[pyo3(signature=(states=None, /, *, notify=None, sum=None, **kwargs))]
     fn grammage<'py>(
@@ -1235,58 +1236,32 @@ impl FlavouredState {
     }
 }
 
-static FLAVOURED_STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
+impl_dtype!(
+    FlavouredState,
+    [
+        ("pid",       "i4"),
+        ("energy",    "f8"),
+        ("latitude",  "f8"),
+        ("longitude", "f8"),
+        ("altitude",  "f8"),
+        ("azimuth",   "f8"),
+        ("elevation", "f8"),
+        ("weight",    "f8"),
+    ]
+);
 
-impl Dtype for FlavouredState {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = FLAVOURED_STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("pid",       "i4"),
-                        ("energy",    "f8"),
-                        ("latitude",  "f8"),
-                        ("longitude", "f8"),
-                        ("altitude",  "f8"),
-                        ("azimuth",   "f8"),
-                        ("elevation", "f8"),
-                        ("weight",    "f8"),
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
-
-static UNFLAVOURED_STATE_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for UnflavouredState {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = UNFLAVOURED_STATE_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("energy",    "f8"),
-                        ("latitude",  "f8"),
-                        ("longitude", "f8"),
-                        ("altitude",  "f8"),
-                        ("azimuth",   "f8"),
-                        ("elevation", "f8"),
-                        ("weight",    "f8"),
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    UnflavouredState,
+    [
+        ("energy",    "f8"),
+        ("latitude",  "f8"),
+        ("longitude", "f8"),
+        ("altitude",  "f8"),
+        ("azimuth",   "f8"),
+        ("elevation", "f8"),
+        ("weight",    "f8"),
+    ]
+);
 
 impl Particle {
     #[inline]

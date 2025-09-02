@@ -7,13 +7,12 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::Size;
 use crate::utils::io::PathString;
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, null_pointer_err, OwnedPtr};
 use libloading::Library;
 use paste::paste;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_double, c_int, CStr};
 use std::ptr::NonNull;
@@ -420,28 +419,15 @@ impl From<CVec3> for [f64; 3] {
     }
 }
 
-static INTERSECTION_DTYPE: GILOnceCell<PyObject> = GILOnceCell::new();
-
-impl Dtype for Intersection {
-    fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
-        let ob = INTERSECTION_DTYPE.get_or_try_init(py, || -> PyResult<_> {
-            let ob = PyModule::import(py, "numpy")?
-                .getattr("dtype")?
-                .call1(([
-                        ("before",    "i4"),
-                        ("after",     "i4"),
-                        ("position",  "3f8"),
-                        ("distance",  "f8")
-                    ],
-                    true,
-                ))?
-                .unbind();
-            Ok(ob)
-        })?
-        .bind(py);
-        Ok(ob)
-    }
-}
+impl_dtype!(
+    Intersection,
+    [
+        ("before",    "i4"),
+        ("after",     "i4"),
+        ("position",  "3f8"),
+        ("distance",  "f8")
+    ]
+);
 
 #[pymethods]
 impl Medium {
