@@ -175,7 +175,7 @@ impl Fluxmeter {
 
         let geometry = {
             let geometry_kwargs = extract_kwargs(
-                &["atmosphere", "magnet"]
+                &["atmosphere", "magnet", "materials"]
             )?;
             let geometry = match extract_field("geometry")? {
                 Some(geometry) => if layers.is_empty() && geometry_kwargs.is_none() {
@@ -189,7 +189,7 @@ impl Fluxmeter {
                     return Err(err)
                 },
                 None => {
-                    let geometry = Geometry::new(layers, None, None)?;
+                    let geometry = Geometry::new(layers, None, None, None)?;
                     let geometry = Bound::new(py, geometry)?;
                     if let Some(kwargs) = geometry_kwargs {
                         for (key, value) in kwargs.iter() {
@@ -946,8 +946,8 @@ impl<'a> Agent<'a> {
         reference: &'a reference::Reference,
     ) -> PyResult<Self> {
         // Configure physics and geometry.
-        physics.update(py, &materials::Materials::default(py)?)?; // XXX get materials from the geometry.
-        fluxmeter.create_geometry(py, &geometry, &physics, &reference)?;
+        physics.update(py, &geometry.materials)?;
+        fluxmeter.create_geometry(py, &geometry, &physics, &reference)?; // XXX Maybe cache this?
 
         // Configure Pumas context.
         let context = physics.borrow_mut_context();

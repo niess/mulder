@@ -238,14 +238,17 @@ impl Physics {
             let dedx_path = CString::new(dedx_path.path().to_string_lossy().as_ref())?;
             let mut notifier = Notifier::new(&materials.cache_key);
             error::clear();
+            let locale = libc::setlocale(libc::LC_NUMERIC, null());
+            libc::setlocale(libc::LC_NUMERIC, CString::new("C")?.as_ptr());
             let rc = pumas::physics_create(
                 &mut physics,
                 pumas::MUON,
-                mdf_path.as_c_str().as_ptr(),
-                dedx_path.as_c_str().as_ptr(),
+                mdf_path.as_ptr(),
+                dedx_path.as_ptr(),
                 &mut settings,
                 &mut notifier as *mut Notifier as *mut pumas::PhysicsNotifier,
             );
+            libc::setlocale(libc::LC_NUMERIC, locale);
             if rc == pumas::INTERRUPT {
                 // Ctrl-C has been catched.
                 error::clear();

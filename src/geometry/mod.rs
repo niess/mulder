@@ -1,4 +1,5 @@
 use crate::bindings::turtle;
+use crate::simulation::materials::{Materials, MaterialsArg};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::IndexError;
@@ -35,6 +36,10 @@ pub struct Geometry {
     /// The geomagnetic field.
     #[pyo3(get)]
     pub magnet: Option<Py<Magnet>>,
+
+    /// The geometry materials.
+    #[pyo3(get)]
+    pub materials: Materials,
 
     /// Geometry limits along the z-coordinates.
     #[pyo3(get)]
@@ -91,12 +96,13 @@ pub struct Doublet<T> {
 
 #[pymethods]
 impl Geometry {
-    #[pyo3(signature=(*layers, atmosphere=None, magnet=None))]
+    #[pyo3(signature=(*layers, atmosphere=None, magnet=None, materials=None))]
     #[new]
     pub fn new(
         layers: &Bound<PyTuple>,
         atmosphere: Option<AtmosphereArg>, // XXX hide in kwargs?
         magnet: Option<MagnetArg>,
+        materials: Option<MaterialsArg>,
     ) -> PyResult<Self> {
         let py = layers.py();
         let (layers, z) = {
@@ -134,9 +140,11 @@ impl Geometry {
 
         let magnet = magnet.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
 
+        let materials = Materials::from_arg(py, materials)?;
+
         let stepper = null_mut();
 
-        Ok(Self { layers, z, atmosphere, magnet, stepper })
+        Ok(Self { layers, z, atmosphere, magnet, materials, stepper })
     }
 
     /// The geometry layers.
@@ -160,6 +168,12 @@ impl Geometry {
     #[setter]
     fn set_magnet(&mut self, py: Python, value: Option<MagnetArg>) -> PyResult<()> {
         self.magnet = value.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
+        Ok(())
+    }
+
+    #[setter]
+    fn set_materials(&mut self, py: Python, value: Option<MaterialsArg>) -> PyResult<()> {
+        self.materials = Materials::from_arg(py, value)?;
         Ok(())
     }
 
