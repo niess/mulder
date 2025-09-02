@@ -40,6 +40,10 @@ pub struct Physics {
 
 #[pyclass(module="mulder", frozen)]
 pub struct CompiledMaterial {
+    /// The material identifier.
+    #[pyo3(get)]
+    name: String,
+
     definitions: Arc<MaterialsData>,
     physics: Arc<OwnedPtr<pumas::Physics>>,
     index: c_int,
@@ -113,6 +117,7 @@ impl Physics {
         let compiled_materials = PyDict::new(py);
         for (material, index) in self.materials_indices.iter() {
             let table = CompiledMaterial {
+                name: material.to_string(),
                 definitions: Arc::clone(&materials.data),
                 index: *index,
                 physics: Arc::clone(self.physics.as_ref().unwrap()),
@@ -386,15 +391,15 @@ impl Destroy for NonNull<pumas::Physics> {
 impl CompiledMaterial {
     fn __repr__(&self) -> String {
         format!(
-            "CompiledMaterial({:?}, {})",
-            self.physics.as_ref().0.as_ptr(), // XXX use hashtag instead?
+            "CompiledMaterial('{:}', {})",
+            self.name,
             self.index,
         )
     }
 
     #[getter]
     fn get_definition(&self) -> &Material {
-        self.definitions.map.get_index(self.index as usize).unwrap().1
+        self.definitions.map.get(self.name.as_str()).unwrap()
     }
 
     fn stopping_power<'py>( // XXX Notifier?

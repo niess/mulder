@@ -3,7 +3,6 @@ use crate::utils::convert::ToToml;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, ValueError};
 use crate::utils::io::{ConfigFormat, PathString, Toml};
-use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use regex::Regex;
@@ -568,7 +567,7 @@ impl Component {
 
 #[derive(Debug, PartialEq)]
 pub struct MaterialsData {
-    pub map: IndexMap<String, Material>, // XXX Order must matter for equality.
+    pub map: HashMap<String, Material>,
     table: Option<ElementsTable>,
 }
 
@@ -576,7 +575,7 @@ static DEFAULT_MATERIALS_DATA: GILOnceCell<Arc<MaterialsData>> = GILOnceCell::ne
 
 impl MaterialsData {
     pub fn empty() -> Self {
-        let map = IndexMap::new();
+        let map = HashMap::new();
         let table = None;
         Self { map, table }
     }
@@ -595,7 +594,7 @@ impl MaterialsData {
             .try_into()
     }
 
-    pub fn new(map: IndexMap<String, Material>) -> Self {
+    pub fn new(map: HashMap<String, Material>) -> Self {
         let table = None;
         Self { map, table }
     }

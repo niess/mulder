@@ -9,12 +9,12 @@ use crate::utils::extract::Size;
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, NewArray};
 use crate::utils::ptr::{Destroy, null_pointer_err, OwnedPtr};
-use indexmap::IndexMap;
 use libloading::Library;
 use paste::paste;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use pyo3::sync::GILOnceCell;
+use std::collections::HashMap;
 use std::ffi::{c_char, c_double, c_int, CStr};
 use std::ptr::NonNull;
 
@@ -229,7 +229,7 @@ impl ExternalGeometry {
         // Build material definitions.
         let size = geometry.materials_len()?;
         let mut table = ElementsTable::empty();
-        let mut materials = IndexMap::<String, Material>::new();
+        let mut materials = HashMap::<String, Material>::new();
         for i in 0..size {
             if let Some((name, material)) = geometry.material(i)?.to_material(&mut table)? {
                 materials.insert(name, material);
