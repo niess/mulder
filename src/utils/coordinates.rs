@@ -112,11 +112,18 @@ impl_dtype!(
 //
 // ===============================================================================================
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[pyclass(module="mulder")]
 pub struct LocalFrame {
-    #[pyo3(get)]
     pub origin: GeographicCoordinates,
+
+    /// The frame declination angle (w.r.t. the geographic north), in deg.
+    #[pyo3(get)]
+    pub declination: f64,
+
+    /// The frame inclination angle (w.r.t. the local vertical), in deg.
+    #[pyo3(get)]
+    pub inclination: f64,
 
     pub rotation: [[f64; 3]; 3],
     #[allow(unused)] // XXX needed?
@@ -125,25 +132,66 @@ pub struct LocalFrame {
 
 #[pymethods]
 impl LocalFrame {
-
     #[new]
-    #[pyo3(signature=(*, latitude, longitude, altitude=None, declination=None, inclination=None))]
-    fn py_new(
-        latitude: f64,
-        longitude: f64,
+    #[pyo3(signature=(
+        latitude=None, longitude=None, altitude=None, *, declination=None, inclination=None
+    ))]
+    fn py_new( // XXX use kwargs?
+        latitude: Option<f64>,
+        longitude: Option<f64>,
         altitude: Option<f64>,
         declination: Option<f64>,
         inclination: Option<f64>,
     ) -> Self {
+        let latitude = latitude.unwrap_or(Self::DEFAULT_LATITUDE);
+        let longitude = longitude.unwrap_or(Self::DEFAULT_LONGITUDE);
         let altitude = altitude.unwrap_or(0.0);
         let declination = declination.unwrap_or(0.0);
         let inclination = inclination.unwrap_or(0.0);
         let origin = GeographicCoordinates { latitude, longitude, altitude };
         Self::new(origin, declination, inclination)
     }
+
+    fn __repr__(&self) -> String {
+        let mut args = vec![
+            format!("{}, {}", self.origin.latitude, self.origin.longitude)
+        ];
+        if self.origin.altitude != 0.0 {
+            args.push(format!("{}", self.origin.altitude));
+        }
+        if self.declination != 0.0 {
+            args.push(format!("declination={}", self.declination));
+        }
+        if self.inclination != 0.0 {
+            args.push(format!("inclination={}", self.declination));
+        }
+        let args = args.join(", ");
+        format!("LocalFrame({})", args)
+    }
+
+    /// The latitude coordinate of the frame origin, in deg.
+    #[getter]
+    fn get_latitude(&self) -> f64 {
+        self.origin.latitude
+    }
+
+    /// The longitude coordinate of the frame origin, in deg.
+    #[getter]
+    fn get_longitude(&self) -> f64 {
+        self.origin.longitude
+    }
+
+    /// The altitude coordinate of the frame origin, in m.
+    #[getter]
+    fn get_altitude(&self) -> f64 {
+        self.origin.altitude
+    }
 }
 
 impl LocalFrame {
+    pub const DEFAULT_LATITUDE: f64 = 45.0;
+    pub const DEFAULT_LONGITUDE: f64 = 0.0;
+
     pub fn to_ecef_direction(&self, enu: &[f64; 3]) -> [f64; 3] {
         let mut ecef = [0.0; 3];
         for i in 0..3 {
@@ -198,6 +246,17 @@ impl LocalFrame {
         }
 
         let translation = origin.to_ecef();
-        Self { rotation, translation, origin }
+        Self { rotation, translation, origin, declination, inclination }
+    }
+}
+
+impl Default for LocalFrame {
+    fn default() -> Self {
+        let origin = GeographicCoordinates {
+            latitude: Self::DEFAULT_LATITUDE,
+            longitude: Self::DEFAULT_LONGITUDE,
+            altitude: 0.0
+        };
+        Self::new(origin, 0.0, 0.0)
     }
 }

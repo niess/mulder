@@ -63,6 +63,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<simulation::random::Random>()?;
     module.add_class::<simulation::reference::Reference>()?;
     module.add_class::<simulation::states::GeographicStates>()?;
+    module.add_class::<simulation::states::LocalStates>()?;
     module.add_class::<utils::coordinates::LocalFrame>()?;
 
     // Register function(s).

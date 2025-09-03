@@ -151,6 +151,8 @@ impl RawPicture {
         };
         let frame = LocalFrame {
             origin,
+            declination: 0.0, // XXX Dump/load these?
+            inclination: 0.0,
             rotation: state.get_item("rotation")?.unwrap().extract()?,
             translation: [0.0; 3],
         };
