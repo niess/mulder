@@ -1,8 +1,8 @@
-use crate::utils::coordinates::LocalFrame;
+use crate::utils::coordinates::{GeographicCoordinates, LocalFrame, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::TypeError;
 use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
+use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use super::Particle;
@@ -15,7 +15,7 @@ pub struct GeographicStates {
 
 #[pyclass(module="mulder", sequence)]
 pub struct LocalStates {
-    /// The coordionates local frame.
+    /// The coordinates local frame.
     #[pyo3(get)]
     pub frame: LocalFrame,
 
@@ -177,6 +177,17 @@ impl GeographicStates {
         Ok(result)
     }
 
+    fn __len__(&self, py: Python) -> PyResult<usize> {
+        let shape = match &self.array {
+            GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
+            GeographicStatesArray::Unflavoured(array) => array.bind(py).shape(),
+        };
+        shape
+            .get(0)
+            .copied()
+            .ok_or_else(|| Error::new(TypeError).why("len() of unsized object").to_err())
+    }
+
     fn __repr__(&self) -> String {
         match &self.array {
             GeographicStatesArray::Flavoured(array) => format!(
@@ -199,46 +210,88 @@ impl GeographicStates {
         }
     }
 
+    /// The geographic states' array dimension.
     #[getter]
-    fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.array.getattr(py, "pid")
+    fn get_ndim(&self, py: Python) -> usize {
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => array.bind(py).ndim(),
+            GeographicStatesArray::Unflavoured(array) => array.bind(py).ndim(),
+        }
     }
 
+    /// The geographic states' array shape.
+    #[getter]
+    fn get_shape(&self, py: Python) -> Vec<usize> {
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
+            GeographicStatesArray::Unflavoured(array) => array.bind(py).shape(),
+        }
+    }
+
+    /// The total number of geographic states.
+    #[getter]
+    fn get_size(&self, py: Python) -> usize {
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => array.bind(py).size(),
+            GeographicStatesArray::Unflavoured(array) => array.bind(py).size(),
+        }
+    }
+
+    /// The PDG particle identifier.
+    #[getter]
+    fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let pid = match &self.array {
+            GeographicStatesArray::Flavoured(array) => {
+                array.bind(py).as_any().get_item("pid")?.unbind()
+            },
+            GeographicStatesArray::Unflavoured(_) => py.None(),
+        };
+        Ok(pid)
+    }
+
+    /// The kinetic energy, in GeV.
     #[getter]
     fn get_energy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "energy")
     }
 
+    /// The latitude coordinate, in deg.
     #[getter]
     fn get_latitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "latitude")
     }
 
+    /// The longitude coordinate, in deg.
     #[getter]
     fn get_longitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "longitude")
     }
 
+    /// The altitude coordinate, in m.
     #[getter]
     fn get_altitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "altitude")
     }
 
+    /// The azimuth angle of observation, in deg.
     #[getter]
     fn get_azimuth<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "azimuth")
     }
 
+    /// The elevation angle of observation, in deg.
     #[getter]
     fn get_elevation<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "elevation")
     }
 
+    /// The Monte Carlo weight.
     #[getter]
     fn get_weight<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "weight")
     }
 
+    /// Returns uninitialised geographic states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, *, with_pid=false))]
     fn empty(
@@ -249,12 +302,14 @@ impl GeographicStates {
         new_array!(Geographic, empty, cls, shape, with_pid)
     }
 
+    /// Creates geographic states from a Numpy array.
     #[classmethod]
     #[pyo3(signature=(array, /))]
     fn from_array(_cls: &Bound<PyType>, array: GeographicStatesArray) -> Self {
         Self { array }
     }
 
+    /// Returns a collection of identical geographic states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, fill_value=None, **kwargs))]
     fn full(
@@ -280,6 +335,14 @@ impl GeographicStates {
         Self::from_extractor(py, shape, states)
     }
 
+    /// Creates geographic states from local ones.
+    #[classmethod]
+    #[pyo3(name="from_local", signature=(states, /))]
+    fn py_from_local(cls: &Bound<PyType>, states: &LocalStates) -> PyResult<Self> {
+        Self::from_local(cls.py(), states)
+    }
+
+    /// Returns zeroed geographic states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, *, with_pid=false))]
     fn zeros(
@@ -288,6 +351,34 @@ impl GeographicStates {
         with_pid: Option<bool>,
     ) -> PyResult<Self> {
         new_array!(Geographic, zeros, cls, shape, with_pid)
+    }
+
+    /// Converts the geographic states to local ones.
+    #[pyo3(signature=(frame=None, /))]
+    fn to_local(&self, py: Python, frame: Option<LocalFrame>) -> PyResult<LocalStates> {
+        LocalStates::from_geographic(py, self, frame)
+    }
+}
+
+macro_rules! convert_local {
+    ($flav:ident, $py:ident, $local:ident, $frame:ident) => {
+        {
+            paste::paste! {
+                let local = $local.bind($py);
+                let mut array = NewArray::< [< $flav GeographicState >] >::empty(
+                    $py, local.shape()
+                )?;
+                let size = array.size();
+                let data = array.as_slice_mut();
+                for i in 0..size {
+                    data[i] = [< $flav GeographicState >] ::from_local(
+                        local.get_item(i)?,
+                        $frame,
+                    );
+                }
+                GeographicStatesArray::$flav(array.into_bound().unbind())
+            }
+        }
     }
 }
 
@@ -336,27 +427,48 @@ impl GeographicStates {
         };
         Ok(Self { array })
     }
+
+    fn from_local(py: Python, local: &LocalStates) -> PyResult<Self> {
+        let frame = &local.frame;
+        let array = match &local.array {
+            LocalStatesArray::Flavoured(local) => {
+                convert_local!(Flavoured, py, local, frame)
+            },
+            LocalStatesArray::Unflavoured(local) => {
+                convert_local!(Unflavoured, py, local, frame)
+            },
+        };
+        Ok(Self { array })
+    }
 }
 
 impl GeographicStatesArray {
     #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(py).get_item(field),
-            Self::Unflavoured(array) => array.bind(py).get_item(field),
+            Self::Flavoured(array) => array.bind(py).as_any().get_item(field),
+            Self::Unflavoured(array) => array.bind(py).as_any().get_item(field),
         }
     }
 
     #[inline]
     fn getitem<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(arg.py()).get_item(arg),
-            Self::Unflavoured(array) => array.bind(arg.py()).get_item(arg),
+            Self::Flavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
+            Self::Unflavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
         }
     }
 }
 
 impl FlavouredGeographicState {
+    #[inline]
+    fn direction(&self) -> HorizontalCoordinates {
+        HorizontalCoordinates {
+            azimuth: self.azimuth,
+            elevation: self.elevation,
+        }
+    }
+
     #[inline]
     fn from_extractor(states: &Extractor<8>, index: usize) -> PyResult<Self> {
         let state = Self {
@@ -373,9 +485,41 @@ impl FlavouredGeographicState {
         };
         Ok(state)
     }
+
+    #[inline]
+    fn from_local(state: FlavouredLocalState, frame: &LocalFrame) -> Self {
+        let (position, direction) = frame.to_geographic(&state.position, &state.direction);
+        Self {
+            pid: state.pid,
+            energy: state.energy,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            altitude: position.altitude,
+            azimuth: direction.azimuth,
+            elevation: direction.elevation,
+            weight: state.weight,
+        }
+    }
+
+    #[inline]
+    fn position(&self) -> GeographicCoordinates {
+        GeographicCoordinates {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            altitude: self.altitude,
+        }
+    }
 }
 
 impl UnflavouredGeographicState {
+    #[inline]
+    fn direction(&self) -> HorizontalCoordinates {
+        HorizontalCoordinates {
+            azimuth: self.azimuth,
+            elevation: self.elevation,
+        }
+    }
+
     #[inline]
     fn from_extractor(states: &Extractor<8>, index: usize) -> PyResult<Self> {
         let state = Self {
@@ -390,6 +534,29 @@ impl UnflavouredGeographicState {
             weight: states.get_f64_opt(Name::Weight, index)?.unwrap_or(1.0),
         };
         Ok(state)
+    }
+
+    #[inline]
+    fn from_local(state: UnflavouredLocalState, frame: &LocalFrame) -> Self {
+        let (position, direction) = frame.to_geographic(&state.position, &state.direction);
+        Self {
+            energy: state.energy,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            altitude: position.altitude,
+            azimuth: direction.azimuth,
+            elevation: direction.elevation,
+            weight: state.weight,
+        }
+    }
+
+    #[inline]
+    fn position(&self) -> GeographicCoordinates {
+        GeographicCoordinates {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            altitude: self.altitude,
+        }
     }
 }
 
@@ -437,6 +604,28 @@ impl LocalStates {
 
     fn __getitem__<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let py = arg.py();
+
+        let maybe_index: Option<ShapeArg> = arg.extract().ok();
+        if let Some(index) = maybe_index {
+            let index = index.into_vec();
+            let n = index.len();
+            let shape = self.get_shape(py);
+            if shape.len() == n {
+                let index = if n == 0 {
+                    0
+                } else if n == 1 {
+                    index[0]
+                } else {
+                    let mut i = index[n - 1];
+                    for j in 0..(n - 2) {
+                        i = i * shape[n - 1 - j] + index[n - 1 - j];
+                    }
+                    i
+                };
+                return Ok(Bound::new(py, self.getitem(py, index)?)?.into_any())
+            }
+        }
+
         let result = self.array.getitem(arg)?;
         let maybe_array: Option<LocalStatesArray> = result.extract().ok();
         let result = match maybe_array {
@@ -444,6 +633,17 @@ impl LocalStates {
             None => result,
         };
         Ok(result)
+    }
+
+    fn __len__(&self, py: Python) -> PyResult<usize> {
+        let shape = match &self.array {
+            LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
+            LocalStatesArray::Unflavoured(array) => array.bind(py).shape(),
+        };
+        shape
+            .get(0)
+            .copied()
+            .ok_or_else(|| Error::new(TypeError).why("len() of unsized object").to_err())
     }
 
     fn __repr__(&self) -> String {
@@ -468,31 +668,70 @@ impl LocalStates {
         }
     }
 
+    /// The local states' array dimension.
     #[getter]
-    fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.array.getattr(py, "pid")
+    fn get_ndim(&self, py: Python) -> usize {
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => array.bind(py).ndim(),
+            LocalStatesArray::Unflavoured(array) => array.bind(py).ndim(),
+        }
     }
 
+    /// The local states' array shape.
+    #[getter]
+    fn get_shape(&self, py: Python) -> Vec<usize> {
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
+            LocalStatesArray::Unflavoured(array) => array.bind(py).shape(),
+        }
+    }
+
+    /// The total number of local states.
+    #[getter]
+    fn get_size(&self, py: Python) -> usize {
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => array.bind(py).size(),
+            LocalStatesArray::Unflavoured(array) => array.bind(py).size(),
+        }
+    }
+
+    /// The PDG particle identifier.
+    #[getter]
+    fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let pid = match &self.array {
+            LocalStatesArray::Flavoured(array) => {
+                array.bind(py).as_any().get_item("pid")?.unbind()
+            },
+            LocalStatesArray::Unflavoured(_) => py.None(),
+        };
+        Ok(pid)
+    }
+
+    /// The kinetic energy, in GeV.
     #[getter]
     fn get_energy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "energy")
     }
 
+    /// The local position, in m.
     #[getter]
     fn get_position<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "position")
     }
 
+    /// The observation's local direction.
     #[getter]
     fn get_direction<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "direction")
     }
 
+    /// The Monte Carlo weight.
     #[getter]
     fn get_weight<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "weight")
     }
 
+    /// Returns uninitialised local states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, *, frame=None, with_pid=false))]
     fn empty(
@@ -504,6 +743,7 @@ impl LocalStates {
         new_array!(Local, empty, cls, shape, frame, with_pid)
     }
 
+    /// Creates local states from a Numpy array.
     #[classmethod]
     #[pyo3(signature=(array, /, *, frame=None))]
     fn from_array(
@@ -515,6 +755,18 @@ impl LocalStates {
         Self { array, frame }
     }
 
+    /// Creates local states from geographic ones.
+    #[classmethod]
+    #[pyo3(name="from_geographic", signature=(states, /, *, frame=None))]
+    fn py_from_geographic(
+        cls: &Bound<PyType>,
+        states: &GeographicStates,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<Self> {
+        Self::from_geographic(cls.py(), states, frame)
+    }
+
+    /// Returns a collection of identical local states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, fill_value=None, *, frame=None, **kwargs))]
     fn full(
@@ -541,6 +793,7 @@ impl LocalStates {
         Self::from_extractor(py, shape, frame, states)
     }
 
+    /// Returns zeroed local states.
     #[classmethod]
     #[pyo3(signature=(shape=None, /, *, frame=None, with_pid=false))]
     fn zeros(
@@ -550,6 +803,33 @@ impl LocalStates {
         with_pid: Option<bool>,
     ) -> PyResult<Self> {
         new_array!(Local, zeros, cls, shape, frame, with_pid)
+    }
+
+    /// Converts the local states to geographic ones.
+    fn to_geographic(&self, py: Python) -> PyResult<GeographicStates> {
+        GeographicStates::from_local(py, self)
+    }
+}
+
+macro_rules! convert_geographic {
+    ($flav:ident, $py:ident, $geo:ident, $frame:ident) => {
+        {
+            paste::paste! {
+                let geographic = $geo.bind($py);
+                let mut array = NewArray::< [< $flav LocalState >] >::empty(
+                    $py, geographic.shape()
+                )?;
+                let size = array.size();
+                let data = array.as_slice_mut();
+                for i in 0..size {
+                    data[i] = [< $flav LocalState >] ::from_geographic(
+                        geographic.get_item(i)?,
+                        & $frame,
+                    );
+                }
+                LocalStatesArray::$flav(array.into_bound().unbind())
+            }
+        }
     }
 }
 
@@ -597,22 +877,61 @@ impl LocalStates {
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
         Ok(Self { array, frame})
     }
+
+    fn from_geographic(
+        py: Python,
+        geographic: &GeographicStates,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<Self> {
+        let frame = frame.unwrap_or_else(|| LocalFrame::default());
+        let array = match &geographic.array {
+            GeographicStatesArray::Flavoured(geographic) => {
+                convert_geographic!(Flavoured, py, geographic, frame)
+            },
+            GeographicStatesArray::Unflavoured(geographic) => {
+                convert_geographic!(Unflavoured, py, geographic, frame)
+            },
+        };
+        Ok(Self { array, frame })
+    }
+
+    fn getitem( // XXX implement for geographic states as well, & iterators.
+        &self,
+        py: Python,
+        index: usize,
+    ) -> PyResult<Self> {
+        let array = match &self.array {
+            LocalStatesArray::Flavoured(array) => {
+                let state = array.bind(py).get_item(index)?;
+                let mut array = NewArray::<FlavouredLocalState>::empty(py, [])?;
+                array.as_slice_mut()[0] = state;
+                LocalStatesArray::Flavoured(array.into_bound().unbind())
+            },
+            LocalStatesArray::Unflavoured(array) => {
+                let state = array.bind(py).get_item(index)?;
+                let mut array = NewArray::<UnflavouredLocalState>::empty(py, [])?;
+                array.as_slice_mut()[0] = state;
+                LocalStatesArray::Unflavoured(array.into_bound().unbind())
+            },
+        };
+        Ok(Self { array, frame: self.frame.clone() })
+    }
 }
 
 impl LocalStatesArray {
     #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(py).get_item(field),
-            Self::Unflavoured(array) => array.bind(py).get_item(field),
+            Self::Flavoured(array) => array.bind(py).as_any().get_item(field),
+            Self::Unflavoured(array) => array.bind(py).as_any().get_item(field),
         }
     }
 
     #[inline]
     fn getitem<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(arg.py()).get_item(arg),
-            Self::Unflavoured(array) => array.bind(arg.py()).get_item(arg),
+            Self::Flavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
+            Self::Unflavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
         }
     }
 }
@@ -631,6 +950,18 @@ impl FlavouredLocalState {
         };
         Ok(state)
     }
+
+    #[inline]
+    fn from_geographic(state: FlavouredGeographicState, frame: &LocalFrame) -> Self {
+        let (position, direction) = frame.from_geographic(state.position(), state.direction());
+        Self {
+            pid: state.pid,
+            energy: state.energy,
+            position,
+            direction,
+            weight: state.weight,
+        }
+    }
 }
 
 impl UnflavouredLocalState {
@@ -645,5 +976,16 @@ impl UnflavouredLocalState {
             weight: states.get_f64_opt(Name::Weight, index)?.unwrap_or(1.0),
         };
         Ok(state)
+    }
+
+    #[inline]
+    fn from_geographic(state: UnflavouredGeographicState, frame: &LocalFrame) -> Self {
+        let (position, direction) = frame.from_geographic(state.position(), state.direction());
+        Self {
+            energy: state.energy,
+            position,
+            direction,
+            weight: state.weight,
+        }
     }
 }

@@ -126,7 +126,6 @@ pub struct LocalFrame {
     pub inclination: f64,
 
     pub rotation: [[f64; 3]; 3],
-    #[allow(unused)] // XXX needed?
     pub translation: [f64; 3],
 }
 
@@ -192,6 +191,33 @@ impl LocalFrame {
     pub const DEFAULT_LATITUDE: f64 = 45.0;
     pub const DEFAULT_LONGITUDE: f64 = 0.0;
 
+    pub fn from_ecef_direction(&self, ecef: &[f64; 3]) -> [f64; 3] {
+        let mut enu = [0.0; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                enu[i] += self.rotation[i][j] * ecef[j];
+            }
+        }
+        enu
+    }
+
+    pub fn from_ecef_position(&self, mut ecef: [f64; 3]) -> [f64; 3] {
+        for i in 0..3 {
+            ecef[i] -= self.translation[i];
+        }
+        self.from_ecef_direction(&ecef)
+    }
+
+    pub fn from_geographic(
+        &self,
+        position: GeographicCoordinates,
+        direction: HorizontalCoordinates,
+    ) -> ([f64; 3], [f64; 3]) {
+        let direction = self.from_ecef_direction(&direction.to_ecef(&position));
+        let position = self.from_ecef_position(position.to_ecef());
+        (position, direction)
+    }
+
     pub fn to_ecef_direction(&self, enu: &[f64; 3]) -> [f64; 3] {
         let mut ecef = [0.0; 3];
         for i in 0..3 {
@@ -202,13 +228,25 @@ impl LocalFrame {
         ecef
     }
 
-    #[allow(unused)] // XXX needed?
     pub fn to_ecef_position(&self, enu: &[f64; 3]) -> [f64; 3] {
         let mut ecef = self.to_ecef_direction(enu);
         for i in 0..3 {
             ecef[i] += self.translation[i];
         }
         ecef
+    }
+
+    pub fn to_geographic(
+        &self,
+        position: &[f64; 3],
+        direction: &[f64; 3],
+    ) -> (GeographicCoordinates, HorizontalCoordinates) {
+        let position = GeographicCoordinates::from_ecef(&self.to_ecef_position(position));
+        let direction = HorizontalCoordinates::from_ecef(
+            &self.to_ecef_direction(direction),
+            &position
+        );
+        (position, direction)
     }
 
     pub fn to_horizontal(&self, enu: &[f64; 3]) -> HorizontalCoordinates {
