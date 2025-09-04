@@ -1,4 +1,4 @@
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
@@ -127,14 +127,9 @@ impl RawPicture {
         // This ensures that no field is omitted.
         let Self { transform, layer, materials, pixels } = self;
         let Transform { frame, ratio, f } = transform;
-        let LocalFrame { origin, rotation, .. } = frame;
-        let GeographicCoordinates { latitude, longitude, altitude } = origin;
 
         let state = PyDict::new(py);
-        state.set_item("latitude", latitude)?;
-        state.set_item("longitude", longitude)?;
-        state.set_item("altitude", altitude)?;
-        state.set_item("rotation", rotation)?;
+        state.set_item("frame", frame.clone())?;
         state.set_item("ratio", ratio)?;
         state.set_item("f", f)?;
         state.set_item("layer", layer)?;
@@ -144,20 +139,8 @@ impl RawPicture {
     }
 
     fn __setstate__(&mut self, state: Bound<PyDict>) -> PyResult<()> {
-        let origin = GeographicCoordinates {
-            latitude: state.get_item("latitude")?.unwrap().extract()?,
-            longitude: state.get_item("longitude")?.unwrap().extract()?,
-            altitude: state.get_item("altitude")?.unwrap().extract()?,
-        };
-        let frame = LocalFrame {
-            origin,
-            declination: 0.0, // XXX Dump/load these?
-            inclination: 0.0,
-            rotation: state.get_item("rotation")?.unwrap().extract()?,
-            translation: [0.0; 3],
-        };
         let transform = Transform { // This ensures that no field is omitted.
-            frame,
+            frame: state.get_item("frame")?.unwrap().extract()?,
             ratio: state.get_item("ratio")?.unwrap().extract()?,
             f: state.get_item("f")?.unwrap().extract()?,
         };

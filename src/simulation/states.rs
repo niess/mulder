@@ -202,6 +202,22 @@ impl GeographicStates {
         self.array.setitem(index, value)
     }
 
+    fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        // This ensures that no field is omitted.
+        let Self { array } = self;
+
+        let state = PyDict::new(py);
+        state.set_item("array", array.clone_ref(py))?;
+        Ok(state)
+    }
+
+    fn __setstate__(&mut self, state: Bound<PyDict>) -> PyResult<()> {
+        *self = Self { // This ensures that no field is omitted.
+            array: state.get_item("array")?.unwrap().extract()?,
+        };
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         match &self.array {
             GeographicStatesArray::Flavoured(array) => format!(
@@ -508,6 +524,14 @@ impl GeographicStates {
 
 impl GeographicStatesArray {
     #[inline]
+    fn clone_ref(&self, py: Python) -> Self {
+        match self {
+            Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
+            Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
+        }
+    }
+
+    #[inline]
     fn dtype<'py>(&self, py: Python<'py>) -> PyResult<&Bound<'py, PyAny>> {
         match self {
             Self::Flavoured(_) => FlavouredGeographicState::dtype(py),
@@ -690,39 +714,6 @@ impl LocalStates {
         Self::from_extractor(py, shape, frame, states)
     }
 
-    fn __getitem__<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let py = arg.py();
-
-        let maybe_index: Option<ShapeArg> = arg.extract().ok();
-        if let Some(index) = maybe_index {
-            let index = index.into_vec();
-            let n = index.len();
-            let shape = self.get_shape(py);
-            if shape.len() == n {
-                let index = if n == 0 {
-                    0
-                } else if n == 1 {
-                    index[0]
-                } else {
-                    let mut i = index[n - 1];
-                    for j in 0..(n - 2) {
-                        i = i * shape[n - 1 - j] + index[n - 1 - j];
-                    }
-                    i
-                };
-                return Ok(Bound::new(py, self.getitem(py, index)?)?.into_any())
-            }
-        }
-
-        let result = self.array.getitem(arg)?;
-        let maybe_array: Option<LocalStatesArray> = result.extract().ok();
-        let result = match maybe_array {
-            Some(array) => Bound::new(py, Self { array, frame: self.frame.clone() })?.into_any(),
-            None => result,
-        };
-        Ok(result)
-    }
-
     fn __len__(&self, py: Python) -> PyResult<usize> {
         let shape = match &self.array {
             LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
@@ -733,6 +724,50 @@ impl LocalStates {
             .copied()
             .ok_or_else(|| Error::new(TypeError).why("len() of unsized object").to_err())
     }
+
+    fn __getitem__<'py>(&self, index: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let py = index.py();
+        let result = self.array.getitem(index)?;
+        let is_state = result
+            .getattr_opt("dtype")?
+            .map(|dtype| dtype.eq(self.array.dtype(py).unwrap()))
+            .transpose()?
+            .unwrap_or(false);
+        if is_state {
+            let array: LocalStatesArray =
+                py.import("numpy")?.getattr("asarray")?.call1((result,))?.extract()?;
+            Ok(Bound::new(py, Self { array, frame: self.frame.clone() })?.into_any())
+        } else {
+            Ok(result)
+        }
+    }
+
+    fn __setitem__<'py>(
+        &self,
+        index: &Bound<'py, PyAny>,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<()> {
+        self.array.setitem(index, value)
+    }
+
+    fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        // This ensures that no field is omitted.
+        let Self { array, frame } = self;
+
+        let state = PyDict::new(py);
+        state.set_item("array", array.clone_ref(py))?;
+        state.set_item("frame", frame.clone())?;
+        Ok(state)
+    }
+
+    fn __setstate__(&mut self, state: Bound<PyDict>) -> PyResult<()> {
+        *self = Self { // This ensures that no field is omitted.
+            array: state.get_item("array")?.unwrap().extract()?,
+            frame: state.get_item("frame")?.unwrap().extract()?,
+        };
+        Ok(())
+    }
+
 
     fn __repr__(&self) -> String {
         match &self.array {
@@ -795,10 +830,30 @@ impl LocalStates {
         Ok(pid)
     }
 
+    #[setter]
+    fn set_pid(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        let py = value.py();
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => {
+                array.bind(py).as_any().set_item("pid", value)
+            },
+            LocalStatesArray::Unflavoured(_) => {
+                let err = Error::new(AttributeError)
+                    .why("attribute 'pid' is not writable").to_err();
+                Err(err)
+            },
+        }
+    }
+
     /// The kinetic energy, in GeV.
     #[getter]
     fn get_energy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "energy")
+    }
+
+    #[setter]
+    fn set_energy(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("energy", value)
     }
 
     /// The local position, in m.
@@ -807,16 +862,31 @@ impl LocalStates {
         self.array.getattr(py, "position")
     }
 
+    #[setter]
+    fn set_position(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("position", value)
+    }
+
     /// The observation's local direction.
     #[getter]
     fn get_direction<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "direction")
     }
 
+    #[setter]
+    fn set_direction(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("direction", value)
+    }
+
     /// The Monte Carlo weight.
     #[getter]
     fn get_weight<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "weight")
+    }
+
+    #[setter]
+    fn set_weight(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("weight", value)
     }
 
     /// Returns uninitialised local states.
@@ -982,31 +1052,25 @@ impl LocalStates {
         };
         Ok(Self { array, frame })
     }
-
-    fn getitem( // XXX implement for geographic states as well, & iterators.
-        &self,
-        py: Python,
-        index: usize,
-    ) -> PyResult<Self> {
-        let array = match &self.array {
-            LocalStatesArray::Flavoured(array) => {
-                let state = array.bind(py).get_item(index)?;
-                let mut array = NewArray::<FlavouredLocalState>::empty(py, [])?;
-                array.as_slice_mut()[0] = state;
-                LocalStatesArray::Flavoured(array.into_bound().unbind())
-            },
-            LocalStatesArray::Unflavoured(array) => {
-                let state = array.bind(py).get_item(index)?;
-                let mut array = NewArray::<UnflavouredLocalState>::empty(py, [])?;
-                array.as_slice_mut()[0] = state;
-                LocalStatesArray::Unflavoured(array.into_bound().unbind())
-            },
-        };
-        Ok(Self { array, frame: self.frame.clone() })
-    }
 }
 
 impl LocalStatesArray {
+    #[inline]
+    fn clone_ref(&self, py: Python) -> Self {
+        match self {
+            Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
+            Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
+        }
+    }
+
+    #[inline]
+    fn dtype<'py>(&self, py: Python<'py>) -> PyResult<&Bound<'py, PyAny>> {
+        match self {
+            Self::Flavoured(_) => FlavouredLocalState::dtype(py),
+            Self::Unflavoured(_) => UnflavouredLocalState::dtype(py),
+        }
+    }
+
     #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
@@ -1016,10 +1080,26 @@ impl LocalStatesArray {
     }
 
     #[inline]
+    fn setattr(&self, field: &'static str, value: &Bound<PyAny>) -> PyResult<()> {
+        match self {
+            Self::Flavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Unflavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+        }
+    }
+
+    #[inline]
     fn getitem<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         match self {
             Self::Flavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
             Self::Unflavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
+        }
+    }
+
+    #[inline]
+    fn setitem<'py>(&self, index: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<()> {
+        match self {
+            Self::Flavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Unflavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
         }
     }
 }

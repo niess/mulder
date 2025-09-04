@@ -1,6 +1,7 @@
 use crate::bindings::turtle;
 use crate::utils::numpy::{Dtype, impl_dtype};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 
 // ===============================================================================================
@@ -149,6 +150,38 @@ impl LocalFrame {
         let inclination = inclination.unwrap_or(0.0);
         let origin = GeographicCoordinates { latitude, longitude, altitude };
         Self::new(origin, declination, inclination)
+    }
+
+    fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        // This ensures that no field is omitted.
+        let Self { origin, declination, inclination, rotation, translation } = self;
+        let GeographicCoordinates { latitude, longitude, altitude } = origin;
+
+        let state = PyDict::new(py);
+        state.set_item("latitude", latitude)?;
+        state.set_item("longitude", longitude)?;
+        state.set_item("altitude", altitude)?;
+        state.set_item("declination", declination)?;
+        state.set_item("inclination", inclination)?;
+        state.set_item("rotation", rotation)?;
+        state.set_item("translation", translation)?;
+        Ok(state)
+    }
+
+    fn __setstate__(&mut self, state: Bound<PyDict>) -> PyResult<()> {
+        let origin = GeographicCoordinates {
+            latitude: state.get_item("latitude")?.unwrap().extract()?,
+            longitude: state.get_item("longitude")?.unwrap().extract()?,
+            altitude: state.get_item("altitude")?.unwrap().extract()?,
+        };
+        *self = Self { // This ensures that no field is omitted.
+            origin,
+            declination: state.get_item("declination")?.unwrap().extract()?,
+            inclination: state.get_item("inclination")?.unwrap().extract()?,
+            rotation: state.get_item("rotation")?.unwrap().extract()?,
+            translation: state.get_item("translation")?.unwrap().extract()?,
+        };
+        Ok(())
     }
 
     fn __repr__(&self) -> String {
