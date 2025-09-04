@@ -1,6 +1,6 @@
 use crate::utils::coordinates::{GeographicCoordinates, LocalFrame, HorizontalCoordinates};
 use crate::utils::error::Error;
-use crate::utils::error::ErrorKind::TypeError;
+use crate::utils::error::ErrorKind::{AttributeError, TypeError};
 use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
 use pyo3::prelude::*;
@@ -166,17 +166,6 @@ impl GeographicStates {
         Self::from_extractor(py, shape, states)
     }
 
-    fn __getitem__<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        let py = arg.py();
-        let result = self.array.getitem(arg)?;
-        let maybe_array: Option<GeographicStatesArray> = result.extract().ok();
-        let result = match maybe_array {
-            Some(array) => Bound::new(py, Self { array })?.into_any(),
-            None => result,
-        };
-        Ok(result)
-    }
-
     fn __len__(&self, py: Python) -> PyResult<usize> {
         let shape = match &self.array {
             GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
@@ -186,6 +175,31 @@ impl GeographicStates {
             .get(0)
             .copied()
             .ok_or_else(|| Error::new(TypeError).why("len() of unsized object").to_err())
+    }
+
+    fn __getitem__<'py>(&self, index: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let py = index.py();
+        let result = self.array.getitem(index)?;
+        let is_state = result
+            .getattr_opt("dtype")?
+            .map(|dtype| dtype.eq(self.array.dtype(py).unwrap()))
+            .transpose()?
+            .unwrap_or(false);
+        if is_state {
+            let array: GeographicStatesArray =
+                py.import("numpy")?.getattr("asarray")?.call1((result,))?.extract()?;
+            Ok(Bound::new(py, Self { array })?.into_any())
+        } else {
+            Ok(result)
+        }
+    }
+
+    fn __setitem__<'py>(
+        &self,
+        index: &Bound<'py, PyAny>,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<()> {
+        self.array.setitem(index, value)
     }
 
     fn __repr__(&self) -> String {
@@ -249,10 +263,30 @@ impl GeographicStates {
         Ok(pid)
     }
 
+    #[setter]
+    fn set_pid(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        let py = value.py();
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => {
+                array.bind(py).as_any().set_item("pid", value)
+            },
+            GeographicStatesArray::Unflavoured(_) => {
+                let err = Error::new(AttributeError)
+                    .why("attribute 'pid' is not writable").to_err();
+                Err(err)
+            },
+        }
+    }
+
     /// The kinetic energy, in GeV.
     #[getter]
     fn get_energy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "energy")
+    }
+
+    #[setter]
+    fn set_energy(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("energy", value)
     }
 
     /// The latitude coordinate, in deg.
@@ -261,10 +295,20 @@ impl GeographicStates {
         self.array.getattr(py, "latitude")
     }
 
+    #[setter]
+    fn set_latitude(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("latitude", value)
+    }
+
     /// The longitude coordinate, in deg.
     #[getter]
     fn get_longitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "longitude")
+    }
+
+    #[setter]
+    fn set_longitude(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("longitude", value)
     }
 
     /// The altitude coordinate, in m.
@@ -273,10 +317,20 @@ impl GeographicStates {
         self.array.getattr(py, "altitude")
     }
 
+    #[setter]
+    fn set_altitude(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("altitude", value)
+    }
+
     /// The azimuth angle of observation, in deg.
     #[getter]
     fn get_azimuth<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "azimuth")
+    }
+
+    #[setter]
+    fn set_azimuth(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("azimuth", value)
     }
 
     /// The elevation angle of observation, in deg.
@@ -285,10 +339,20 @@ impl GeographicStates {
         self.array.getattr(py, "elevation")
     }
 
+    #[setter]
+    fn set_elevation(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("elevation", value)
+    }
+
     /// The Monte Carlo weight.
     #[getter]
     fn get_weight<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "weight")
+    }
+
+    #[setter]
+    fn set_weight(&self, value: &Bound<PyAny>) -> PyResult<()> {
+        self.array.setattr("weight", value)
     }
 
     /// Returns uninitialised geographic states.
@@ -444,6 +508,14 @@ impl GeographicStates {
 
 impl GeographicStatesArray {
     #[inline]
+    fn dtype<'py>(&self, py: Python<'py>) -> PyResult<&Bound<'py, PyAny>> {
+        match self {
+            Self::Flavoured(_) => FlavouredGeographicState::dtype(py),
+            Self::Unflavoured(_) => UnflavouredGeographicState::dtype(py),
+        }
+    }
+
+    #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
             Self::Flavoured(array) => array.bind(py).as_any().get_item(field),
@@ -452,10 +524,26 @@ impl GeographicStatesArray {
     }
 
     #[inline]
-    fn getitem<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    fn setattr(&self, field: &'static str, value: &Bound<PyAny>) -> PyResult<()> {
         match self {
-            Self::Flavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
-            Self::Unflavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
+            Self::Flavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Unflavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+        }
+    }
+
+    #[inline]
+    fn getitem<'py>(&self, index: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        match self {
+            Self::Flavoured(array) => array.bind(index.py()).as_any().get_item(index),
+            Self::Unflavoured(array) => array.bind(index.py()).as_any().get_item(index),
+        }
+    }
+
+    #[inline]
+    fn setitem<'py>(&self, index: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<()> {
+        match self {
+            Self::Flavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Unflavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
         }
     }
 }

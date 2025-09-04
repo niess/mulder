@@ -644,7 +644,7 @@ macro_rules! impl_dtype {
                     let ob = [< $type:upper _DTYPE >].get_or_try_init(py, || -> PyResult<_> {
                         let ob = PyModule::import(py, "numpy")?
                             .getattr("dtype")?
-                            .call1(($def,))?
+                            .call1(($def, true /* C alignment */))?
                             .unbind();
                         Ok(ob)
                     })?

@@ -3,8 +3,9 @@ use paste::paste;
 use pyo3::prelude::*;
 use pyo3::create_exception;
 use pyo3::exceptions::{
-    PyException, PyFileNotFoundError, PyIndexError, PyIOError, PyKeyboardInterrupt, PyKeyError,
-    PyMemoryError, PyNotImplementedError, PySystemError, PyTypeError, PyValueError
+    PyAttributeError, PyException, PyFileNotFoundError, PyIndexError, PyIOError,
+    PyKeyboardInterrupt, PyKeyError, PyMemoryError, PyNotImplementedError, PySystemError,
+    PyTypeError, PyValueError
 };
 use pyo3::ffi::PyErr_CheckSignals;
 use ::std::ffi::{c_char, c_uint, CStr};
@@ -26,6 +27,7 @@ pub struct Error<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ErrorKind {
+    AttributeError,
     CLibraryException,
     Exception,
     FileNotFoundError,
@@ -106,6 +108,7 @@ impl<'a> From<&Error<'a>> for PyErr {
         let kind = value.kind
             .unwrap_or(ErrorKind::Exception);
         match kind {
+            ErrorKind::AttributeError => PyErr::new::<PyAttributeError, _>(msg),
             ErrorKind::CLibraryException => PyErr::new::<CLibraryException, _>(msg),
             ErrorKind::Exception => PyErr::new::<PyException, _>(msg),
             ErrorKind::FileNotFoundError => PyErr::new::<PyFileNotFoundError, _>(msg),
