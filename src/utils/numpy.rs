@@ -236,6 +236,22 @@ impl<'py, T> NewArray<'py, T> {
         )
     }
 
+    pub fn from_array<A>(
+        py: Python<'py>,
+        array: A
+    ) -> PyResult<Self>
+    where
+        A: ArrayMethods<Target=T>,
+        T: Clone + Dtype,
+    {
+        let mut new_array = Self::empty(py, array.shape())?;
+        let data = new_array.as_slice_mut();
+        for i in 0..array.size() {
+            data[i] = array.get_item(i)?;
+        }
+        Ok(new_array)
+    }
+
     pub fn from_data<S, D>(py: Python<'py>, shape: S, data: D) -> PyResult<Self>
     where
         S: IntoIterator<Item=usize, IntoIter: ExactSizeIterator>,

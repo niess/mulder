@@ -10,7 +10,7 @@ use pyo3::types::PyDict;
 //
 // ===============================================================================================
 
-#[derive(Clone, Copy, Debug, Default, IntoPyObject)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GeographicCoordinates {
     pub latitude: f64,
     pub longitude: f64,
@@ -55,7 +55,7 @@ impl GeographicCoordinates {
 // ===============================================================================================
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct HorizontalCoordinates {
     pub azimuth: f64,
     pub elevation: f64,
@@ -113,7 +113,7 @@ impl_dtype!(
 //
 // ===============================================================================================
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 #[pyclass(module="mulder")]
 pub struct LocalFrame {
     pub origin: GeographicCoordinates,
@@ -150,6 +150,10 @@ impl LocalFrame {
         let inclination = inclination.unwrap_or(0.0);
         let origin = GeographicCoordinates { latitude, longitude, altitude };
         Self::new(origin, declination, inclination)
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.eq(other)
     }
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {

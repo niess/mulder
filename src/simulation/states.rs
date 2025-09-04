@@ -4,7 +4,7 @@ use crate::utils::error::ErrorKind::{AttributeError, TypeError};
 use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyTuple, PyType};
 use super::Particle;
 
 
@@ -202,6 +202,36 @@ impl GeographicStates {
         self.array.setitem(index, value)
     }
 
+    fn __eq__<'py>(
+        &self,
+        other: &Self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => {
+                array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
+            },
+            GeographicStatesArray::Unflavoured(array) => {
+                array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
+            },
+        }
+    }
+
+    fn __ne__<'py>(
+        &self,
+        other: &Self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match &self.array {
+            GeographicStatesArray::Flavoured(array) => {
+                array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
+            },
+            GeographicStatesArray::Unflavoured(array) => {
+                array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
+            },
+        }
+    }
+
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
         let Self { array } = self;
@@ -251,11 +281,12 @@ impl GeographicStates {
 
     /// The geographic states' array shape.
     #[getter]
-    fn get_shape(&self, py: Python) -> Vec<usize> {
-        match &self.array {
+    fn get_shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        let shape = match &self.array {
             GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
             GeographicStatesArray::Unflavoured(array) => array.bind(py).shape(),
-        }
+        };
+        PyTuple::new(py, shape)
     }
 
     /// The total number of geographic states.
@@ -384,9 +415,20 @@ impl GeographicStates {
 
     /// Creates geographic states from a Numpy array.
     #[classmethod]
-    #[pyo3(signature=(array, /))]
-    fn from_array(_cls: &Bound<PyType>, array: GeographicStatesArray) -> Self {
-        Self { array }
+    #[pyo3(signature=(array, /, *, copy=true))]
+    fn from_array(
+        _cls: &Bound<PyType>,
+        array: GeographicStatesArray,
+        copy: Option<bool>,
+        py: Python,
+    ) -> PyResult<Self> {
+        let copy = copy.unwrap_or(true);
+        let states = if copy {
+            Self { array: array.copy(py)? }
+        } else {
+            Self { array }
+        };
+        Ok(states)
     }
 
     /// Returns a collection of identical geographic states.
@@ -529,6 +571,24 @@ impl GeographicStatesArray {
             Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
             Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
         }
+    }
+
+    fn copy<'py>(self, py: Python<'py>) -> PyResult<Self> {
+        let copy = match self {
+            Self::Flavoured(array) => {
+                let array = NewArray::<FlavouredGeographicState>::from_array(
+                    py, array.bind(py).clone()
+                )?;
+                Self::Flavoured(array.into_bound().unbind())
+            },
+            Self::Unflavoured(array) => {
+                let array = NewArray::<UnflavouredGeographicState>::from_array(
+                    py, array.bind(py).clone()
+                )?;
+                Self::Unflavoured(array.into_bound().unbind())
+            },
+        };
+        Ok(copy)
     }
 
     #[inline]
@@ -750,6 +810,36 @@ impl LocalStates {
         self.array.setitem(index, value)
     }
 
+    fn __eq__<'py>(
+        &self,
+        other: &Self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => {
+                array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
+            },
+            LocalStatesArray::Unflavoured(array) => {
+                array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
+            },
+        }
+    }
+
+    fn __ne__<'py>(
+        &self,
+        other: &Self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match &self.array {
+            LocalStatesArray::Flavoured(array) => {
+                array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
+            },
+            LocalStatesArray::Unflavoured(array) => {
+                array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
+            },
+        }
+    }
+
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
         let Self { array, frame } = self;
@@ -802,11 +892,12 @@ impl LocalStates {
 
     /// The local states' array shape.
     #[getter]
-    fn get_shape(&self, py: Python) -> Vec<usize> {
-        match &self.array {
+    fn get_shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        let shape = match &self.array {
             LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
             LocalStatesArray::Unflavoured(array) => array.bind(py).shape(),
-        }
+        };
+        PyTuple::new(py, shape)
     }
 
     /// The total number of local states.
@@ -903,14 +994,22 @@ impl LocalStates {
 
     /// Creates local states from a Numpy array.
     #[classmethod]
-    #[pyo3(signature=(array, /, *, frame=None))]
+    #[pyo3(signature=(array, /, *, copy=true, frame=None))]
     fn from_array(
         _cls: &Bound<PyType>,
         array: LocalStatesArray,
+        copy: Option<bool>,
         frame: Option<LocalFrame>,
-    ) -> Self {
+        py: Python,
+    ) -> PyResult<Self> {
+        let copy = copy.unwrap_or(true);
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
-        Self { array, frame }
+        let states = if copy {
+            Self { array: array.copy(py)?, frame }
+        } else {
+            Self { array, frame }
+        };
+        Ok(states)
     }
 
     /// Creates local states from geographic ones.
@@ -1061,6 +1160,24 @@ impl LocalStatesArray {
             Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
             Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
         }
+    }
+
+    fn copy<'py>(self, py: Python<'py>) -> PyResult<Self> {
+        let copy = match self {
+            Self::Flavoured(array) => {
+                let array = NewArray::<FlavouredLocalState>::from_array(
+                    py, array.bind(py).clone()
+                )?;
+                Self::Flavoured(array.into_bound().unbind())
+            },
+            Self::Unflavoured(array) => {
+                let array = NewArray::<UnflavouredLocalState>::from_array(
+                    py, array.bind(py).clone()
+                )?;
+                Self::Unflavoured(array.into_bound().unbind())
+            },
+        };
+        Ok(copy)
     }
 
     #[inline]
