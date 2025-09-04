@@ -8,6 +8,7 @@ use pyo3::sync::GILOnceCell;
 use std::ffi::{c_char, c_int, c_uchar, c_void};
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ptr::null_mut;
 use std::sync::OnceLock;
 
 #[repr(transparent)]
@@ -143,6 +144,24 @@ impl PyArray_API {
         ) -> c_uchar
     );
 
+    impl_meth!(new_from_descriptor, 94, (
+            subtype: *mut ffi::PyTypeObject,
+            descr: *mut ffi::PyObject,
+            nd: c_int,
+            dims: *const npy_intp,
+            strides: *const npy_intp,
+            data: *mut c_void,
+            flags: c_int,
+            obj: *mut ffi::PyObject,
+        ) -> *mut ffi::PyObject
+    );
+
+    impl_meth!(set_base_object, 282, (
+            arr: *mut ffi::PyObject,
+            obj: *mut ffi::PyObject,
+        ) -> c_int
+    );
+
     impl_meth!(zeros, 183, (
             nd: c_int,
             dims: *const npy_intp,
@@ -236,6 +255,57 @@ impl<'py, T> NewArray<'py, T> {
             *ai = di;
         }
         Ok(array)
+    }
+
+    pub unsafe fn from_slice<S>(
+        data: &[T],
+        owner: &Bound<'py, PyAny>,
+        shape: Option<S>,
+    ) -> PyResult<Self>
+    where
+        S: IntoIterator<Item=usize, IntoIter: ExactSizeIterator>,
+        T: Dtype,
+    {
+        pub const WRITEABLE: c_int = 0x0400;
+
+        let py = owner.py();
+        let api = API.get().unwrap();
+        let dtype = T::dtype(py)?;
+        let (ndim, shape) = match shape {
+            Some(shape) => {
+                let (ndim, shape) = Self::try_shape(shape)?;
+                let size = shape.iter().copied().reduce(|a, b| a * b).unwrap_or(1) as usize;
+                assert!(size == data.len());
+                (ndim, shape)
+            },
+            None => (1, vec![data.len() as npy_intp]),
+        };
+        let array = api.new_from_descriptor(
+            api.ndarray(),
+            dtype.as_ptr(),
+            ndim,
+            shape.as_ptr() as *const npy_intp,
+            null_mut(),
+            data.as_ptr() as *mut c_void,
+            WRITEABLE,
+            null_mut(),
+        );
+        if PyErr::occurred(py) {
+            match PyErr::take(py) {
+                None => unreachable!(),
+                Some(err) => return Err(err),
+            }
+        }
+
+        unsafe { pyo3::ffi::Py_INCREF(dtype.as_ptr()); }
+        let ptr = owner.as_ptr();
+        api.set_base_object(array, ptr);
+        unsafe { pyo3::ffi::Py_INCREF(ptr); }
+
+        let array = unsafe { Py::<PyArray<T>>::from_owned_ptr_or_err(py, array)? };
+        let array = array.into_bound(py);
+        let size = unsafe { (&*(array.as_ptr() as *const PyArrayObject<T>)).size() as usize };
+        Ok(Self { array, size })
     }
 
     #[inline]
@@ -617,12 +687,9 @@ impl<T> PyArrayObject<T> {
     }
 }
 
-impl<'a, T> Data<'a, T>
-where
-    T: Clone,
-{
-    pub fn get(&self, index: usize) -> Option<T> {
-        self.object.get(index).map(|v| v.clone())
+impl<'a, T> Data<'a, T> {
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.object.get(index)
     }
 }
 
