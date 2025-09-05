@@ -460,6 +460,15 @@ static void tracer_update(
 ){
     auto tracer = (G4Mulder::GeometryTracer *)self;
 
+    if (length <= 0.0) {
+        tracer->currentDirection = G4ThreeVector(
+            direction.x,
+            direction.y,
+            direction.z
+        );
+        return;
+    }
+
     tracer->currentPosition += (length * CLHEP::m) * tracer->currentDirection;
 
     if (length < tracer->stepSafety) {

@@ -93,6 +93,7 @@ struct Agent<'a> {
     physics: &'a physics::Physics,
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
+    tracer: Option<external::ExternalTracer<'a>>,
 
     use_external_layer: bool,
     magnet_field: [f64; 3],
@@ -836,6 +837,56 @@ extern "C" fn opensky_geometry(
     pumas::STEP_CHECK
 }
 
+#[no_mangle]
+extern "C" fn external_geometry(
+    _context: *mut pumas::Context,
+    state: *mut pumas::State,
+    medium_ptr: *mut *mut pumas::Medium,
+    step_ptr: *mut f64,
+) -> c_uint {
+    let agent: &mut Agent = state.into();
+    let tracer = agent.tracer.as_ref().unwrap();
+    let mut set_medium_ptr = || {
+        let medium_ptr = unsafe { &mut*medium_ptr };
+        let n = agent.fluxmeter.media.len();
+        let index = tracer.medium();
+        if index < n {
+            *medium_ptr = agent.fluxmeter.media[index].as_mut_ptr();
+        } else {
+            *medium_ptr = null_mut();
+        }
+    };
+    if step_ptr != null_mut() {
+        // Tracing call.
+        let step_ptr = unsafe { &mut*step_ptr };
+        *step_ptr = tracer.trace(f64::MAX);
+        if medium_ptr != null_mut() {
+            // Occurs on an initial stepping call.
+            set_medium_ptr();
+        }
+    } else if medium_ptr != null_mut() {
+        // Occurs on a medium change check.
+        let state = unsafe { &*state };
+        let r0 = tracer.position();
+        let r1 = &state.position;
+        let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
+        let length =
+            (r1[0] - r0[0]) * u[0] +
+            (r1[1] - r0[1]) * u[1] +
+            (r1[2] - r0[2]) * u[2]; // XXX Apply a min value?
+        tracer.update(length, u);
+        set_medium_ptr();
+    } else {
+        // Occurs on a medium/locals acknowledgment.
+        // The direction might have changed due to msc or local magnet.
+        let state = unsafe { &*state };
+        let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
+        tracer.update(0.0, u);
+    }
+
+    pumas::STEP_RAW
+}
+
 impl CMedium {
     #[inline]
     fn as_mut_ptr(&mut self) -> *mut pumas::Medium {
@@ -1008,6 +1059,10 @@ impl<'a> Agent<'a> {
         // Configure physics and geometry.
         physics.update(py, geometry.materials())?;
         fluxmeter.create_or_update_geometry(py, geometry, &physics, &reference)?;
+        let tracer = match geometry {
+            GeometryRefMut::Earth(_) => None,
+            GeometryRefMut::External(geometry) => Some(geometry.tracer()?),
+        };
 
         // Configure Pumas context.
         let context = physics.borrow_mut_context();
@@ -1026,7 +1081,7 @@ impl<'a> Agent<'a> {
 
         let agent = Self {
             state, geographic, horizontal, atmosphere, fluxmeter, magnet, physics, reference,
-            context, use_external_layer, magnet_field, magnet_position, use_magnet,
+            context, use_external_layer, magnet_field, magnet_position, use_magnet, tracer,
         };
         Ok(agent)
     }
