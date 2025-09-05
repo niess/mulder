@@ -1,4 +1,4 @@
-use crate::geometry::Geometry;
+use crate::geometry::EarthGeometry;
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -242,7 +242,7 @@ impl Camera {
     fn shoot<'py>(
         &mut self,
         py: Python<'py>,
-        geometry: &mut Geometry,
+        geometry: &mut EarthGeometry,
         notify: Option<NotifyArg>,
     ) -> PyResult<picture::RawPicture> {
         let nu = self.resolution.width();

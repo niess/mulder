@@ -204,3 +204,9 @@ impl Atmosphere {
         }
     }
 }
+
+impl Default for Atmosphere {
+    fn default() -> Self {
+        Self::new(None).unwrap()
+    }
+}

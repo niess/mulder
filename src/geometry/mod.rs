@@ -20,15 +20,39 @@ pub mod layer;
 pub mod magnet;
 
 use atmosphere::{Atmosphere, AtmosphereLike};
+use external::ExternalGeometry;
 use layer::{DataLike, Layer};
 use magnet::Magnet;
 
 
+#[derive(FromPyObject, IntoPyObject)]
+pub enum Geometry {
+    Earth(Py<EarthGeometry>),
+    External(Py<ExternalGeometry>),
+}
+
+#[derive(Clone, Copy)]
+pub enum BoundGeometry<'a, 'py> {
+    Earth(&'a Bound<'py, EarthGeometry>),
+    External(&'a Bound<'py, ExternalGeometry>),
+}
+
+pub enum GeometryRefMut<'py> {
+    Earth(PyRefMut<'py, EarthGeometry>),
+    External(PyRefMut<'py, ExternalGeometry>),
+}
+
+#[derive(FromPyObject)]
+pub enum GeometryArg {
+    Object(Geometry),
+    Path(PathString),
+}
+
 // XXX Allow for any geoid?
 
 #[pyclass(module="mulder")]
-pub struct Geometry {
-    /// The geometry atmosphere.
+pub struct EarthGeometry {
+    /// The Earth atmosphere.
     #[pyo3(get)]
     pub atmosphere: Py<Atmosphere>,
 
@@ -48,8 +72,8 @@ pub struct Geometry {
     pub stepper: *mut turtle::Stepper,
 }
 
-unsafe impl Send for Geometry {}
-unsafe impl Sync for Geometry {}
+unsafe impl Send for EarthGeometry {}
+unsafe impl Sync for EarthGeometry {}
 
 #[derive(FromPyObject)]
 pub enum AtmosphereArg<'py> {
@@ -82,7 +106,7 @@ pub struct Intersection {
     pub distance: f64,
 }
 
-pub struct GeometryStepper {
+pub struct EarthGeometryStepper {
     pub stepper: *mut turtle::Stepper,
     pub zlim: f64,
 }
@@ -94,7 +118,7 @@ pub struct Doublet<T> {
 }
 
 #[pymethods]
-impl Geometry {
+impl EarthGeometry {
     #[pyo3(signature=(*layers, atmosphere=None, magnet=None, materials=None))]
     #[new]
     pub fn new(
@@ -402,7 +426,7 @@ fn layer_index(stepper_index: c_int) -> c_int {
     }
 }
 
-impl Geometry {
+impl EarthGeometry {
     // Height of the bottom layer, in m.
     const ZMIN: f64 = -11E+03;
 
@@ -414,7 +438,7 @@ impl Geometry {
         &self,
         py: Python,
         zref: Option<(f64, f64)>,
-    ) -> PyResult<Doublet<GeometryStepper>> {
+    ) -> PyResult<Doublet<EarthGeometryStepper>> {
         let zlim = zref.map(|zref| {
             if self.z.max() <= zref.min() {
                 Doublet { layers: zref.min(), opensky: zref.min() }
@@ -440,8 +464,8 @@ impl Geometry {
         error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
         let stepper = match zlim {
-            Some(zlim) => GeometryStepper { stepper, zlim: zlim.layers },
-            None => GeometryStepper { stepper, zlim: 0.0 },
+            Some(zlim) => EarthGeometryStepper { stepper, zlim: zlim.layers },
+            None => EarthGeometryStepper { stepper, zlim: 0.0 },
         };
 
         let opensky_stepper = match zlim {
@@ -452,9 +476,9 @@ impl Geometry {
 
                 error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
                 error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
-                GeometryStepper { stepper, zlim: zlim.opensky }
+                EarthGeometryStepper { stepper, zlim: zlim.opensky }
             },
-            None => GeometryStepper { stepper: null_mut(), zlim: 0.0 },
+            None => EarthGeometryStepper { stepper: null_mut(), zlim: 0.0 },
         };
 
         Ok(Doublet { layers: stepper, opensky: opensky_stepper })
@@ -570,7 +594,7 @@ impl Geometry {
     }
 }
 
-impl Drop for Geometry {
+impl Drop for EarthGeometry {
     fn drop(&mut self) {
         unsafe {
             turtle::stepper_destroy(&mut self.stepper);
@@ -617,8 +641,52 @@ impl_dtype!(
     ]
 );
 
-impl Default for GeometryStepper {
+impl Default for EarthGeometryStepper {
     fn default() -> Self {
         Self { stepper: null_mut(), zlim: 0.0 }
+    }
+}
+
+impl Geometry {
+    pub fn bind<'a, 'py>(&'a self, py: Python<'py>) -> BoundGeometry<'a, 'py> {
+        match self {
+            Self::Earth(geometry) => BoundGeometry::Earth(geometry.bind(py)),
+            Self::External(geometry) => BoundGeometry::External(geometry.bind(py)),
+        }
+    }
+
+    pub fn borrow_mut<'py>(&self, py: Python<'py>) -> GeometryRefMut<'py> {
+        match self {
+            Self::Earth(geometry) => GeometryRefMut::Earth(geometry.bind(py).borrow_mut()),
+            Self::External(geometry) => GeometryRefMut::External(geometry.bind(py).borrow_mut()),
+        }
+    }
+}
+
+impl<'a, 'py> BoundGeometry<'a, 'py> {
+    pub fn is(self, other: Self) -> bool {
+        match self {
+            Self::Earth(geometry) => match other {
+                Self::Earth(other) => geometry.is(other),
+                _ => false,
+            },
+            Self::External(geometry) => match other {
+                Self::External(other) => geometry.is(other),
+                _ => false,
+            },
+        }
+    }
+}
+
+impl GeometryArg {
+    pub fn into_geometry(self, py: Python) -> PyResult<Geometry> {
+        let geometry = match self {
+            Self::Object(geometry) => geometry,
+            Self::Path(path) => {
+                let geometry = unsafe { ExternalGeometry::new(py, path)? };
+                Geometry::External(Py::new(py, geometry)?)
+            },
+        };
+        Ok(geometry)
     }
 }
