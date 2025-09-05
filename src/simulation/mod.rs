@@ -9,6 +9,7 @@ use crate::geometry::{
     Doublet, EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRefMut
 };
 use crate::geometry::atmosphere::Atmosphere;
+use crate::geometry::external;
 use crate::geometry::magnet::Magnet;
 use crate::geometry::layer::Layer;
 use crate::utils::convert::TransportMode;
@@ -50,20 +51,20 @@ pub struct Fluxmeter {
     reference: Py<reference::Reference>,
 
     steppers: Doublet<EarthGeometryStepper>,
-    atmosphere_medium: Medium,
-    layers_media: Vec<Medium>,
+    atmosphere_medium: CMedium,
+    media: Vec<CMedium>,
 }
 
 unsafe impl Send for Fluxmeter {}
 unsafe impl Sync for Fluxmeter {}
 
-struct Medium (Pin<Box<MediumData>>); // XXX Change to RawMedium?
+struct CMedium (Pin<Box<MediumData>>);
 
 #[repr(C)]
 struct MediumData {
-    medium: pumas::Medium, // XXX change to pumas?.
+    api: pumas::Medium,
     density: f64,
-    layer: usize, // XXX change to medium/index.
+    index: usize,
 }
 
 struct Proxy<'py> {
@@ -267,11 +268,11 @@ impl Fluxmeter {
         let reference = Py::new(py, reference)?;
 
         let steppers = Default::default();
-        let layers_media = Vec::new();
-        let atmosphere_medium = Medium::default();
+        let media = Vec::new();
+        let atmosphere_medium = CMedium::default();
 
         let fluxmeter = Self {
-            geometry, mode, physics, random, reference, steppers, atmosphere_medium, layers_media,
+            geometry, mode, physics, random, reference, steppers, atmosphere_medium, media,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -478,7 +479,6 @@ impl Fluxmeter {
 
         // Configure physics, geometry, samplers etc.
         error::clear();
-        let n = self.layers_media.len() + 1;
         let mut proxy = self.borrow(py);
         let mut pinned = proxy.pinned_agent(py, self)?;
         let agent: &mut Agent = &mut pinned.deref_mut();
@@ -487,6 +487,7 @@ impl Fluxmeter {
         let notifier = Notifier::from_arg(notify, size, "computing grammage");
 
         // Loop over states.
+        let n = agent.fluxmeter.media.len() + 1;
         let mut array = if sum {
             NewArray::empty(py, shape)?
         } else {
@@ -626,37 +627,70 @@ impl Fluxmeter {
         Proxy { geometry, atmosphere, magnet, physics, random, reference }
     }
 
-    fn create_geometry(
+    fn create_or_update_geometry(
         &mut self,
         py: Python,
-        geometry: &EarthGeometry,
+        geometry: &GeometryRefMut,
         physics: &physics::Physics,
         reference: &reference::Reference,
     ) -> PyResult<()> {
-        if self.steppers.layers.stepper == null_mut() {
-            // Map media.
-            for (index, layer) in geometry.layers.iter().enumerate() {
-                let layer = layer.bind(py).borrow();
-                let medium = Medium::uniform(&layer, index, physics)?;
-                self.layers_media.push(medium);
-            }
-            self.atmosphere_medium = Medium::atmosphere(geometry.layers.len(), physics)?;
+        match geometry {
+            GeometryRefMut::Earth(geometry) => if self.steppers.layers.stepper == null_mut() {
+                // Map media.
+                for (index, layer) in geometry.layers.iter().enumerate() {
+                    let layer = layer.bind(py).borrow();
+                    let medium = CMedium::from_layer(&layer, index, physics)?;
+                    self.media.push(medium);
+                }
+                self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
 
-            // Create steppers.
-            let zref = reference.altitude.to_range();
-            self.steppers = geometry.create_steppers(py, Some(zref))?;
+                // Create steppers.
+                let zref = reference.altitude.to_range();
+                self.steppers = geometry.create_steppers(py, Some(zref))?;
+            } else {
+                for (index, layer) in geometry.layers.iter().enumerate() {
+                    self.media[index].update_material(
+                        layer.bind(py).borrow().material.as_str(),
+                        physics,
+                    )?;
+                }
+                self.atmosphere_medium.update_material(
+                    Fluxmeter::TOP_MATERIAL,
+                    physics,
+                )?;
+            },
+            GeometryRefMut::External(geometry) => if self.media.is_empty() {
+                for (index, medium) in geometry.media.bind(py).iter().enumerate() {
+                    let medium = medium.extract::<external::Medium>()?;
+                    let medium = CMedium::from_external(&medium, index, physics)?;
+                    self.media.push(medium);
+                }
+                self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
+            } else {
+                for (index, medium) in geometry.media.bind(py).iter().enumerate() {
+                    let medium = medium.extract::<external::Medium>()?;
+                    self.media[index].update_material(
+                        medium.material.as_str(),
+                        physics,
+                    )?;
+                }
+                self.atmosphere_medium.update_material(
+                    Fluxmeter::TOP_MATERIAL,
+                    physics,
+                )?;
+            },
         }
         Ok(())
     }
 
     fn reset(&mut self) {
-        if self.steppers.layers.stepper != null_mut() {
+        if self.steppers.layers.stepper == null_mut() {
             unsafe {
                 turtle::stepper_destroy(&mut self.steppers.layers.stepper); 
                 turtle::stepper_destroy(&mut self.steppers.opensky.stepper); 
             }
-            self.layers_media.clear();
         }
+        self.media.clear();
     }
 }
 
@@ -762,9 +796,9 @@ extern "C" fn layers_geometry(
 
     if medium_ptr != null_mut() {
         let medium_ptr = unsafe { &mut*medium_ptr };
-        let n = agent.fluxmeter.layers_media.len();
+        let n = agent.fluxmeter.media.len();
         if (layer >= 1) && (layer <= n) {
-            *medium_ptr = agent.fluxmeter.layers_media[layer - 1].as_mut_ptr();
+            *medium_ptr = agent.fluxmeter.media[layer - 1].as_mut_ptr();
         } else if (layer == n + 1) || (agent.use_external_layer && (layer == n + 2)) {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
@@ -802,10 +836,10 @@ extern "C" fn opensky_geometry(
     pumas::STEP_CHECK
 }
 
-impl Medium {
+impl CMedium {
     #[inline]
     fn as_mut_ptr(&mut self) -> *mut pumas::Medium {
-        &mut self.0.medium
+        &mut self.0.api
     }
 
     fn atmosphere(layer: usize, physics: &physics::Physics) -> PyResult<Self> {
@@ -815,22 +849,41 @@ impl Medium {
     fn new(
         material: &str,
         density: Option<f64>,
-        layer: usize,
+        index: usize,
         locals: pumas::LocalsCallback,
         physics: &physics::Physics,
     ) -> PyResult<Self> {
         let material = physics.material_index(material)?;
         let density = density.unwrap_or(-1.0);
-        let medium = pumas::Medium { material, locals };
-        let data = MediumData { medium, density, layer };
+        let api = pumas::Medium { material, locals };
+        let data = MediumData { api, density, index };
         let medium = Self(Box::pin(data));
         Ok(medium)
     }
 
-    fn uniform(layer: &Layer, layer_index: usize, physics: &physics::Physics) -> PyResult<Self> {
+    fn from_layer(
+        layer: &Layer,
+        layer_index: usize,
+        physics: &physics::Physics,
+    ) -> PyResult<Self> {
         Self::new(
             layer.material.as_str(), layer.density, layer_index, Some(uniform_locals), physics,
         )
+    }
+
+    fn from_external(
+        medium: &external::Medium,
+        index: usize,
+        physics: &physics::Physics,
+    ) -> PyResult<Self> {
+        Self::new(
+            medium.material.as_str(), medium.density, index, Some(uniform_locals), physics,
+        )
+    }
+
+    fn update_material(&mut self, material: &str, physics: &physics::Physics) -> PyResult<()> {
+        self.0.api.material = physics.material_index(material)?;
+        Ok(())
     }
 }
 
@@ -841,12 +894,12 @@ impl From<*mut pumas::Medium> for &MediumData {
     }
 }
 
-impl Default for Medium {
+impl Default for CMedium {
     fn default() -> Self {
-        let medium = pumas::Medium { material: -1, locals: None };
+        let api = pumas::Medium { material: -1, locals: None };
         let density = 0.0;
-        let layer = 0;
-        let data = MediumData { medium, density, layer };
+        let index = 0;
+        let data = MediumData { api, density, index };
         Self(Box::pin(data))
     }
 }
@@ -913,7 +966,7 @@ impl<'a> Agent<'a> {
         }
 
         // Compute the grammage.
-        let n = self.fluxmeter.layers_media.len();
+        let n = self.fluxmeter.media.len();
         let mut grammage = vec![0.0; n + 1];
         let mut last_grammage = 0.0;
         loop {
@@ -931,7 +984,7 @@ impl<'a> Agent<'a> {
             if media[0] == null_mut() { break }
 
             let medium: &MediumData = media[0].into();
-            grammage[medium.layer] += self.state.grammage - last_grammage;
+            grammage[medium.index] += self.state.grammage - last_grammage;
             last_grammage = self.state.grammage;
 
             if (event != pumas::EVENT_MEDIUM) || (media[1] == null_mut()) {
@@ -953,9 +1006,8 @@ impl<'a> Agent<'a> {
         reference: &'a reference::Reference,
     ) -> PyResult<Self> {
         // Configure physics and geometry.
-        let GeometryRefMut::Earth(geometry) = geometry else { unimplemented!() };
-        physics.update(py, &geometry.materials)?;
-        fluxmeter.create_geometry(py, &geometry, &physics, &reference)?; // XXX Maybe cache this?
+        physics.update(py, geometry.materials())?;
+        fluxmeter.create_or_update_geometry(py, geometry, &physics, &reference)?;
 
         // Configure Pumas context.
         let context = physics.borrow_mut_context();
@@ -1163,7 +1215,7 @@ impl<'a> Agent<'a> {
             // Update the proper time and the Jacobian weight */
             self.state.time = t0 - self.state.time;
 
-            let material = self.fluxmeter.atmosphere_medium.0.medium.material;
+            let material = self.fluxmeter.atmosphere_medium.0.api.material;
             let mut dedx0 = 0.0;
             let mut dedx1 = 0.0;
             unsafe {

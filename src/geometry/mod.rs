@@ -678,12 +678,21 @@ impl<'a, 'py> BoundGeometry<'a, 'py> {
     }
 }
 
+impl<'py> GeometryRefMut<'py> {
+    pub fn materials(&self) -> &Materials {
+        match self {
+            Self::Earth(geometry) => &geometry.materials,
+            Self::External(geometry) => &geometry.materials,
+        }
+    }
+}
+
 impl GeometryArg {
     pub fn into_geometry(self, py: Python) -> PyResult<Geometry> {
         let geometry = match self {
             Self::Object(geometry) => geometry,
             Self::Path(path) => {
-                let geometry = unsafe { ExternalGeometry::new(py, path)? };
+                let geometry = unsafe { ExternalGeometry::new(py, path, None)? };
                 Geometry::External(Py::new(py, geometry)?)
             },
         };

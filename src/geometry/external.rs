@@ -3,6 +3,7 @@
 use crate::simulation::materials::{
     AtomicElement, Component, ElementsTable, Material, Materials, MaterialsData
 };
+use crate::utils::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::Size;
@@ -29,25 +30,28 @@ pub struct ExternalGeometry {
     interface: CInterface,
     geometry: OwnedPtr<CGeometry>,
 
+    /// The geometry materials.
     #[pyo3(get)]
-    materials: Option<Py<Materials>>,
+    pub materials: Materials,
 
     #[pyo3(get)]
-    media: Py<PyTuple>, // sequence of Py<Medium>. XXX Use Vec & harmonize with EarthGeometry.
+    pub media: Py<PyTuple>, // sequence of Py<Medium>. XXX Harmonize with EarthGeometry.
 
-    // XXX add local frame.
+    #[pyo3(get, set)]
+    pub frame: LocalFrame,
 }
 
+#[derive(Clone, Debug)]
 #[pyclass(module="mulder")]
 pub struct Medium {
     #[pyo3(get, set)]
-    material: String,
+    pub material: String,
 
     #[pyo3(get, set)]
-    density: Option<f64>,
+    pub density: Option<f64>,
 
     #[pyo3(get, set)]
-    description: Option<String>,
+    pub description: Option<String>,
 }
 
 pub struct ExternalTracer<'a> {
@@ -206,8 +210,8 @@ fn type_error(what: &str, why: &str) -> PyErr {
 #[pymethods]
 impl ExternalGeometry {
     #[new]
-    #[pyo3(signature=(path, /))]
-    pub unsafe fn new(py: Python, path: PathString) -> PyResult<Self> {
+    #[pyo3(signature=(path, /, *, frame=None))]
+    pub unsafe fn new(py: Python, path: PathString, frame: Option<LocalFrame>) -> PyResult<Self> {
         // Fetch geometry description from entry point.
         type Initialise = unsafe fn() -> CInterface;
         const INITIALISE: &[u8] = b"mulder_initialise\0";
@@ -237,9 +241,9 @@ impl ExternalGeometry {
         let materials = if materials.len() > 0 {
             let materials = MaterialsData::new(materials).with_table(table);
             let tag = "external".to_owned(); // XXX use path stem?
-            Some(Py::new(py, Materials::new(tag, materials)?)?)
+            Materials::new(tag, materials)?
         } else {
-            None
+            Materials::default(py)?
         };
 
         // Build geometry media.
@@ -252,12 +256,14 @@ impl ExternalGeometry {
         let media = PyTuple::new(py, media)?.unbind();
 
         // Bundle the geometry definition.
+        let frame = frame.unwrap_or_else(|| LocalFrame::default());
         let external_geometry = Self {
             lib: library,
             interface,
             geometry,
             media,
             materials,
+            frame,
         };
         Ok(external_geometry)
     }
