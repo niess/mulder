@@ -981,7 +981,7 @@ impl<'a> Agent<'a> {
             pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
             position,
-            direction,
+            direction: [-direction[0], -direction[1], -direction[2]],
             weight: self.state.weight,
         }
     }
@@ -1016,7 +1016,7 @@ impl<'a> Agent<'a> {
         UnflavouredLocalState {
             energy: self.state.energy,
             position,
-            direction,
+            direction: [-direction[0], -direction[1], -direction[2]],
             weight: self.state.weight,
         }
     }
@@ -1026,14 +1026,27 @@ impl<'a> Agent<'a> {
         self.use_magnet = false;
 
         // Configure the transport with Pumas.
-        self.context.medium = Some(layers_geometry);
         self.context.mode.direction = pumas::MODE_BACKWARD;
         self.context.mode.energy_loss = pumas::MODE_DISABLED;
         self.context.mode.scattering = pumas::MODE_DISABLED;
         self.context.event = pumas::EVENT_MEDIUM;
 
-        unsafe {
-            turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+        match &self.geometry {
+            GeometryAgent::Earth => {
+                self.context.medium = Some(layers_geometry);
+                unsafe {
+                    turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+                }
+            },
+            GeometryAgent::External { tracer, .. } => {
+                self.context.medium = Some(external_geometry);
+                let u = [
+                    -self.state.direction[0],
+                    -self.state.direction[1],
+                    -self.state.direction[2],
+                ];
+                tracer.reset(self.state.position, u);
+            },
         }
 
         // Compute the grammage.
@@ -1223,8 +1236,36 @@ impl<'a> Agent<'a> {
 
         self.context.event = pumas::EVENT_LIMIT_ENERGY;
 
-        let zlim = self.fluxmeter.steppers.layers.zlim;
-        if self.geographic.altitude < zlim - Self::EPSILON {
+        // Check that the initial state lies within the geometry.
+        let n_media = self.fluxmeter.media.len();
+        let is_inside = match &self.geometry {
+            GeometryAgent::Earth => {
+                let zlim = self.fluxmeter.steppers.layers.zlim;
+                let is_inside = self.geographic.altitude < zlim - Self::EPSILON;
+                if is_inside {
+                    self.context.medium = Some(layers_geometry);
+                    unsafe {
+                        turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+                    }
+                }
+                is_inside
+            },
+            GeometryAgent::External { tracer, .. } => {
+                let u = [
+                    -self.state.direction[0],
+                    -self.state.direction[1],
+                    -self.state.direction[2],
+                ];
+                tracer.reset(self.state.position, u);
+                let is_inside = tracer.medium() < n_media;
+                if is_inside {
+                    self.context.medium = Some(external_geometry);
+                }
+                is_inside
+            },
+        };
+
+        if is_inside {
             // Transport backward with Pumas.
             self.context.limit.energy = self.reference.energy.max();
             match self.fluxmeter.mode {
@@ -1252,12 +1293,7 @@ impl<'a> Agent<'a> {
                     }
                 },
             }
-            self.context.medium = Some(layers_geometry);
             self.context.mode.direction = pumas::MODE_BACKWARD;
-
-            unsafe {
-                turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
-            }
 
             let mut event: c_uint = 0;
             loop {
@@ -1292,12 +1328,27 @@ impl<'a> Agent<'a> {
                 }
             }
 
-            // Compute the coordinates at the end location (expected to be at zlim).
-            self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
-            if (self.geographic.altitude - zlim).abs() > 1E-04 {
-                self.state.weight = 0.0;
-                return Ok(())
+            // Check that the final state lies outside of the geometry.
+            match &self.geometry {
+                GeometryAgent::Earth => {
+                    self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+                    let zlim = self.fluxmeter.steppers.layers.zlim;
+                    if (self.geographic.altitude - zlim).abs() > 1E-04 {
+                        self.state.weight = 0.0;
+                        return Ok(())
+                    }
+                },
+                GeometryAgent::External { tracer, .. } => {
+                    if tracer.medium() != n_media {
+                        self.state.weight = 0.0;
+                        return Ok(())
+                    }
+                },
             }
+        }
+
+        if let GeometryAgent::External { .. } = &self.geometry {
+            return Ok(()) // XXX Implement this case.
         }
 
         // XXX Check feasability.

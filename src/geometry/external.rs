@@ -16,6 +16,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_double, c_int, CStr};
+use std::path::Path;
 use std::ptr::NonNull;
 
 
@@ -239,8 +240,13 @@ impl ExternalGeometry {
             }
         }
         let materials = if materials.len() > 0 {
-            let materials = MaterialsData::new(materials).with_table(table);
-            let tag = "external".to_owned(); // XXX use path stem?
+            let materials = MaterialsData::new(materials)
+                .with_default(py)? // XXX Merge Air instead.
+                .with_table(table);
+            let tag = Path::new(path.as_str())
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+                .unwrap_or_else(|| "external".to_owned());
             Materials::new(tag, materials)?
         } else {
             Materials::default(py)?

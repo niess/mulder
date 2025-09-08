@@ -70,16 +70,8 @@ impl Materials {
                             .to_err()
                     })?;
 
-                let data = {
-                    let mut data = MaterialsData::from_file(py, &path)?;
-                    let default_data = MaterialsData::default(py)?;
-                    for material in ["Air", "Rock", "Water"] {
-                        data.map.entry(material.to_string()).or_insert_with(|| {
-                            default_data.map[material].clone()
-                        });
-                    }
-                    data
-                };
+                let data = MaterialsData::from_file(py, &path)?
+                    .with_default(py)?;
                 Self::new(cache_key.to_string(), data)
             },
             _ => {
@@ -130,6 +122,8 @@ impl Materials {
             .join(format!("{}.toml", self.cache_key));
         let cached = if path.try_exists().unwrap_or(false) {
             let cached = MaterialsData::from_file(py, &path)?;
+            println!("XXX data = {:?}", cached.map == self.data.map); // XXX HERE I AM.
+            println!("XXX table = {:?}", cached.table == self.data.table);
             cached == *self.data
         } else {
             false
@@ -605,6 +599,16 @@ impl MaterialsData {
 
     pub fn raw_table(&self) -> Option<&HashMap<String, AtomicElement>> {
         self.table.as_ref().map(|table| table.raw())
+    }
+
+    pub fn with_default(mut self, py: Python) -> PyResult<Self> {
+        let default_data = Self::default(py)?;
+        for material in ["Air", "Rock", "Water"] {
+            self.map.entry(material.to_string()).or_insert_with(|| {
+                default_data.map[material].clone()
+            });
+        }
+        Ok(self)
     }
 
     pub fn with_table(mut self, table: ElementsTable) -> Self {
