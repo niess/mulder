@@ -2,7 +2,6 @@ use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
-use crate::utils::extract::Name;
 use crate::utils::numpy::{ArrayMethods, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{
@@ -29,7 +28,10 @@ pub mod random;
 pub mod reference;
 pub mod states;
 
-use states::{FlavouredGeographicState, GeographicStates, NewStates, UnflavouredGeographicState};
+use states::{
+    ExtractedState, FlavouredGeographicState, FlavouredLocalState, NewStates, StatesExtractor,
+    UnflavouredGeographicState, UnflavouredLocalState,
+};
 
 
 #[pyclass(module="mulder")]
@@ -92,15 +94,20 @@ struct Agent<'a> {
     atmosphere: &'a Atmosphere,
     fluxmeter: &'a mut Fluxmeter,
     magnet: Option<&'a mut Magnet>,
+    geometry: GeometryAgent<'a>,
     physics: &'a physics::Physics,
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
-    tracer: Option<external::ExternalTracer<'a>>,
 
     use_external_layer: bool,
     magnet_field: [f64; 3],
     magnet_position: [f64; 3],
     use_magnet: bool,
+}
+
+enum GeometryAgent<'a> {
+    Earth,
+    External { tracer: external::ExternalTracer<'a>, frame: &'a LocalFrame },
 }
 
 enum EarthGeometryTag {
@@ -312,13 +319,19 @@ impl Fluxmeter {
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
+        // Configure physics, geometry, samplers etc.
+        error::clear();
+        let mut proxy = self.borrow(py);
+        let mut pinned = proxy.pinned_agent(py, self)?;
+        let agent: &mut Agent = &mut pinned.deref_mut();
+
         // Extract states.
-        let states = GeographicStates::extract_states(states, kwargs)?;
+        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
         let size = states.size();
         let mut shape = states.shape();
 
         // Uniformise the events parameter.
-        let events = events.filter(|events| match self.mode {
+        let events = events.filter(|events| match agent.fluxmeter.mode {
             TransportMode::Continuous => false,
             _ => if *events > 1  {
                 shape.push(2);
@@ -328,11 +341,6 @@ impl Fluxmeter {
             },
         });
 
-        // Configure physics, geometry, samplers etc.
-        error::clear();
-        let mut proxy = self.borrow(py);
-        let mut pinned = proxy.pinned_agent(py, self)?;
-        let agent: &mut Agent = &mut pinned.deref_mut();
         let mut array = NewArray::zeros(py, shape)?;
         let flux = array.as_slice_mut();
 
@@ -347,15 +355,15 @@ impl Fluxmeter {
             const WHY: &str = "while computing flux(es)";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            let state = FlavouredGeographicState::from_extractor(&states, i)?;
-            if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
+            let state = states.extract(i)?;
+            if (state.weight() <= 0.0) || (state.energy() <= 0.0) { continue }
 
             match &agent.fluxmeter.mode {
                 TransportMode::Continuous => {
                     const HIGH_ENERGY: f64 = 1E+02; // XXX Disable in locals as well?
-                    flux[i] = if agent.magnet.is_none() || (state.energy >= HIGH_ENERGY) {
-                        let particle = if states.contains(Name::Pid) {
-                            Particle::from_pid(state.pid)?
+                    flux[i] = if agent.magnet.is_none() || (state.energy() >= HIGH_ENERGY) {
+                        let particle = if states.is_flavoured() {
+                            Particle::from_pid(state.pid())?
                         } else {
                             Particle::Any
                         };
@@ -378,7 +386,7 @@ impl Fluxmeter {
                         let mut s2 = 0.0;
                         for j in 0..events {
                             agent.set_state(&state)?;
-                            if !states.contains(Name::Pid) { agent.randomise_charge(); }
+                            if !states.is_flavoured() { agent.randomise_charge(); }
                             let particle = Particle::from_charge(agent.state.charge);
                             let fij = agent.flux(particle)?;
                             s1 += fij;
@@ -397,7 +405,7 @@ impl Fluxmeter {
                     },
                     None => {
                         agent.set_state(&state)?;
-                        if !states.contains(Name::Pid) { agent.randomise_charge(); }
+                        if !states.is_flavoured() { agent.randomise_charge(); }
                         let particle = Particle::from_charge(agent.state.charge);
                         flux[i] = agent.flux(particle)?;
                         notifier.tic();
@@ -421,16 +429,17 @@ impl Fluxmeter {
         sum: Option<bool>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let states = GeographicStates::extract_states(states, kwargs)?;
-        let size = states.size();
-        let shape = states.shape();
-        let sum = sum.unwrap_or_else(|| false);
-
         // Configure physics, geometry, samplers etc.
         error::clear();
         let mut proxy = self.borrow(py);
         let mut pinned = proxy.pinned_agent(py, self)?;
         let agent: &mut Agent = &mut pinned.deref_mut();
+
+        // Extract states.
+        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
+        let size = states.size();
+        let shape = states.shape();
+        let sum = sum.unwrap_or_else(|| false);
 
         // Setup notifications.
         let notifier = Notifier::from_arg(notify, size, "computing grammage");
@@ -448,7 +457,7 @@ impl Fluxmeter {
         for i in 0..size {
             if (i % 100) == 0 { error::check_ctrlc("while computing grammage(s)")?; }
 
-            let state = FlavouredGeographicState::from_extractor(&states, i)?;
+            let state = states.extract(i)?;
             agent.set_state(&state)?;
             let grammage = agent.grammage()?;
             if sum {
@@ -475,22 +484,24 @@ impl Fluxmeter {
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewStates<'py>> {
-        let states = GeographicStates::extract_states(states, kwargs)?;
-        let size = states.size();
-        let mut shape = states.shape();
-
         // Configure physics, geometry, samplers etc.
         error::clear();
         let mut proxy = self.borrow(py);
-        if proxy.magnet.is_some() && !states.contains(Name::Pid) {
+        let mut pinned = proxy.pinned_agent(py, self)?;
+        let agent: &mut Agent = &mut pinned.deref_mut();
+
+        // Extract states.
+        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
+        let size = states.size();
+        let mut shape = states.shape();
+
+        if agent.magnet.is_some() && !states.is_flavoured() {
             let err = Error::new(TypeError)
                 .what("states")
                 .why("a pid is required for a magnetized geometry")
                 .to_err();
             return Err(err)
         }
-        let mut pinned = proxy.pinned_agent(py, self)?;
-        let agent: &mut Agent = &mut pinned.deref_mut();
 
         let events = events
             .map(|events| {
@@ -499,20 +510,36 @@ impl Fluxmeter {
             })
             .unwrap_or_else(|| 1);
 
-        let array = if states.contains(Name::Pid) {
-            let array = NewArray::<FlavouredGeographicState>::empty(py, shape)?;
-            NewStates::FlavouredGeographic { array }
+        let array = if states.is_flavoured() {
+            match &states {
+                StatesExtractor::Geographic { .. } => {
+                    let array = NewArray::<FlavouredGeographicState>::empty(py, shape)?;
+                    NewStates::FlavouredGeographic { array }
+                },
+                StatesExtractor::Local { frame, .. } => {
+                    let array = NewArray::<FlavouredLocalState>::empty(py, shape)?;
+                    NewStates::FlavouredLocal { array, frame: frame.clone() }
+                },
+            }
         } else {
-            let array = NewArray::<UnflavouredGeographicState>::empty(py, shape)?;
-            NewStates::UnflavouredGeographic { array }
+            match &states {
+                StatesExtractor::Geographic { .. } => {
+                    let array = NewArray::<UnflavouredGeographicState>::empty(py, shape)?;
+                    NewStates::UnflavouredGeographic { array }
+                },
+                StatesExtractor::Local { frame, .. } => {
+                    let array = NewArray::<UnflavouredLocalState>::empty(py, shape)?;
+                    NewStates::UnflavouredLocal { array, frame: frame.clone() }
+                },
+            }
         };
 
         // Setup notifications.
         let notifier = Notifier::from_arg(notify, size * events, "transporting muon(s)");
 
         for i in 0..size {
-            let state = FlavouredGeographicState::from_extractor(&states, i)?;
-            if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
+            let state = states.extract(i)?;
+            if (state.weight() <= 0.0) || (state.energy() <= 0.0) { continue }
             for j in 0..events {
                 let index = i * events + j;
                 if (index % 100) == 0 { error::check_ctrlc("while transporting muon(s)")?; }
@@ -523,13 +550,20 @@ impl Fluxmeter {
                 match &array {
                     NewStates::FlavouredGeographic { array } => array.set_item(
                         index,
-                        agent.get_flavoured_state()
+                        agent.get_flavoured_geographic_state()
                     )?,
                     NewStates::UnflavouredGeographic { array } => array.set_item(
                         index,
-                        agent.get_unflavoured_state()
+                        agent.get_unflavoured_geographic_state()
                     )?,
-                    _ => unimplemented!(), // XXX local case.
+                    NewStates::FlavouredLocal { array, frame } => array.set_item(
+                        index,
+                        agent.get_flavoured_local_state(frame)
+                    )?,
+                    NewStates::UnflavouredLocal { array, frame } => array.set_item(
+                        index,
+                        agent.get_unflavoured_local_state(frame)
+                    )?,
                 }
 
                 notifier.tic();
@@ -784,7 +818,7 @@ extern "C" fn external_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let tracer = agent.tracer.as_ref().unwrap();
+    let GeometryAgent::External { tracer, .. } = &agent.geometry else { unreachable!() };
     let mut set_medium_ptr = || {
         let medium_ptr = unsafe { &mut*medium_ptr };
         let n = agent.fluxmeter.media.len();
@@ -915,27 +949,74 @@ impl<'a> Agent<'a> {
         Ok(f)
     }
 
-    fn get_flavoured_state(&self) -> FlavouredGeographicState {
+    fn get_flavoured_geographic_state(&self) -> FlavouredGeographicState {
+        let (geographic, horizontal) = match self.geometry {
+            GeometryAgent::Earth => (self.geographic, self.horizontal),
+            GeometryAgent::External { frame, .. } => frame.to_geographic(
+                &self.state.position, &self.state.direction
+            ),
+        };
         FlavouredGeographicState {
             pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
-            latitude: self.geographic.latitude,
-            longitude: self.geographic.longitude,
-            altitude: self.geographic.altitude,
-            azimuth: self.horizontal.azimuth,
-            elevation: self.horizontal.elevation,
+            latitude: geographic.latitude,
+            longitude: geographic.longitude,
+            altitude: geographic.altitude,
+            azimuth: horizontal.azimuth,
+            elevation: horizontal.elevation,
             weight: self.state.weight,
         }
     }
 
-    fn get_unflavoured_state(&self) -> UnflavouredGeographicState {
+    fn get_flavoured_local_state(&self, frame: &LocalFrame) -> FlavouredLocalState {
+        let (position, direction) = match self.geometry {
+            GeometryAgent::Earth => frame.from_geographic(
+                self.geographic, self.horizontal
+            ),
+            GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
+                self.state.position, self.state.direction, geometry_frame
+            ),
+        };
+        FlavouredLocalState {
+            pid: Particle::from_charge(self.state.charge).pid(),
+            energy: self.state.energy,
+            position,
+            direction,
+            weight: self.state.weight,
+        }
+    }
+
+    fn get_unflavoured_geographic_state(&self) -> UnflavouredGeographicState {
+        let (geographic, horizontal) = match self.geometry {
+            GeometryAgent::Earth => (self.geographic, self.horizontal),
+            GeometryAgent::External { frame, .. } => frame.to_geographic(
+                &self.state.position, &self.state.direction
+            ),
+        };
         UnflavouredGeographicState {
             energy: self.state.energy,
-            latitude: self.geographic.latitude,
-            longitude: self.geographic.longitude,
-            altitude: self.geographic.altitude,
-            azimuth: self.horizontal.azimuth,
-            elevation: self.horizontal.elevation,
+            latitude: geographic.latitude,
+            longitude: geographic.longitude,
+            altitude: geographic.altitude,
+            azimuth: horizontal.azimuth,
+            elevation: horizontal.elevation,
+            weight: self.state.weight,
+        }
+    }
+
+    fn get_unflavoured_local_state(&self, frame: &LocalFrame) -> UnflavouredLocalState {
+        let (position, direction) = match self.geometry {
+            GeometryAgent::Earth => frame.from_geographic(
+                self.geographic, self.horizontal
+            ),
+            GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
+                self.state.position, self.state.direction, geometry_frame
+            ),
+        };
+        UnflavouredLocalState {
+            energy: self.state.energy,
+            position,
+            direction,
             weight: self.state.weight,
         }
     }
@@ -998,9 +1079,12 @@ impl<'a> Agent<'a> {
         // Configure physics and geometry.
         physics.update(py, geometry.materials())?;
         fluxmeter.create_or_update_geometry(py, geometry, &physics, &reference)?;
-        let tracer = match geometry {
-            GeometryRefMut::Earth(_) => None,
-            GeometryRefMut::External(geometry) => Some(geometry.tracer()?),
+        let geometry = match geometry {
+            GeometryRefMut::Earth(_) => GeometryAgent::Earth,
+            GeometryRefMut::External(geometry) => GeometryAgent::External {
+                tracer: geometry.tracer()?,
+                frame: &geometry.frame,
+            },
         };
 
         // Configure Pumas context.
@@ -1019,8 +1103,8 @@ impl<'a> Agent<'a> {
         let use_magnet = false;
 
         let agent = Self {
-            state, geographic, horizontal, atmosphere, fluxmeter, magnet, physics, reference,
-            context, use_external_layer, magnet_field, magnet_position, use_magnet, tracer,
+            state, geographic, horizontal, atmosphere, fluxmeter, magnet, geometry, physics,
+            reference, context, use_external_layer, magnet_field, magnet_position, use_magnet,
         };
         Ok(agent)
     }
@@ -1035,24 +1119,73 @@ impl<'a> Agent<'a> {
         self.state.weight *= 2.0;
     }
 
-    fn set_state<'py>(&mut self, state: &FlavouredGeographicState) -> PyResult<()> {
-        let FlavouredGeographicState {
-            pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
-        } = *state;
-        self.state.charge = Particle::from_pid(pid)?.charge();
-        self.state.energy = energy;
-        self.geographic = GeographicCoordinates { latitude, longitude, altitude };
-        self.state.position = self.geographic.to_ecef();
-        self.horizontal = HorizontalCoordinates { azimuth, elevation };
-        let direction = self.horizontal.to_ecef(&self.geographic);
-        for i in 0..3 { self.state.direction[i] = -direction[i]; }  // Observer convention.
-        self.state.weight = weight;
+    fn set_state<'py>(&mut self, state: &ExtractedState) -> PyResult<()> {
+        match &self.geometry {
+            GeometryAgent::Earth => {
+                match state {
+                    ExtractedState::Geographic { state } => {
+                        let FlavouredGeographicState {
+                            pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
+                        } = *state;
+                        self.state.charge = Particle::from_pid(pid)?.charge();
+                        self.state.energy = energy;
+                        self.geographic = GeographicCoordinates { latitude, longitude, altitude };
+                        self.state.position = self.geographic.to_ecef();
+                        self.horizontal = HorizontalCoordinates { azimuth, elevation };
+                        self.state.direction = self.horizontal.to_ecef(&self.geographic);
+                        self.state.weight = weight;
+                    }
+                    ExtractedState::Local { state, frame } => {
+                        let FlavouredLocalState {
+                            pid, energy, position, direction, weight
+                        } = *state;
+                        self.state.charge = Particle::from_pid(pid)?.charge();
+                        self.state.energy = energy;
+                        self.state.position = frame.to_ecef_position(&position);
+                        self.state.direction = frame.to_ecef_direction(&direction);
+                        self.state.weight = weight;
+                        self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+                        self.horizontal = HorizontalCoordinates::from_ecef(
+                            &self.state.direction, &self.geographic
+                        );
+                    },
+                }
+                self.use_external_layer =
+                    self.geographic.altitude >= self.fluxmeter.steppers.layers.zlim + Self::EPSILON;
+            },
+            GeometryAgent::External { frame: geometry_frame, .. } => {
+                match state {
+                    ExtractedState::Geographic { state } => {
+                        let FlavouredGeographicState {
+                            pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
+                        } = *state;
+                        self.state.charge = Particle::from_pid(pid)?.charge();
+                        self.state.energy = energy;
+                        (self.state.position, self.state.direction) = geometry_frame
+                            .from_geographic(
+                                GeographicCoordinates { latitude, longitude, altitude },
+                                HorizontalCoordinates { azimuth, elevation },
+                            );
+                        self.state.weight = weight;
+                    },
+                    ExtractedState::Local { state, frame } => {
+                        let FlavouredLocalState {
+                            pid, energy, position, direction, weight
+                        } = *state;
+                        self.state.charge = Particle::from_pid(pid)?.charge();
+                        self.state.energy = energy;
+                        (self.state.position, self.state.direction) = geometry_frame
+                            .from_local(position, direction, frame);
+                        self.state.weight = weight;
+                    },
+                }
+            },
+        }
+        for i in 0..3 { self.state.direction[i] = -self.state.direction[i] }  // Observer convention.
         self.state.distance = 0.0;
         self.state.grammage = 0.0;
         self.state.time = 0.0;
         self.state.decayed = 0;
-        self.use_external_layer =
-            self.geographic.altitude >= self.fluxmeter.steppers.layers.zlim + Self::EPSILON;
         Ok(())
     }
 
@@ -1329,6 +1462,15 @@ impl<'py> AsRef<Atmosphere> for AtmosphereRef<'py> {
         match self {
             Self::Some(atmosphere) => atmosphere,
             Self::Default(atmosphere) => atmosphere,
+        }
+    }
+}
+
+impl<'a> GeometryAgent<'a> {
+    fn frame(&self) -> Option<&'a LocalFrame> {
+        match self {
+            Self::Earth => None,
+            Self::External { frame, .. } => Some(frame),
         }
     }
 }

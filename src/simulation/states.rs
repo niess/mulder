@@ -85,6 +85,16 @@ pub enum NewStates<'py> {
     UnflavouredLocal { array: NewArray<'py, UnflavouredLocalState>, frame: LocalFrame },
 }
 
+pub enum StatesExtractor<'py> {
+    Geographic { extractor: Extractor<'py, 8> },
+    Local { extractor: Extractor<'py, 5>, frame: LocalFrame },
+}
+
+pub enum ExtractedState<'a> {
+    Geographic { state: FlavouredGeographicState },
+    Local { state: FlavouredLocalState, frame: &'a LocalFrame },
+}
+
 impl_dtype!(
     FlavouredGeographicState,
     [
@@ -1312,5 +1322,103 @@ impl<'py> IntoPyObject<'py> for NewStates<'py> {
             },
         };
         Ok(any)
+    }
+}
+
+impl<'py> StatesExtractor<'py> {
+    pub fn new(
+        states: Option<&Bound<'py, PyAny>>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+        frame: Option<&LocalFrame>,
+    ) -> PyResult<Self> {
+        let states = match states {
+            Some(states) => match states.getattr_opt("frame")? {
+                Some(frame) => {
+                    let frame: LocalFrame = frame.extract()
+                        .map_err(|err| {
+                            let why = format!("{}", err);
+                            Error::new(TypeError).what("states' frame").why(&why).to_err()
+                        })?;
+                    let extractor = LocalStates::extract_states(Some(states), kwargs)?;
+                    Self::Local { extractor, frame }
+                },
+                None => {
+                    let extractor = GeographicStates::extract_states(Some(states), kwargs)?;
+                    Self::Geographic { extractor }
+                },
+            },
+            None => match frame {
+                Some(frame) => {
+                    let extractor = LocalStates::extract_states(None, kwargs)?;
+                    Self::Local { extractor, frame: frame.clone() }
+                },
+                None => {
+                    let extractor = GeographicStates::extract_states(None, kwargs)?;
+                    Self::Geographic { extractor }
+                },
+            },
+        };
+        Ok(states)
+    }
+
+    pub fn extract<'a>(&'a self, index: usize) -> PyResult<ExtractedState<'a>> {
+        let extracted = match self {
+            Self::Geographic { extractor } => {
+                let state = FlavouredGeographicState::from_extractor(extractor, index)?;
+                ExtractedState::Geographic { state }
+            },
+            Self::Local { extractor, frame } => {
+                let state = FlavouredLocalState::from_extractor(extractor, index)?;
+                ExtractedState::Local { state, frame }
+            },
+        };
+        Ok(extracted)
+    }
+
+    #[inline]
+    pub fn is_flavoured(&self) -> bool {
+        match self {
+            Self::Geographic { extractor } => extractor.contains(Name::Pid),
+            Self::Local { extractor, .. } => extractor.contains(Name::Pid),
+        }
+    }
+
+    #[inline]
+    pub fn shape(&self) -> Vec<usize> {
+        match self {
+            Self::Geographic { extractor } => extractor.shape(),
+            Self::Local { extractor, .. } => extractor.shape(),
+        }
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Geographic { extractor } => extractor.size(),
+            Self::Local { extractor, .. } => extractor.size(),
+        }
+    }
+}
+
+impl<'a> ExtractedState<'a> {
+    pub fn energy(&self) -> f64 {
+        match self {
+            Self::Geographic { state } => state.energy,
+            Self::Local { state, .. } => state.energy,
+        }
+    }
+
+    pub fn pid(&self) -> i32 {
+        match self {
+            Self::Geographic { state } => state.pid,
+            Self::Local { state, .. } => state.pid,
+        }
+    }
+
+    pub fn weight(&self) -> f64 {
+        match self {
+            Self::Geographic { state } => state.weight,
+            Self::Local { state, .. } => state.weight,
+        }
     }
 }

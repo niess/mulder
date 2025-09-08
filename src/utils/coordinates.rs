@@ -255,6 +255,21 @@ impl LocalFrame {
         (position, direction)
     }
 
+    pub fn from_local(
+        &self,
+        position: [f64; 3],
+        direction: [f64; 3],
+        frame: &LocalFrame,
+    ) -> ([f64; 3], [f64; 3]) {
+        if self.ne(frame) {
+            let position = self.from_ecef_position(frame.to_ecef_position(&position));
+            let direction = self.from_ecef_direction(&frame.to_ecef_direction(&direction));
+            (position, direction)
+        } else {
+            (position, direction)
+        }
+    }
+
     pub fn to_ecef_direction(&self, enu: &[f64; 3]) -> [f64; 3] {
         let mut ecef = [0.0; 3];
         for i in 0..3 {
