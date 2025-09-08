@@ -2,8 +2,8 @@ use crate::bindings::{turtle, pumas};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
-use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray};
+use crate::utils::extract::Name;
+use crate::utils::numpy::{ArrayMethods, NewArray};
 use crate::utils::traits::MinMax;
 use crate::geometry::{
     Doublet, EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRefMut
@@ -28,6 +28,8 @@ pub mod physics;
 pub mod random;
 pub mod reference;
 pub mod states;
+
+use states::{FlavouredGeographicState, GeographicStates, NewStates, UnflavouredGeographicState};
 
 
 #[pyclass(module="mulder")]
@@ -99,37 +101,6 @@ struct Agent<'a> {
     magnet_field: [f64; 3],
     magnet_position: [f64; 3],
     use_magnet: bool,
-}
-
-#[derive(IntoPyObject)]
-enum StatesArray<'py> {
-    Flavoured(NewArray<'py, FlavouredState>),
-    Unflavoured(NewArray<'py, UnflavouredState>),
-}
-
-#[repr(C)]
-#[derive(Clone)]
-struct FlavouredState {
-    pid: i32,
-    energy: f64,
-    latitude: f64,
-    longitude: f64,
-    altitude: f64,
-    azimuth: f64,
-    elevation: f64,
-    weight: f64,
-}
-
-#[repr(C)]
-#[derive(Clone)]
-struct UnflavouredState {
-    energy: f64,
-    latitude: f64,
-    longitude: f64,
-    altitude: f64,
-    azimuth: f64,
-    elevation: f64,
-    weight: f64,
 }
 
 enum EarthGeometryTag {
@@ -342,20 +313,7 @@ impl Fluxmeter {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         // Extract states.
-        let states = Extractor::from_args(
-            [
-                Field::maybe_int(Name::Pid),
-                Field::float(Name::Energy),
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-                Field::maybe_float(Name::Weight),
-            ],
-            states,
-            kwargs
-        )?;
+        let states = GeographicStates::extract_states(states, kwargs)?;
         let size = states.size();
         let mut shape = states.shape();
 
@@ -389,7 +347,7 @@ impl Fluxmeter {
             const WHY: &str = "while computing flux(es)";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            let state = FlavouredState::from_transport(&states, i)?;
+            let state = FlavouredGeographicState::from_extractor(&states, i)?;
             if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
 
             match &agent.fluxmeter.mode {
@@ -463,17 +421,7 @@ impl Fluxmeter {
         sum: Option<bool>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let states = Extractor::from_args(
-            [
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-            ],
-            states,
-            kwargs
-        )?;
+        let states = GeographicStates::extract_states(states, kwargs)?;
         let size = states.size();
         let shape = states.shape();
         let sum = sum.unwrap_or_else(|| false);
@@ -500,7 +448,7 @@ impl Fluxmeter {
         for i in 0..size {
             if (i % 100) == 0 { error::check_ctrlc("while computing grammage(s)")?; }
 
-            let state = FlavouredState::from_grammage(&states, i)?;
+            let state = FlavouredGeographicState::from_extractor(&states, i)?;
             agent.set_state(&state)?;
             let grammage = agent.grammage()?;
             if sum {
@@ -526,21 +474,8 @@ impl Fluxmeter {
         events: Option<usize>,
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<StatesArray<'py>> {
-        let states = Extractor::from_args(
-            [
-                Field::maybe_int(Name::Pid),
-                Field::float(Name::Energy),
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-                Field::maybe_float(Name::Weight),
-            ],
-            states,
-            kwargs
-        )?;
+    ) -> PyResult<NewStates<'py>> {
+        let states = GeographicStates::extract_states(states, kwargs)?;
         let size = states.size();
         let mut shape = states.shape();
 
@@ -563,17 +498,20 @@ impl Fluxmeter {
                 events
             })
             .unwrap_or_else(|| 1);
+
         let array = if states.contains(Name::Pid) {
-            StatesArray::Flavoured(NewArray::empty(py, shape)?)
+            let array = NewArray::<FlavouredGeographicState>::empty(py, shape)?;
+            NewStates::FlavouredGeographic { array }
         } else {
-            StatesArray::Unflavoured(NewArray::empty(py, shape)?)
+            let array = NewArray::<UnflavouredGeographicState>::empty(py, shape)?;
+            NewStates::UnflavouredGeographic { array }
         };
 
         // Setup notifications.
         let notifier = Notifier::from_arg(notify, size * events, "transporting muon(s)");
 
         for i in 0..size {
-            let state = FlavouredState::from_transport(&states, i)?;
+            let state = FlavouredGeographicState::from_extractor(&states, i)?;
             if (state.weight <= 0.0) || (state.energy <= 0.0) { continue }
             for j in 0..events {
                 let index = i * events + j;
@@ -583,14 +521,15 @@ impl Fluxmeter {
                 agent.transport()?;
 
                 match &array {
-                    StatesArray::Flavoured(array) => array.set_item(
+                    NewStates::FlavouredGeographic { array } => array.set_item(
                         index,
                         agent.get_flavoured_state()
                     )?,
-                    StatesArray::Unflavoured(array) => array.set_item(
+                    NewStates::UnflavouredGeographic { array } => array.set_item(
                         index,
                         agent.get_unflavoured_state()
                     )?,
+                    _ => unimplemented!(), // XXX local case.
                 }
 
                 notifier.tic();
@@ -976,8 +915,8 @@ impl<'a> Agent<'a> {
         Ok(f)
     }
 
-    fn get_flavoured_state(&self) -> FlavouredState {
-        FlavouredState {
+    fn get_flavoured_state(&self) -> FlavouredGeographicState {
+        FlavouredGeographicState {
             pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
             latitude: self.geographic.latitude,
@@ -989,8 +928,8 @@ impl<'a> Agent<'a> {
         }
     }
 
-    fn get_unflavoured_state(&self) -> UnflavouredState {
-        UnflavouredState {
+    fn get_unflavoured_state(&self) -> UnflavouredGeographicState {
+        UnflavouredGeographicState {
             energy: self.state.energy,
             latitude: self.geographic.latitude,
             longitude: self.geographic.longitude,
@@ -1096,8 +1035,8 @@ impl<'a> Agent<'a> {
         self.state.weight *= 2.0;
     }
 
-    fn set_state<'py>(&mut self, state: &FlavouredState) -> PyResult<()> {
-        let FlavouredState {
+    fn set_state<'py>(&mut self, state: &FlavouredGeographicState) -> PyResult<()> {
+        let FlavouredGeographicState {
             pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
         } = *state;
         self.state.charge = Particle::from_pid(pid)?.charge();
@@ -1322,59 +1261,6 @@ impl<'a> From<*mut pumas::State> for &mut Agent<'a> {
         unsafe { &mut*(value as *mut Agent) }
     }
 }
-
-impl FlavouredState {
-    fn from_grammage(states: &Extractor<5>, index: usize) -> PyResult<Self> {
-        let pid = Particle::Muon.pid();
-        let energy = 1E+03;
-        let latitude = states.get_f64(Name::Latitude, index)?;
-        let longitude = states.get_f64(Name::Longitude, index)?;
-        let altitude = states.get_f64(Name::Altitude, index)?;
-        let azimuth = states.get_f64(Name::Azimuth, index)?;
-        let elevation = states.get_f64(Name::Elevation, index)?;
-        let weight = 1.0;
-        Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
-    }
-
-    fn from_transport(states: &Extractor<8>, index: usize) -> PyResult<Self> {
-        let pid = states.get_i32_opt(Name::Pid, index)?.unwrap_or_else(|| Particle::Muon.pid());
-        let energy = states.get_f64(Name::Energy, index)?;
-        let latitude = states.get_f64(Name::Latitude, index)?;
-        let longitude = states.get_f64(Name::Longitude, index)?;
-        let altitude = states.get_f64(Name::Altitude, index)?;
-        let azimuth = states.get_f64(Name::Azimuth, index)?;
-        let elevation = states.get_f64(Name::Elevation, index)?;
-        let weight = states.get_f64_opt(Name::Weight, index)?.unwrap_or_else(|| 1.0);
-        Ok(Self { pid, energy, latitude, longitude, altitude, azimuth, elevation, weight })
-    }
-}
-
-impl_dtype!(
-    FlavouredState,
-    [
-        ("pid",       "i4"),
-        ("energy",    "f8"),
-        ("latitude",  "f8"),
-        ("longitude", "f8"),
-        ("altitude",  "f8"),
-        ("azimuth",   "f8"),
-        ("elevation", "f8"),
-        ("weight",    "f8"),
-    ]
-);
-
-impl_dtype!(
-    UnflavouredState,
-    [
-        ("energy",    "f8"),
-        ("latitude",  "f8"),
-        ("longitude", "f8"),
-        ("altitude",  "f8"),
-        ("azimuth",   "f8"),
-        ("elevation", "f8"),
-        ("weight",    "f8"),
-    ]
-);
 
 impl Particle {
     #[inline]

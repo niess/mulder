@@ -31,26 +31,26 @@ pub enum GeographicStatesArray {
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
 pub struct FlavouredGeographicState {
-    pid: i32,
-    energy: f64,
-    latitude: f64,
-    longitude: f64,
-    altitude: f64,
-    azimuth: f64,
-    elevation: f64,
-    weight: f64,
+    pub pid: i32,
+    pub energy: f64,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub azimuth: f64,
+    pub elevation: f64,
+    pub weight: f64,
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
 pub struct UnflavouredGeographicState {
-    energy: f64,
-    latitude: f64,
-    longitude: f64,
-    altitude: f64,
-    azimuth: f64,
-    elevation: f64,
-    weight: f64,
+    pub energy: f64,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub azimuth: f64,
+    pub elevation: f64,
+    pub weight: f64,
 }
 
 #[derive(Debug, FromPyObject, IntoPyObject)]
@@ -62,20 +62,27 @@ pub enum LocalStatesArray {
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
 pub struct FlavouredLocalState {
-    pid: i32,
-    energy: f64,
-    position: [f64; 3],
-    direction: [f64; 3],
-    weight: f64,
+    pub pid: i32,
+    pub energy: f64,
+    pub position: [f64; 3],
+    pub direction: [f64; 3],
+    pub weight: f64,
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
 pub struct UnflavouredLocalState {
-    energy: f64,
-    position: [f64; 3],
-    direction: [f64; 3],
-    weight: f64,
+    pub energy: f64,
+    pub position: [f64; 3],
+    pub direction: [f64; 3],
+    pub weight: f64,
+}
+
+pub enum NewStates<'py> {
+    FlavouredGeographic { array: NewArray<'py, FlavouredGeographicState> },
+    FlavouredLocal { array: NewArray<'py, FlavouredLocalState>, frame: LocalFrame },
+    UnflavouredGeographic { array: NewArray<'py, UnflavouredGeographicState> },
+    UnflavouredLocal { array: NewArray<'py, UnflavouredLocalState>, frame: LocalFrame },
 }
 
 impl_dtype!(
@@ -505,7 +512,7 @@ macro_rules! convert_local {
 }
 
 impl GeographicStates {
-    fn extract_states<'py>(
+    pub fn extract_states<'py>(
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
     ) -> PyResult<Extractor<'py, 8>> {
@@ -634,7 +641,7 @@ impl GeographicStatesArray {
 
 impl FlavouredGeographicState {
     #[inline]
-    fn direction(&self) -> HorizontalCoordinates {
+    pub fn direction(&self) -> HorizontalCoordinates {
         HorizontalCoordinates {
             azimuth: self.azimuth,
             elevation: self.elevation,
@@ -642,7 +649,7 @@ impl FlavouredGeographicState {
     }
 
     #[inline]
-    fn from_extractor(states: &Extractor<8>, index: usize) -> PyResult<Self> {
+    pub fn from_extractor(states: &Extractor<8>, index: usize) -> PyResult<Self> {
         let state = Self {
             pid: states.get_i32_opt(Name::Pid, index)?.unwrap_or(Particle::Muon.pid()),
             energy: states.get_f64_opt(Name::Energy, index)?.unwrap_or(1.0),
@@ -659,7 +666,7 @@ impl FlavouredGeographicState {
     }
 
     #[inline]
-    fn from_local(state: FlavouredLocalState, frame: &LocalFrame) -> Self {
+    pub fn from_local(state: FlavouredLocalState, frame: &LocalFrame) -> Self {
         let (position, direction) = frame.to_geographic(&state.position, &state.direction);
         Self {
             pid: state.pid,
@@ -674,7 +681,7 @@ impl FlavouredGeographicState {
     }
 
     #[inline]
-    fn position(&self) -> GeographicCoordinates {
+    pub fn position(&self) -> GeographicCoordinates {
         GeographicCoordinates {
             latitude: self.latitude,
             longitude: self.longitude,
@@ -1272,5 +1279,38 @@ impl UnflavouredLocalState {
             direction,
             weight: state.weight,
         }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for NewStates<'py> {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    #[inline]
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        let any = match self {
+            Self::FlavouredGeographic { array } => {
+                let array = GeographicStatesArray::Flavoured(array.into_bound().unbind());
+                let array = Bound::new(py, GeographicStates { array })?;
+                array.into_any()
+            },
+            Self::UnflavouredGeographic { array } => {
+                let array = GeographicStatesArray::Unflavoured(array.into_bound().unbind());
+                let array = Bound::new(py, GeographicStates { array })?;
+                array.into_any()
+            },
+            Self::FlavouredLocal { array, frame } => {
+                let array = LocalStatesArray::Flavoured(array.into_bound().unbind());
+                let array = Bound::new(py, LocalStates { array, frame })?;
+                array.into_any()
+            },
+            Self::UnflavouredLocal { array, frame } => {
+                let array = LocalStatesArray::Unflavoured(array.into_bound().unbind());
+                let array = Bound::new(py, LocalStates { array, frame })?;
+                array.into_any()
+            },
+        };
+        Ok(any)
     }
 }
