@@ -241,8 +241,8 @@ impl ExternalGeometry {
         }
         let materials = if materials.len() > 0 {
             let materials = MaterialsData::new(materials)
-                .with_default(py)? // XXX Merge Air instead.
-                .with_table(table);
+                .with_table(table)
+                .with_air(py)?;
             let tag = Path::new(path.as_str())
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().to_string())

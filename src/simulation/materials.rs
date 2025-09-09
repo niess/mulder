@@ -122,8 +122,6 @@ impl Materials {
             .join(format!("{}.toml", self.cache_key));
         let cached = if path.try_exists().unwrap_or(false) {
             let cached = MaterialsData::from_file(py, &path)?;
-            println!("XXX data = {:?}", cached.map == self.data.map); // XXX HERE I AM.
-            println!("XXX table = {:?}", cached.table == self.data.table);
             cached == *self.data
         } else {
             false
@@ -345,6 +343,10 @@ impl ElementsTable {
         Self { data, default }
     }
 
+    pub fn default() -> &'static Self {
+        ELEMENTS.get().unwrap()
+    }
+
     pub fn raw(&self) -> &HashMap<String, AtomicElement> {
         &self.data
     }
@@ -544,6 +546,40 @@ impl Material {
         }
         Material::from_elements(density, &composition, I, table)
     }
+
+    pub fn reinterpret(
+        &self,
+        initial_table: &ElementsTable,
+        new_table: &ElementsTable,
+    ) -> Result<Self, ErrorData> {
+        let composition = self.to_elements(initial_table)?;
+        Self::from_elements(
+            self.density,
+            &composition,
+            self.I,
+            new_table,
+        )
+    }
+
+    pub fn to_elements(&self, table: &ElementsTable) -> Result<Vec<Component>, ErrorData> {
+        let n = self.composition.len();
+        let mut sum = 0.0;
+        let mut mole_composition = Vec::<Component>::with_capacity(n);
+        for component in self.composition.iter() {
+            let element = table.get(&component.name)
+                .ok_or_else(|| {
+                    let why = format!("unkown element '{}'", &component.name);
+                    (KeyError, why)
+                })?;
+            let weight = component.weight / element.A;
+            mole_composition.push(Component { name: component.name.clone(), weight });
+            sum += weight;
+        }
+        for i in 0..n {
+            mole_composition[i].weight /= sum;
+        }
+        Ok(mole_composition)
+    }
 }
 
 impl Component {
@@ -601,11 +637,26 @@ impl MaterialsData {
         self.table.as_ref().map(|table| table.raw())
     }
 
+    pub fn with_air(mut self, py: Python) -> PyResult<Self> {
+        const MATERIAL: &str = "Air";
+        let default_data = Self::default(py)?;
+        self.map.entry(MATERIAL.to_string()).or_insert_with(|| match &self.table {
+            Some(table) => default_data.map[MATERIAL]
+                .reinterpret(ElementsTable::default(), table)
+                .unwrap(),
+            None => default_data.map[MATERIAL].clone(),
+        });
+        Ok(self)
+    }
+
     pub fn with_default(mut self, py: Python) -> PyResult<Self> {
         let default_data = Self::default(py)?;
         for material in ["Air", "Rock", "Water"] {
-            self.map.entry(material.to_string()).or_insert_with(|| {
-                default_data.map[material].clone()
+            self.map.entry(material.to_string()).or_insert_with(|| match &self.table {
+                Some(table) => default_data.map[material]
+                    .reinterpret(ElementsTable::default(), table)
+                    .unwrap(),
+                None => default_data.map[material].clone(),
             });
         }
         Ok(self)

@@ -843,7 +843,7 @@ extern "C" fn external_geometry(
         let r0 = tracer.position();
         let r1 = &state.position;
         let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
-        let length =
+        let length = // XXX use state.distance instead?
             (r1[0] - r0[0]) * u[0] +
             (r1[1] - r0[1]) * u[1] +
             (r1[2] - r0[2]) * u[2]; // XXX Apply a min value?
