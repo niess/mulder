@@ -468,9 +468,6 @@ static void tracer_move(
     } else {
         if (length >= tracer->stepLength) {
             tracer->navigator.SetGeometricallyLimitedStep();
-            tracer->stepLength = 0.0;
-        } else {
-            tracer->stepLength -= length;
         }
         tracer->navigator.LocateGlobalPointAndUpdateTouchable(
             tracer->currentPosition,
@@ -482,6 +479,9 @@ static void tracer_move(
             tracer->history->GetVolume()
         );
     }
+
+    tracer->stepLength -= length;
+    tracer->stepSafety -= length;
 }
 
 static void tracer_turn(

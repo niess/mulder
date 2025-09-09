@@ -110,18 +110,17 @@ enum GeometryAgent<'a> {
     External {
         tracer: external::ExternalTracer<'a>,
         frame: &'a LocalFrame,
-        distance: f64,
+        direction: [f64; 3],
         step: f64,
-        expected: TracingStatus,
+        status: TracingStatus,
     },
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum TracingStatus {
     Start,
     Trace,
     Locate,
-    Acknowledge,
 }
 
 enum EarthGeometryTag {
@@ -832,11 +831,11 @@ extern "C" fn external_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let GeometryAgent::External { tracer, distance, step, expected, .. } = &mut agent.geometry
+    let GeometryAgent::External { tracer, direction, step, status, .. } = &mut agent.geometry
         else { unreachable!() };
+    let n = agent.fluxmeter.media.len();
     let mut set_medium_ptr = || {
         let medium_ptr = unsafe { &mut*medium_ptr };
-        let n = agent.fluxmeter.media.len();
         let index = tracer.medium();
         if index < n {
             *medium_ptr = agent.fluxmeter.media[index].as_mut_ptr();
@@ -845,31 +844,52 @@ extern "C" fn external_geometry(
         }
     };
     if step_ptr != null_mut() {
-        // Tracing call. (XXX check chronology / reset otherwise).
+        // Tracing call.
         let state = unsafe { &*state };
-        *distance = state.distance;
-
         let step_ptr = unsafe { &mut*step_ptr };
-        *step = tracer.trace(f64::MAX);
-        *step_ptr = *step;
-        if medium_ptr != null_mut() {
-            assert!(*expected == TracingStatus::Start);
-            set_medium_ptr();
-        } else {
-            assert!(*expected == TracingStatus::Trace);
+
+        match *status {
+            TracingStatus::Start => {
+                *direction = [-state.direction[0], -state.direction[1], -state.direction[2]];
+                *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
+                *step_ptr = *step;
+                if medium_ptr != null_mut() {
+                    set_medium_ptr();
+                } else {
+                    unreachable!()
+                }
+            },
+            TracingStatus::Trace => {
+                let r0 = tracer.position();
+                let r1 = &state.position;
+                let length =
+                    (r1[0] - r0[0]) * direction[0] +
+                    (r1[1] - r0[1]) * direction[1] +
+                    (r1[2] - r0[2]) * direction[2];
+                if length.abs() > f64::EPSILON {
+                    tracer.move_(length);
+                }
+                let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
+                tracer.turn(u);
+                *direction = u;
+
+                *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
+                *step_ptr = *step;
+                assert!(medium_ptr == null_mut());
+            },
+            _ => unreachable!(),
         }
-        *expected = TracingStatus::Locate;
+        *status = TracingStatus::Locate;
     } else if medium_ptr != null_mut() {
-        // Occurs on a medium change check.
-        assert!(*expected == TracingStatus::Locate);
+        // Locating call.
+        assert!(*status == TracingStatus::Locate);
         let state = unsafe { &*state };
         let r0 = tracer.position();
         let r1 = &state.position;
-        let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
         let mut length =
-            (r1[0] - r0[0]) * u[0] +
-            (r1[1] - r0[1]) * u[1] +
-            (r1[2] - r0[2]) * u[2];
+            (r1[0] - r0[0]) * direction[0] +
+            (r1[1] - r0[1]) * direction[1] +
+            (r1[2] - r0[2]) * direction[2];
         if (length - *step).abs() < f64::EPSILON {
             length = *step;
         } else {
@@ -877,20 +897,7 @@ extern "C" fn external_geometry(
         }
         tracer.move_(length);
         set_medium_ptr();
-        *expected = TracingStatus::Acknowledge;
-    } else {
-        // Occurs on a medium/locals acknowledgment.
-        // The direction might have changed due to msc or local magnet. In addtion, the particle
-        // might have rolled back, e.g. due to an interaction.
-        assert!(*expected == TracingStatus::Acknowledge);
-        let state = unsafe { &*state };
-        let length = state.distance - *distance - *step;
-        if length.abs() > f64::EPSILON {
-            tracer.move_(length);
-        }
-        let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
-        tracer.turn(u);
-        *expected = TracingStatus::Trace;
+        *status = TracingStatus::Trace;
     }
 
     pumas::STEP_RAW
@@ -1074,7 +1081,7 @@ impl<'a> Agent<'a> {
                     turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
                 }
             },
-            GeometryAgent::External { tracer, distance, step, expected, .. } => {
+            GeometryAgent::External { tracer, status, .. } => {
                 self.context.medium = Some(external_geometry);
                 let u = [
                     -self.state.direction[0],
@@ -1082,9 +1089,7 @@ impl<'a> Agent<'a> {
                     -self.state.direction[2],
                 ];
                 tracer.reset(self.state.position, u);
-                *distance = 0.0;
-                *step = 0.0;
-                *expected = TracingStatus::Start;
+                *status = TracingStatus::Start;
             },
         }
 
@@ -1136,9 +1141,9 @@ impl<'a> Agent<'a> {
             GeometryRefMut::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,
                 frame: &geometry.frame,
-                distance: 0.0,
+                direction: [0.0; 3],
                 step: 0.0,
-                expected: TracingStatus::Start,
+                status: TracingStatus::Start,
             },
         };
 
@@ -1292,16 +1297,13 @@ impl<'a> Agent<'a> {
                 }
                 is_inside
             },
-            GeometryAgent::External { tracer, distance, step, expected, .. } => {
+            GeometryAgent::External { tracer, .. } => {
                 let u = [
                     -self.state.direction[0],
                     -self.state.direction[1],
                     -self.state.direction[2],
                 ];
                 tracer.reset(self.state.position, u);
-                *distance = 0.0;
-                *step = 0.0;
-                *expected = TracingStatus::Start;
                 let is_inside = tracer.medium() < n_media;
                 if is_inside {
                     self.context.medium = Some(external_geometry);
@@ -1342,6 +1344,9 @@ impl<'a> Agent<'a> {
 
             let mut event: c_uint = 0;
             loop {
+                if let GeometryAgent::External { status, .. } = &mut self.geometry {
+                    *status = TracingStatus::Start;
+                }
                 let rc = unsafe {
                     pumas::context_transport(
                         self.context, &mut self.state, &mut event, null_mut(),

@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use ::std::ffi::{c_char, c_int, c_long, c_uint, c_void};
+use ::std::ffi::{c_char, c_double, c_int, c_long, c_uint, c_void};
 
 pub const MUON: c_uint = 0;
 pub const TAU: c_uint = 1;
@@ -67,6 +67,8 @@ pub const MODE_BACKWARD: c_int = 1;
 pub const STEP_CHECK: c_uint = 0;
 pub const STEP_RAW: c_uint = 1;
 
+pub const STEP_MIN: c_double = 1E-07;
+
 #[repr(C)]
 pub struct Context {
     pub medium: MediumCallback,
@@ -76,15 +78,15 @@ pub struct Context {
     pub mode: ContextMode,
     pub event: c_uint,
     pub limit: ContextLimit,
-    pub accuracy: f64,
+    pub accuracy: c_double,
 }
 
 #[repr(C)]
 pub struct ContextLimit {
-    pub energy: f64,
-    pub distance: f64,
-    pub grammage: f64,
-    pub time: f64,
+    pub energy: c_double,
+    pub distance: c_double,
+    pub grammage: c_double,
+    pub time: c_double,
 }
 
 #[repr(C)]
@@ -97,8 +99,8 @@ pub struct ContextMode {
 
 #[repr(C)]
 pub struct Locals {
-    pub density: f64,
-    pub magnet: [f64; 3],
+    pub density: c_double,
+    pub magnet: [c_double; 3],
 }
 
 #[repr(C)]
@@ -114,13 +116,13 @@ pub struct Physics {
 
 #[repr(C)]
 pub struct PhysicsSettings {
-    pub cutoff: f64,
-    pub elastic_ratio: f64,
+    pub cutoff: c_double,
+    pub elastic_ratio: c_double,
     pub bremsstrahlung: *const c_char,
     pub pair_production: *const c_char,
     pub photonuclear: *const c_char,
     pub n_energies: c_int,
-    pub energy: *mut f64,
+    pub energy: *mut c_double,
     pub update: c_int,
     pub dry: c_int,
 }
@@ -132,21 +134,21 @@ pub struct Recorder {
 }
 
 #[repr(C)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct State {
-    pub charge: f64,
-    pub energy: f64,
-    pub distance: f64,
-    pub grammage: f64,
-    pub time: f64,
-    pub weight: f64,
-    pub position: [f64; 3],
-    pub direction: [f64; 3],
+    pub charge: c_double,
+    pub energy: c_double,
+    pub distance: c_double,
+    pub grammage: c_double,
+    pub time: c_double,
+    pub weight: c_double,
+    pub position: [c_double; 3],
+    pub direction: [c_double; 3],
     pub decayed: c_int,
 }
 
 pub type Dcs = Option<
-    unsafe extern "C" fn(Z: f64, A: f64, m: f64, K: f64, q: f64) -> f64,
+    unsafe extern "C" fn(Z: c_double, A: c_double, m: c_double, K: c_double, q: c_double) -> c_double,
 >;
 
 #[repr(C)]
@@ -168,7 +170,7 @@ pub type Function = Option<
 >;
 
 pub type LocalsCallback = Option<
-    unsafe extern "C" fn(medium: *mut Medium, state: *mut State, locals: *mut Locals) -> f64
+    unsafe extern "C" fn(medium: *mut Medium, state: *mut State, locals: *mut Locals) -> c_double
 >;
 
 pub type MediumCallback = Option<
@@ -176,7 +178,7 @@ pub type MediumCallback = Option<
         context: *mut Context,
         state: *mut State,
         medium: *mut *mut Medium,
-        step: *mut f64,
+        step: *mut c_double,
     ) -> c_uint
 >;
 
@@ -185,7 +187,7 @@ pub type Notify = Option<
 >;
 
 pub type RandomCallback = Option<
-    unsafe extern "C" fn(context: *mut Context) -> f64
+    unsafe extern "C" fn(context: *mut Context) -> c_double
 >;
 
 #[link(name = "c-libs")]
@@ -252,8 +254,8 @@ extern "C" {
     pub fn physics_particle(
         physics: *const Physics,
         particle: *mut c_uint,
-        ctau: *mut f64,
-        mass: *mut f64
+        ctau: *mut c_double,
+        mass: *mut c_double
     ) -> c_uint;
 
     #[link_name="pumas_physics_property_stopping_power"]
@@ -261,7 +263,7 @@ extern "C" {
         physics: *const Physics,
         mode: c_int,
         material: c_int,
-        energy: f64,
-        dedx: *mut f64,
+        energy: c_double,
+        dedx: *mut c_double,
     ) -> c_uint;
 }
