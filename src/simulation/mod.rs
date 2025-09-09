@@ -107,7 +107,21 @@ struct Agent<'a> {
 
 enum GeometryAgent<'a> {
     Earth,
-    External { tracer: external::ExternalTracer<'a>, frame: &'a LocalFrame },
+    External {
+        tracer: external::ExternalTracer<'a>,
+        frame: &'a LocalFrame,
+        distance: f64,
+        step: f64,
+        expected: TracingStatus,
+    },
+}
+
+#[derive(PartialEq)]
+enum TracingStatus {
+    Start,
+    Trace,
+    Locate,
+    Acknowledge,
 }
 
 enum EarthGeometryTag {
@@ -818,7 +832,8 @@ extern "C" fn external_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let GeometryAgent::External { tracer, .. } = &agent.geometry else { unreachable!() };
+    let GeometryAgent::External { tracer, distance, step, expected, .. } = &mut agent.geometry
+        else { unreachable!() };
     let mut set_medium_ptr = || {
         let medium_ptr = unsafe { &mut*medium_ptr };
         let n = agent.fluxmeter.media.len();
@@ -830,31 +845,52 @@ extern "C" fn external_geometry(
         }
     };
     if step_ptr != null_mut() {
-        // Tracing call.
+        // Tracing call. (XXX check chronology / reset otherwise).
+        let state = unsafe { &*state };
+        *distance = state.distance;
+
         let step_ptr = unsafe { &mut*step_ptr };
-        *step_ptr = tracer.trace(f64::MAX);
+        *step = tracer.trace(f64::MAX);
+        *step_ptr = *step;
         if medium_ptr != null_mut() {
-            // Occurs on an initial stepping call.
+            assert!(*expected == TracingStatus::Start);
             set_medium_ptr();
+        } else {
+            assert!(*expected == TracingStatus::Trace);
         }
+        *expected = TracingStatus::Locate;
     } else if medium_ptr != null_mut() {
         // Occurs on a medium change check.
+        assert!(*expected == TracingStatus::Locate);
         let state = unsafe { &*state };
         let r0 = tracer.position();
         let r1 = &state.position;
         let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
-        let length = // XXX use state.distance instead?
+        let mut length =
             (r1[0] - r0[0]) * u[0] +
             (r1[1] - r0[1]) * u[1] +
-            (r1[2] - r0[2]) * u[2]; // XXX Apply a min value?
-        tracer.update(length, u);
+            (r1[2] - r0[2]) * u[2];
+        if (length - *step).abs() < f64::EPSILON {
+            length = *step;
+        } else {
+            *step = length;
+        }
+        tracer.move_(length);
         set_medium_ptr();
+        *expected = TracingStatus::Acknowledge;
     } else {
         // Occurs on a medium/locals acknowledgment.
-        // The direction might have changed due to msc or local magnet.
+        // The direction might have changed due to msc or local magnet. In addtion, the particle
+        // might have rolled back, e.g. due to an interaction.
+        assert!(*expected == TracingStatus::Acknowledge);
         let state = unsafe { &*state };
+        let length = state.distance - *distance - *step;
+        if length.abs() > f64::EPSILON {
+            tracer.move_(length);
+        }
         let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
-        tracer.update(0.0, u);
+        tracer.turn(u);
+        *expected = TracingStatus::Trace;
     }
 
     pumas::STEP_RAW
@@ -1031,14 +1067,14 @@ impl<'a> Agent<'a> {
         self.context.mode.scattering = pumas::MODE_DISABLED;
         self.context.event = pumas::EVENT_MEDIUM;
 
-        match &self.geometry {
+        match &mut self.geometry {
             GeometryAgent::Earth => {
                 self.context.medium = Some(layers_geometry);
                 unsafe {
                     turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
                 }
             },
-            GeometryAgent::External { tracer, .. } => {
+            GeometryAgent::External { tracer, distance, step, expected, .. } => {
                 self.context.medium = Some(external_geometry);
                 let u = [
                     -self.state.direction[0],
@@ -1046,6 +1082,9 @@ impl<'a> Agent<'a> {
                     -self.state.direction[2],
                 ];
                 tracer.reset(self.state.position, u);
+                *distance = 0.0;
+                *step = 0.0;
+                *expected = TracingStatus::Start;
             },
         }
 
@@ -1097,6 +1136,9 @@ impl<'a> Agent<'a> {
             GeometryRefMut::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,
                 frame: &geometry.frame,
+                distance: 0.0,
+                step: 0.0,
+                expected: TracingStatus::Start,
             },
         };
 
@@ -1238,7 +1280,7 @@ impl<'a> Agent<'a> {
 
         // Check that the initial state lies within the geometry.
         let n_media = self.fluxmeter.media.len();
-        let is_inside = match &self.geometry {
+        let is_inside = match &mut self.geometry {
             GeometryAgent::Earth => {
                 let zlim = self.fluxmeter.steppers.layers.zlim;
                 let is_inside = self.geographic.altitude < zlim - Self::EPSILON;
@@ -1250,13 +1292,16 @@ impl<'a> Agent<'a> {
                 }
                 is_inside
             },
-            GeometryAgent::External { tracer, .. } => {
+            GeometryAgent::External { tracer, distance, step, expected, .. } => {
                 let u = [
                     -self.state.direction[0],
                     -self.state.direction[1],
                     -self.state.direction[2],
                 ];
                 tracer.reset(self.state.position, u);
+                *distance = 0.0;
+                *step = 0.0;
+                *expected = TracingStatus::Start;
                 let is_inside = tracer.medium() < n_media;
                 if is_inside {
                     self.context.medium = Some(external_geometry);

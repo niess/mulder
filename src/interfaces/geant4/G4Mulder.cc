@@ -453,31 +453,24 @@ static double tracer_trace(
     return (step < max_length) ? step : max_length;
 }
 
-static void tracer_update(
+static void tracer_move(
     struct mulder_geometry_tracer * self,
-    double length,
-    struct mulder_vec3 direction
+    double length
 ){
     auto tracer = (G4Mulder::GeometryTracer *)self;
 
-    if (length <= 0.0) {
-        tracer->currentDirection = G4ThreeVector(
-            direction.x,
-            direction.y,
-            direction.z
-        );
-        return;
-    }
-
     tracer->currentPosition += (length * CLHEP::m) * tracer->currentDirection;
 
-    if (length < tracer->stepSafety) {
+    if ((length > 0.0) && (length < tracer->stepSafety)) {
         tracer->navigator.LocateGlobalPointWithinVolume(
             tracer->currentPosition
         );
     } else {
         if (length >= tracer->stepLength) {
             tracer->navigator.SetGeometricallyLimitedStep();
+            tracer->stepLength = 0.0;
+        } else {
+            tracer->stepLength -= length;
         }
         tracer->navigator.LocateGlobalPointAndUpdateTouchable(
             tracer->currentPosition,
@@ -489,7 +482,13 @@ static void tracer_update(
             tracer->history->GetVolume()
         );
     }
+}
 
+static void tracer_turn(
+    struct mulder_geometry_tracer * self,
+    struct mulder_vec3 direction
+){
+    auto tracer = (G4Mulder::GeometryTracer *)self;
     tracer->currentDirection = G4ThreeVector(
         direction.x,
         direction.y,
@@ -534,7 +533,8 @@ G4Mulder::GeometryTracer::GeometryTracer(
     this->locate = &tracer_locate;
     this->reset = &tracer_reset;
     this->trace = &tracer_trace;
-    this->update = &tracer_update;
+    this->move = &tracer_move;
+    this->turn = &tracer_turn;
     this->medium = &tracer_medium;
     this->position = &tracer_position;
 }

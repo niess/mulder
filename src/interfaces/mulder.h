@@ -83,9 +83,14 @@ struct mulder_geometry_tracer {
     );
 
     // Updates the tracer position.
-    void (*update)(
+    void (*move)(
         struct mulder_geometry_tracer * self,
-        double length,
+        double length
+    );
+
+    // Updates the tracer direction.
+    void (*turn)(
+        struct mulder_geometry_tracer * self,
         struct mulder_vec3 direction
     );
 

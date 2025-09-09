@@ -164,8 +164,11 @@ struct CTracer {
     trace: Option<
         extern "C" fn(*mut CTracer, max_length: c_double) -> c_double
     >,
-    update: Option<
-        extern "C" fn(*mut CTracer, length: c_double, direction: CVec3)
+    move_: Option<
+        extern "C" fn(*mut CTracer, length: c_double)
+    >,
+    turn: Option<
+        extern "C" fn(*mut CTracer, direction: CVec3)
     >,
     medium: Option<
         extern "C" fn(*mut CTracer) -> usize
@@ -344,7 +347,7 @@ impl ExternalGeometry {
             tracer.reset(ri, ui);
             let before = tracer.medium() as i32;
             let distance = tracer.trace(f64::INFINITY);
-            tracer.update(distance, ui);
+            tracer.move_(distance);
             let after = tracer.medium() as i32;
             let position = tracer.position();
             intersections[i] = Intersection {
@@ -368,8 +371,11 @@ impl ExternalGeometry {
         if tracer.is_none_trace() {
             return Err(null_pointer_fmt!("ExternalTracer::trace"))
         }
-        if tracer.is_none_update() {
-            return Err(null_pointer_fmt!("ExternalTracer::update"))
+        if tracer.is_none_move_() {
+            return Err(null_pointer_fmt!("ExternalTracer::move"))
+        }
+        if tracer.is_none_turn() {
+            return Err(null_pointer_fmt!("ExternalTracer::turn"))
         }
         if tracer.is_none_medium() {
             return Err(null_pointer_fmt!("ExternalTracer::medium"))
@@ -401,9 +407,15 @@ impl<'a> ExternalTracer<'a> {
     }
 
     #[inline]
-    pub fn update(&self, length: f64, direction: [f64; 3]) {
-        let func = unsafe { self.ptr.0.as_ref() }.update.unwrap();
-        func(self.ptr.0.as_ptr(), length, direction.into())
+    pub fn move_(&self, length: f64) {
+        let func = unsafe { self.ptr.0.as_ref() }.move_.unwrap();
+        func(self.ptr.0.as_ptr(), length)
+    }
+
+    #[inline]
+    pub fn turn(&self, direction: [f64; 3]) {
+        let func = unsafe { self.ptr.0.as_ref() }.turn.unwrap();
+        func(self.ptr.0.as_ptr(), direction.into())
     }
 
     #[inline]
@@ -688,7 +700,8 @@ impl OwnedPtr<CTracer> {
     impl_is_none!(locate);
     impl_is_none!(reset);
     impl_is_none!(trace);
-    impl_is_none!(update);
+    impl_is_none!(move_);
+    impl_is_none!(turn);
     impl_is_none!(medium);
     impl_is_none!(position);
 }
