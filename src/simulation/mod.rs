@@ -700,13 +700,13 @@ extern "C" fn atmosphere_locals(
     }
 
     const LAMBDA_MAX: f64 = 1E+09;
-    let lambda = if density.lambda < LAMBDA_MAX {
+    let lambda = if density.lambda.abs() < LAMBDA_MAX {
         let direction = HorizontalCoordinates::from_ecef(
             &agent.state.direction,
             &agent.geographic,
         );
         let c = (direction.elevation.abs() * std::f64::consts::PI / 180.0).sin().max(0.1);
-        (density.lambda / c).min(LAMBDA_MAX)
+        (density.lambda.abs() / c).min(LAMBDA_MAX)
     } else {
         LAMBDA_MAX
     };
@@ -822,6 +822,38 @@ extern "C" fn opensky_geometry(
 
     pumas::STEP_CHECK
 }
+
+/*
+// Alternative implementation.
+#[no_mangle]
+extern "C" fn opensky_geometry(
+    _context: *mut pumas::Context,
+    state: *mut pumas::State,
+    medium_ptr: *mut *mut pumas::Medium,
+    step_ptr: *mut f64,
+) -> c_uint {
+    let agent: &mut Agent = state.into();
+
+    if step_ptr != null_mut() {
+        let step_ptr = unsafe { &mut*step_ptr };
+        *step_ptr = f64::INFINITY;
+    }
+
+    if medium_ptr != null_mut() {
+        let medium_ptr = unsafe { &mut*medium_ptr };
+        let state = unsafe { &*state };
+        agent.geographic = GeographicCoordinates::from_ecef(&state.position);
+        let zlim = agent.fluxmeter.steppers.opensky.zlim;
+        if (agent.geographic.altitude > zlim) && (agent.geographic.altitude < 4000.0) { // XXX
+            *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
+        } else {
+            *medium_ptr = null_mut();
+        }
+    }
+
+    pumas::STEP_CHECK
+}
+*/
 
 #[no_mangle]
 extern "C" fn external_geometry(

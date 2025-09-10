@@ -200,7 +200,7 @@ impl Atmosphere {
                     return Density { value: self.rho[i - 1] * u.exp(), lambda: lbd }
                 }
             }
-            return Density { value: self.rho[n - 1], lambda: self.lambda[n - 1] }
+            return Density { value: self.rho[n - 1], lambda: self.lambda[n - 2] }
         }
     }
 }
