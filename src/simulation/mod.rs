@@ -843,53 +843,44 @@ extern "C" fn external_geometry(
             *medium_ptr = null_mut();
         }
     };
+    let state = unsafe { &*state };
+    let compute_displacement = || {
+        let r0 = tracer.position();
+        let r1 = &state.position;
+        (r1[0] - r0[0]) * direction[0] +
+        (r1[1] - r0[1]) * direction[1] +
+        (r1[2] - r0[2]) * direction[2]
+    };
     if step_ptr != null_mut() {
         // Tracing call.
-        let state = unsafe { &*state };
         let step_ptr = unsafe { &mut*step_ptr };
 
         match *status {
             TracingStatus::Start => {
                 *direction = [-state.direction[0], -state.direction[1], -state.direction[2]];
-                *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
-                *step_ptr = *step;
-                if medium_ptr != null_mut() {
-                    set_medium_ptr();
-                } else {
-                    unreachable!()
-                }
             },
             TracingStatus::Trace => {
-                let r0 = tracer.position();
-                let r1 = &state.position;
-                let length =
-                    (r1[0] - r0[0]) * direction[0] +
-                    (r1[1] - r0[1]) * direction[1] +
-                    (r1[2] - r0[2]) * direction[2];
-                if length.abs() > f64::EPSILON {
+                let length = compute_displacement();
+                if length.abs() > pumas::STEP_MIN {
                     tracer.move_(length);
                 }
                 let u = [-state.direction[0], -state.direction[1], -state.direction[2]];
                 tracer.turn(u);
                 *direction = u;
-
-                *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
-                *step_ptr = *step;
-                assert!(medium_ptr == null_mut());
             },
             _ => unreachable!(),
+        }
+
+        *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
+        *step_ptr = *step;
+        if medium_ptr != null_mut() {
+            set_medium_ptr();
         }
         *status = TracingStatus::Locate;
     } else if medium_ptr != null_mut() {
         // Locating call.
         assert!(*status == TracingStatus::Locate);
-        let state = unsafe { &*state };
-        let r0 = tracer.position();
-        let r1 = &state.position;
-        let mut length =
-            (r1[0] - r0[0]) * direction[0] +
-            (r1[1] - r0[1]) * direction[1] +
-            (r1[2] - r0[2]) * direction[2];
+        let mut length = compute_displacement();
         if (length - *step).abs() < f64::EPSILON {
             length = *step;
         } else {
@@ -1297,13 +1288,14 @@ impl<'a> Agent<'a> {
                 }
                 is_inside
             },
-            GeometryAgent::External { tracer, .. } => {
+            GeometryAgent::External { tracer, status, .. } => {
                 let u = [
                     -self.state.direction[0],
                     -self.state.direction[1],
                     -self.state.direction[2],
                 ];
                 tracer.reset(self.state.position, u);
+                *status = TracingStatus::Start;
                 let is_inside = tracer.medium() < n_media;
                 if is_inside {
                     self.context.medium = Some(external_geometry);
@@ -1344,9 +1336,6 @@ impl<'a> Agent<'a> {
 
             let mut event: c_uint = 0;
             loop {
-                if let GeometryAgent::External { status, .. } = &mut self.geometry {
-                    *status = TracingStatus::Start;
-                }
                 let rc = unsafe {
                     pumas::context_transport(
                         self.context, &mut self.state, &mut event, null_mut(),
