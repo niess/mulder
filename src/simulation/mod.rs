@@ -103,6 +103,7 @@ struct Agent<'a> {
     magnet_field: [f64; 3],
     magnet_position: [f64; 3],
     use_magnet: bool,
+    opensky_z: [f64; 2],
 }
 
 enum GeometryAgent<'a> {
@@ -804,35 +805,6 @@ extern "C" fn opensky_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let (step, layer) = agent.step(EarthGeometryTag::Opensky);
-
-    if step_ptr != null_mut() {
-        let step_ptr = unsafe { &mut*step_ptr };
-        *step_ptr = if step <= Agent::EPSILON { Agent::EPSILON } else { step };
-    }
-
-    if medium_ptr != null_mut() {
-        let medium_ptr = unsafe { &mut*medium_ptr };
-        if layer == 1 {
-            *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
-        } else {
-            *medium_ptr = null_mut();
-        }
-    }
-
-    pumas::STEP_CHECK
-}
-
-/*
-// Alternative implementation.
-#[no_mangle]
-extern "C" fn opensky_geometry(
-    _context: *mut pumas::Context,
-    state: *mut pumas::State,
-    medium_ptr: *mut *mut pumas::Medium,
-    step_ptr: *mut f64,
-) -> c_uint {
-    let agent: &mut Agent = state.into();
 
     if step_ptr != null_mut() {
         let step_ptr = unsafe { &mut*step_ptr };
@@ -843,8 +815,8 @@ extern "C" fn opensky_geometry(
         let medium_ptr = unsafe { &mut*medium_ptr };
         let state = unsafe { &*state };
         agent.geographic = GeographicCoordinates::from_ecef(&state.position);
-        let zlim = agent.fluxmeter.steppers.opensky.zlim;
-        if (agent.geographic.altitude > zlim) && (agent.geographic.altitude < 4000.0) { // XXX
+        let [zmin, zmax] = agent.opensky_z;
+        if (agent.geographic.altitude > zmin) && (agent.geographic.altitude < zmax) {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -853,7 +825,6 @@ extern "C" fn opensky_geometry(
 
     pumas::STEP_CHECK
 }
-*/
 
 #[no_mangle]
 extern "C" fn external_geometry(
@@ -1184,10 +1155,12 @@ impl<'a> Agent<'a> {
         let magnet_field = [0.0; 3];
         let magnet_position = [0.0; 3];
         let use_magnet = false;
+        let opensky_z = [0.0; 2];
 
         let agent = Self {
             state, geographic, horizontal, atmosphere, fluxmeter, magnet, geometry, physics,
             reference, context, use_external_layer, magnet_field, magnet_position, use_magnet,
+            opensky_z,
         };
         Ok(agent)
     }
@@ -1436,10 +1409,12 @@ impl<'a> Agent<'a> {
             self.context.medium = Some(opensky_geometry);
             self.context.mode.direction = pumas::MODE_FORWARD;
             self.context.limit.energy = self.reference.energy.0;
+            // XXX disable any magnet?
 
-            unsafe {
-                turtle::stepper_reset(self.fluxmeter.steppers.opensky.stepper);
-            }
+            self.opensky_z = [
+                zlim,
+                self.geographic.altitude + Self::EPSILON,
+            ];
 
             let mut event: c_uint = 0;
             let rc = unsafe {
