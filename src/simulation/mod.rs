@@ -373,8 +373,7 @@ impl Fluxmeter {
 
             match &agent.fluxmeter.mode {
                 TransportMode::Continuous => {
-                    const HIGH_ENERGY: f64 = 1E+02; // XXX Disable in locals as well?
-                    flux[i] = if agent.magnet.is_none() || (state.energy() >= HIGH_ENERGY) {
+                    flux[i] = if agent.magnet.is_none() || (state.energy() >= Agent::HIGH_ENERGY) {
                         let particle = if states.is_flavoured() {
                             Particle::from_pid(state.pid())?
                         } else {
@@ -694,7 +693,7 @@ extern "C" fn atmosphere_locals(
         LAMBDA_MAX
     };
 
-    if !agent.use_magnet {
+    if !agent.use_magnet || (agent.state.energy >= Agent::HIGH_ENERGY) {
         return lambda
     }
 
@@ -952,10 +951,10 @@ impl Default for CMedium {
 }
 
 impl<'a> Agent<'a> {
-    // Min atmospheric depth for the stepping.
-    const DELTA_Z: f64 = 300.0;
-
+    const DELTA_Z: f64 = 300.0;  // min atmospheric depth.
     const EPSILON: f64 = f32::EPSILON as f64;
+    const LOW_ENERGY: f64 = 1E+01;  // GeV.
+    const HIGH_ENERGY: f64 = 1E+02;  // GeV.
 
     fn flux(&mut self, particle: Particle) -> PyResult<f64> {
         self.transport()?;
@@ -1234,9 +1233,6 @@ impl<'a> Agent<'a> {
     }
 
     fn transport(&mut self) -> PyResult<()> {
-        const LOW_ENERGY: f64 = 1E+01;
-        const HIGH_ENERGY: f64 = 1E+02;
-
         if self.magnet.is_some() {
             self.use_magnet = true;
             self.magnet_position = [0.0; 3];
@@ -1286,14 +1282,14 @@ impl<'a> Agent<'a> {
                     self.context.mode.scattering = pumas::MODE_DISABLED;
                 },
                 TransportMode::Discrete => {
-                    if self.state.energy <= LOW_ENERGY - Self::EPSILON {
+                    if self.state.energy <= Self::LOW_ENERGY - Self::EPSILON {
                         self.context.mode.energy_loss = pumas::MODE_STRAGGLED;
                         self.context.mode.scattering = pumas::MODE_MIXED;
-                        self.context.limit.energy = LOW_ENERGY;
-                    } else if self.state.energy <= HIGH_ENERGY - Self::EPSILON {
+                        self.context.limit.energy = Self::LOW_ENERGY;
+                    } else if self.state.energy <= Self::HIGH_ENERGY - Self::EPSILON {
                         self.context.mode.energy_loss = pumas::MODE_MIXED;
                         self.context.mode.scattering = pumas::MODE_MIXED;
-                        self.context.limit.energy = HIGH_ENERGY;
+                        self.context.limit.energy = Self::HIGH_ENERGY;
                     } else {
                         // use mixed mode.
                         self.context.mode.energy_loss = pumas::MODE_MIXED;
@@ -1317,7 +1313,7 @@ impl<'a> Agent<'a> {
                     if self.state.energy >= self.reference.energy.max() - Self::EPSILON {
                         self.state.weight = 0.0;
                         return Ok(())
-                    } else if self.state.energy >= HIGH_ENERGY - Self::EPSILON {
+                    } else if self.state.energy >= Self::HIGH_ENERGY - Self::EPSILON {
                         self.context.mode.energy_loss = pumas::MODE_MIXED;
                         self.context.mode.scattering = pumas::MODE_DISABLED;
                         self.context.limit.energy = self.reference.energy.max();
@@ -1325,7 +1321,7 @@ impl<'a> Agent<'a> {
                     } else {
                         self.context.mode.energy_loss = pumas::MODE_MIXED;
                         self.context.mode.scattering = pumas::MODE_MIXED;
-                        self.context.limit.energy = HIGH_ENERGY;
+                        self.context.limit.energy = Self::HIGH_ENERGY;
                         continue
                     }
                 } else if event != pumas::EVENT_MEDIUM {
@@ -1341,6 +1337,8 @@ impl<'a> Agent<'a> {
             self.state.position = frame.to_ecef_position(&self.state.position);
             self.state.direction = frame.to_ecef_direction(&self.state.direction);
             self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+        }
+        {
             let direction = [
                 -self.state.direction[0],
                 -self.state.direction[1],
@@ -1348,7 +1346,6 @@ impl<'a> Agent<'a> {
             ];
             self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
         }
-        // XXX Set direction in Earth case?
 
         const EPSILON: f64 = 1E-04;
         if self.geographic.altitude < self.reference.altitude.min() - EPSILON {
@@ -1413,7 +1410,6 @@ impl<'a> Agent<'a> {
         self.context.mode.energy_loss = pumas::MODE_CSDA;
         self.context.mode.scattering = pumas::MODE_DISABLED;
         self.context.medium = Some(opensky_geometry);
-        // XXX disable any magnet?
 
         const EPSILON: f64 = 1E-04;
         if self.geographic.altitude < zref {
