@@ -75,6 +75,7 @@ struct MediumData {
     api: pumas::Medium,
     density: f64,
     index: usize,
+    use_geomagnet: bool,
 }
 
 struct Proxy<'py> {
@@ -657,13 +658,16 @@ impl Fluxmeter {
                 self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
             } else {
                 for (index, layer) in geometry.layers.iter().enumerate() {
-                    self.media[index].update_material(
-                        layer.bind(py).borrow().material.as_str(),
+                    let layer = layer.bind(py).borrow();
+                    self.media[index].update(
+                        layer.density,
+                        layer.material.as_str(),
                         physics,
                     )?;
                 }
-                self.atmosphere_medium.update_material(
-                    Fluxmeter::TOP_MATERIAL,
+                self.atmosphere_medium.update(
+                    None,
+                    Fluxmeter::TOP_MATERIAL, // XXX Read from atmosphere?
                     physics,
                 )?;
             },
@@ -677,12 +681,14 @@ impl Fluxmeter {
             } else {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
                     let medium = medium.extract::<external::Medium>()?;
-                    self.media[index].update_material(
+                    self.media[index].update(
+                        medium.density,
                         medium.material.as_str(),
                         physics,
                     )?;
                 }
-                self.atmosphere_medium.update_material(
+                self.atmosphere_medium.update(
+                    None,
                     Fluxmeter::TOP_MATERIAL,
                     physics,
                 )?;
@@ -703,10 +709,10 @@ extern "C" fn atmosphere_locals(
     locals: *mut pumas::Locals,
 ) -> f64 {
     let agent: &mut Agent = state.into();
+    let locals = unsafe { &mut *locals };
+
     let density = agent.atmosphere.compute_density(agent.geographic.altitude);
-    unsafe {
-        (*locals).density = density.value;
-    }
+    locals.density = density.value;
 
     const LAMBDA_MAX: f64 = 1E+09;
     let lambda = if density.lambda.abs() < LAMBDA_MAX {
@@ -720,53 +726,35 @@ extern "C" fn atmosphere_locals(
         LAMBDA_MAX
     };
 
-    if !agent.use_geomagnet || (agent.state.energy >= Agent::HIGH_ENERGY) {
-        return lambda
+    if agent.use_geomagnet && (agent.state.energy < Agent::HIGH_ENERGY) {
+        // Get the local geomagnetic field.
+        let lambda_magnet = agent.update_geomagnet();
+        locals.magnet = agent.geomagnet_field;
+        lambda.min(lambda_magnet)
+    } else {
+        lambda
     }
-
-    // Get the local geomagnetic field.
-    const UPDATE_RADIUS: f64 = 1E+03;
-    let d2 = {
-        let mut d2 = 0.0;
-        for i in 0..3 {
-            let tmp = agent.state.position[i] - agent.geomagnet_position[i];
-            d2 += tmp * tmp;
-        }
-        d2
-    };
-    if d2 > UPDATE_RADIUS.powi(2) {
-        // Get the local geomagnetic field (in ENU frame).
-        let enu = agent.geomagnet.as_mut().unwrap().field(
-            agent.geographic.latitude,
-            agent.geographic.longitude,
-            agent.geographic.altitude,
-        ).unwrap();
-
-        let frame = LocalFrame::new(agent.geographic, 0.0, 0.0);
-        agent.geomagnet_field = frame.to_ecef_direction(&enu);
-        agent.geomagnet_position = agent.state.position;
-    }
-
-    // Update the local geomagnetic field.
-    unsafe {
-        (*locals).magnet = agent.geomagnet_field;
-    }
-
-    let lambda_magnet = UPDATE_RADIUS / agent.context.accuracy;
-    lambda.min(lambda_magnet)
 }
 
 #[no_mangle]
 extern "C" fn uniform_locals(
     medium: *mut pumas::Medium,
-    _state: *mut pumas::State,
+    state: *mut pumas::State,
     locals: *mut pumas::Locals,
 ) -> f64 {
+    let agent: &mut Agent = state.into();
     let medium: &MediumData = medium.into();
-    unsafe {
-        (*locals).density = medium.density;
+    let locals = unsafe { &mut *locals };
+
+    locals.density = medium.density;
+
+    if agent.use_geomagnet && medium.use_geomagnet && (agent.state.energy < Agent::HIGH_ENERGY) {
+        let lambda_magnet = agent.update_geomagnet();
+        locals.magnet = agent.geomagnet_field;
+        lambda_magnet
+    } else {
+        0.0
     }
-    0.0
 }
 
 #[no_mangle]
@@ -929,7 +917,8 @@ impl CMedium {
         let material = physics.material_index(material)?;
         let density = density.unwrap_or(-1.0);
         let api = pumas::Medium { material, locals };
-        let data = MediumData { api, density, index };
+        let use_geomagnet = false;
+        let data = MediumData { api, density, index, use_geomagnet };
         let medium = Self(Box::pin(data));
         Ok(medium)
     }
@@ -954,7 +943,13 @@ impl CMedium {
         )
     }
 
-    fn update_material(&mut self, material: &str, physics: &physics::Physics) -> PyResult<()> {
+    fn update(
+        &mut self,
+        density: Option<f64>,
+        material: &str,
+        physics: &physics::Physics,
+    ) -> PyResult<()> {
+        self.0.density = density.unwrap_or(-1.0);
         self.0.api.material = physics.material_index(material)?;
         Ok(())
     }
@@ -972,7 +967,8 @@ impl Default for CMedium {
         let api = pumas::Medium { material: -1, locals: None };
         let density = 0.0;
         let index = 0;
-        let data = MediumData { api, density, index };
+        let use_geomagnet = false;
+        let data = MediumData { api, density, index, use_geomagnet };
         Self(Box::pin(data))
     }
 }
@@ -1482,6 +1478,33 @@ impl<'a> Agent<'a> {
         self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
 
         Ok(())
+    }
+
+    // Update the local geomagnetic field.
+    fn update_geomagnet(&mut self) -> f64 {
+        const UPDATE_RADIUS: f64 = 1E+03;
+        let d2 = {
+            let mut d2 = 0.0;
+            for i in 0..3 {
+                let tmp = self.state.position[i] - self.geomagnet_position[i];
+                d2 += tmp * tmp;
+            }
+            d2
+        };
+        if d2 > UPDATE_RADIUS.powi(2) {
+            // Get the local geomagnetic field (in ENU frame).
+            let enu = self.geomagnet.as_mut().unwrap().field(
+                self.geographic.latitude,
+                self.geographic.longitude,
+                self.geographic.altitude,
+            ).unwrap();
+
+            let frame = LocalFrame::new(self.geographic, 0.0, 0.0);
+            self.geomagnet_field = frame.to_ecef_direction(&enu);
+            self.geomagnet_position = self.state.position;
+        }
+
+        UPDATE_RADIUS / self.context.accuracy
     }
 }
 
