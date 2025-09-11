@@ -458,6 +458,13 @@ impl Altitude {
         }
     }
 
+    pub fn max(&self) -> f64 {
+        match self {
+            Self::Scalar(s) => *s,
+            Self::Range(r) => r.1,
+        }
+    }
+
     pub fn to_range(&self) -> (f64, f64) {
         match self {
             Self::Scalar(s) => (*s, *s),

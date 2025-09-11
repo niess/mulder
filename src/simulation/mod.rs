@@ -4,9 +4,7 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::numpy::{ArrayMethods, NewArray};
 use crate::utils::traits::MinMax;
-use crate::geometry::{
-    Doublet, EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRefMut
-};
+use crate::geometry::{EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRefMut};
 use crate::geometry::atmosphere::Atmosphere;
 use crate::geometry::external;
 use crate::geometry::magnet::Magnet;
@@ -54,7 +52,7 @@ pub struct Fluxmeter {
     #[pyo3(get)]
     reference: Py<reference::Reference>,
 
-    steppers: Doublet<EarthGeometryStepper>,
+    stepper: EarthGeometryStepper,
     atmosphere_medium: CMedium,
     media: Vec<CMedium>,
 }
@@ -99,11 +97,10 @@ struct Agent<'a> {
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
 
-    use_external_layer: bool,
     magnet_field: [f64; 3],
     magnet_position: [f64; 3],
     use_magnet: bool,
-    opensky_z: [f64; 2],
+    opensky: Opensky,
 }
 
 enum GeometryAgent<'a> {
@@ -117,16 +114,17 @@ enum GeometryAgent<'a> {
     },
 }
 
+#[derive(Default)]
+struct Opensky {
+    zmin: f64,
+    zmax: f64,
+}
+
 #[derive(Debug, PartialEq)]
 enum TracingStatus {
     Start,
     Trace,
     Locate,
-}
-
-enum EarthGeometryTag {
-    Layers,
-    Opensky,
 }
 
 #[derive(FromPyObject)]
@@ -260,12 +258,12 @@ impl Fluxmeter {
         let reference = reference::Reference::new(None, None)?;
         let reference = Py::new(py, reference)?;
 
-        let steppers = Default::default();
+        let stepper = EarthGeometryStepper::default();
         let media = Vec::new();
         let atmosphere_medium = CMedium::default();
 
         let fluxmeter = Self {
-            geometry, mode, physics, random, reference, steppers, atmosphere_medium, media,
+            geometry, mode, physics, random, reference, stepper, atmosphere_medium, media,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -620,10 +618,9 @@ impl Fluxmeter {
         py: Python,
         geometry: &GeometryRefMut,
         physics: &physics::Physics,
-        reference: &reference::Reference,
     ) -> PyResult<()> {
         match geometry {
-            GeometryRefMut::Earth(geometry) => if self.steppers.layers.stepper == null_mut() {
+            GeometryRefMut::Earth(geometry) => if self.stepper.ptr == null_mut() {
                 // Map media.
                 for (index, layer) in geometry.layers.iter().enumerate() {
                     let layer = layer.bind(py).borrow();
@@ -632,9 +629,8 @@ impl Fluxmeter {
                 }
                 self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
 
-                // Create steppers.
-                let zref = reference.altitude.to_range();
-                self.steppers = geometry.create_steppers(py, Some(zref))?;
+                // Create stepper.
+                self.stepper = geometry.create_stepper(py, true)?;
             } else {
                 for (index, layer) in geometry.layers.iter().enumerate() {
                     self.media[index].update_material(
@@ -672,10 +668,9 @@ impl Fluxmeter {
     }
 
     fn reset(&mut self) {
-        if self.steppers.layers.stepper == null_mut() {
+        if self.stepper.ptr == null_mut() {
             unsafe {
-                turtle::stepper_destroy(&mut self.steppers.layers.stepper); 
-                turtle::stepper_destroy(&mut self.steppers.opensky.stepper); 
+                turtle::stepper_destroy(&mut self.stepper.ptr); 
             }
         }
         self.media.clear();
@@ -775,7 +770,24 @@ extern "C" fn layers_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let (step, layer) = agent.step(EarthGeometryTag::Layers);
+    let (step, layer) = {
+        let mut step = 0.0;
+        let mut index = [ -1; 2 ];
+        unsafe {
+            turtle::stepper_step(
+                agent.fluxmeter.stepper.ptr,
+                agent.state.position.as_mut_ptr(),
+                null(),
+                &mut agent.geographic.latitude,
+                &mut agent.geographic.longitude,
+                &mut agent.geographic.altitude,
+                null_mut(),
+                &mut step,
+                index.as_mut_ptr(),
+            );
+        }
+        (step, index[0] as usize)
+    };
 
     if step_ptr != null_mut() {
         let step_ptr = unsafe { &mut*step_ptr };
@@ -787,7 +799,7 @@ extern "C" fn layers_geometry(
         let n = agent.fluxmeter.media.len();
         if (layer >= 1) && (layer <= n) {
             *medium_ptr = agent.fluxmeter.media[layer - 1].as_mut_ptr();
-        } else if (layer == n + 1) || (agent.use_external_layer && (layer == n + 2)) {
+        } else if layer == n + 1 {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -815,8 +827,8 @@ extern "C" fn opensky_geometry(
         let medium_ptr = unsafe { &mut*medium_ptr };
         let state = unsafe { &*state };
         agent.geographic = GeographicCoordinates::from_ecef(&state.position);
-        let [zmin, zmax] = agent.opensky_z;
-        if (agent.geographic.altitude > zmin) && (agent.geographic.altitude < zmax) {
+        let Opensky { zmin, zmax } = &agent.opensky;
+        if (agent.geographic.altitude > *zmin) && (agent.geographic.altitude < *zmax) {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -1062,6 +1074,8 @@ impl<'a> Agent<'a> {
         // Disable any magnetic field.
         self.use_magnet = false;
 
+        // XXX check that point is inside the geometry.
+
         // Configure the transport with Pumas.
         self.context.mode.direction = pumas::MODE_BACKWARD;
         self.context.mode.energy_loss = pumas::MODE_DISABLED;
@@ -1072,7 +1086,7 @@ impl<'a> Agent<'a> {
             GeometryAgent::Earth => {
                 self.context.medium = Some(layers_geometry);
                 unsafe {
-                    turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+                    turtle::stepper_reset(self.fluxmeter.stepper.ptr);
                 }
             },
             GeometryAgent::External { tracer, status, .. } => {
@@ -1129,7 +1143,7 @@ impl<'a> Agent<'a> {
     ) -> PyResult<Self> {
         // Configure physics and geometry.
         physics.update(py, geometry.materials())?;
-        fluxmeter.create_or_update_geometry(py, geometry, &physics, &reference)?;
+        fluxmeter.create_or_update_geometry(py, geometry, &physics)?;
         let geometry = match geometry {
             GeometryRefMut::Earth(_) => GeometryAgent::Earth,
             GeometryRefMut::External(geometry) => GeometryAgent::External {
@@ -1151,16 +1165,14 @@ impl<'a> Agent<'a> {
         let geographic = GeographicCoordinates::default();
         let horizontal = HorizontalCoordinates::default();
 
-        let use_external_layer = false;
         let magnet_field = [0.0; 3];
         let magnet_position = [0.0; 3];
         let use_magnet = false;
-        let opensky_z = [0.0; 2];
+        let opensky = Opensky::default();
 
         let agent = Self {
             state, geographic, horizontal, atmosphere, fluxmeter, magnet, geometry, physics,
-            reference, context, use_external_layer, magnet_field, magnet_position, use_magnet,
-            opensky_z,
+            reference, context, magnet_field, magnet_position, use_magnet, opensky,
         };
         Ok(agent)
     }
@@ -1206,8 +1218,6 @@ impl<'a> Agent<'a> {
                         );
                     },
                 }
-                self.use_external_layer =
-                    self.geographic.altitude >= self.fluxmeter.steppers.layers.zlim + Self::EPSILON;
             },
             GeometryAgent::External { frame: geometry_frame, .. } => {
                 match state {
@@ -1245,29 +1255,6 @@ impl<'a> Agent<'a> {
         Ok(())
     }
 
-    fn step(&mut self, tag: EarthGeometryTag) -> (f64, usize) {
-        let stepper = match tag {
-            EarthGeometryTag::Layers => self.fluxmeter.steppers.layers.stepper,
-            EarthGeometryTag::Opensky => self.fluxmeter.steppers.opensky.stepper,
-        };
-        let mut step = 0.0;
-        let mut index = [ -1; 2 ];
-        unsafe {
-            turtle::stepper_step(
-                stepper,
-                self.state.position.as_mut_ptr(),
-                null(),
-                &mut self.geographic.latitude,
-                &mut self.geographic.longitude,
-                &mut self.geographic.altitude,
-                null_mut(),
-                &mut step,
-                index.as_mut_ptr(),
-            );
-        }
-        (step, index[0] as usize)
-    }
-
     fn transport(&mut self) -> PyResult<()> {
         const LOW_ENERGY: f64 = 1E+01;
         const HIGH_ENERGY: f64 = 1E+02;
@@ -1283,12 +1270,14 @@ impl<'a> Agent<'a> {
         let n_media = self.fluxmeter.media.len();
         let is_inside = match &mut self.geometry {
             GeometryAgent::Earth => {
-                let zlim = self.fluxmeter.steppers.layers.zlim;
-                let is_inside = self.geographic.altitude < zlim - Self::EPSILON;
+                let EarthGeometryStepper { zmin, zmax, .. } = &self.fluxmeter.stepper;
+                let is_inside =
+                    (self.geographic.altitude > *zmin + Self::EPSILON) &&
+                    (self.geographic.altitude < *zmax - Self::EPSILON);
                 if is_inside {
                     self.context.medium = Some(layers_geometry);
                     unsafe {
-                        turtle::stepper_reset(self.fluxmeter.steppers.layers.stepper);
+                        turtle::stepper_reset(self.fluxmeter.stepper.ptr);
                     }
                 }
                 is_inside
@@ -1371,69 +1360,43 @@ impl<'a> Agent<'a> {
                     break;
                 }
             }
+        }
 
-            // Check that the final state lies outside of the geometry.
-            match &self.geometry {
-                GeometryAgent::Earth => {
-                    self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
-                    let zlim = self.fluxmeter.steppers.layers.zlim;
-                    if (self.geographic.altitude - zlim).abs() > 1E-04 {
-                        self.state.weight = 0.0;
-                        return Ok(())
-                    }
-                },
-                GeometryAgent::External { tracer, .. } => {
-                    if tracer.medium() != n_media {
-                        self.state.weight = 0.0;
-                        return Ok(())
-                    }
-                },
+        if let GeometryAgent::External { frame, .. } = &self.geometry {
+            self.state.position = frame.to_ecef_position(&self.state.position);
+            self.state.direction = frame.to_ecef_direction(&self.state.direction);
+            self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+            let direction = [
+                -self.state.direction[0],
+                -self.state.direction[1],
+                -self.state.direction[2],
+            ];
+            self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
+        }
+        // XXX Set direction in Earth case?
+
+        const EPSILON: f64 = 1E-04;
+        if self.geographic.altitude < self.reference.altitude.min() - EPSILON {
+            if self.horizontal.elevation < 0.0 {
+                self.state.weight = 0.0;
+                return Ok(())
             }
-        }
-
-        if let GeometryAgent::External { .. } = &self.geometry {
-            return Ok(()) // XXX Implement this case.
-        }
-
-        // XXX Check feasability.
-        let zlim = self.fluxmeter.steppers.opensky.zlim;
-        if self.geographic.altitude > self.reference.altitude.min() + Self::EPSILON {
+            let zref = self.reference.altitude.min();
+            self.transport_opensky(zref)?;
+            if self.state.weight == 0.0 {
+                return Ok(())
+            }
+        } else if self.geographic.altitude > self.reference.altitude.max() + EPSILON {
+            // XXX Check feasability (using elevation angle).
             // Backup proper time and kinetic energy.
             let t0 = self.state.time;
             let e0 = self.state.energy;
             self.state.time = 0.0;
 
-            // Transport forward to the reference height using CSDA.
-            self.context.mode.energy_loss = pumas::MODE_CSDA;
-            self.context.mode.scattering = pumas::MODE_DISABLED;
-            self.context.medium = Some(opensky_geometry);
-            self.context.mode.direction = pumas::MODE_FORWARD;
-            self.context.limit.energy = self.reference.energy.0;
-            // XXX disable any magnet?
-
-            self.opensky_z = [
-                zlim,
-                self.geographic.altitude + Self::EPSILON,
-            ];
-
-            let mut event: c_uint = 0;
-            let rc = unsafe {
-                pumas::context_transport(self.context, &mut self.state, &mut event, null_mut())
-            };
-            error::to_result(rc, None::<&str>)?;
-            if event != pumas::EVENT_MEDIUM {
-                self.state.weight = 0.0;
+            let zref = self.reference.altitude.max();
+            self.transport_opensky(zref)?;
+            if self.state.weight == 0.0 {
                 return Ok(())
-            }
-
-            // Compute the coordinates at end location (expected to be at zlim).
-            self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
-            if (self.geographic.altitude - zlim).abs() > 1E-04 {
-                self.state.weight = 0.0;
-                return Ok(())
-            } else {
-                self.geographic.altitude = zlim;
-                // due to potential rounding errors.
             }
 
             // Update the proper time and the Jacobian weight */
@@ -1456,23 +1419,69 @@ impl<'a> Agent<'a> {
                 return Ok(())
             }
             self.state.weight *= dedx1 / dedx0;
-        } else if (self.geographic.altitude - zlim).abs() <= 10.0 * Self::EPSILON {
-            self.geographic.altitude = zlim;  // due to rounding errors.
+        } else if (self.geographic.altitude - self.reference.altitude.min()).abs() < EPSILON {
+            self.geographic.altitude = self.reference.altitude.min();
+        } else if (self.geographic.altitude - self.reference.altitude.max()).abs() < EPSILON {
+            self.geographic.altitude = self.reference.altitude.max();
+        };
+
+        // Apply the decay probability.
+        const MUON_C_TAU: f64 = 658.654;
+        let pdec = (-self.state.time / MUON_C_TAU).exp();
+        self.state.weight *= pdec;
+
+        Ok(())
+    }
+
+    fn transport_opensky(&mut self, zref: f64) -> PyResult<()> {
+        // Transport to the reference height using CSDA.
+        self.context.mode.energy_loss = pumas::MODE_CSDA;
+        self.context.mode.scattering = pumas::MODE_DISABLED;
+        self.context.medium = Some(opensky_geometry);
+        // XXX disable any magnet?
+
+        const EPSILON: f64 = 1E-04;
+        if self.geographic.altitude < zref {
+            self.context.mode.direction = pumas::MODE_BACKWARD;
+            self.context.limit.energy = self.reference.energy.max();
+            self.opensky = Opensky {
+                zmin: self.geographic.altitude - EPSILON,
+                zmax: zref,
+            };
+        } else {
+            self.context.mode.direction = pumas::MODE_FORWARD;
+            self.context.limit.energy = self.reference.energy.min();
+            self.opensky = Opensky {
+                zmin: zref,
+                zmax: self.geographic.altitude + EPSILON,
+            };
         }
 
+        let mut event: c_uint = 0;
+        let rc = unsafe {
+            pumas::context_transport(self.context, &mut self.state, &mut event, null_mut())
+        };
+        error::to_result(rc, None::<&str>)?;
+        if event != pumas::EVENT_MEDIUM {
+            self.state.weight = 0.0;
+            return Ok(())
+        }
 
-        // Compute the direction at the reference height.
+        // Compute the coordinates at end location (expected to be at zref).
+        self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
+        if (self.geographic.altitude - zref).abs() > EPSILON {
+            self.state.weight = 0.0;
+            return Ok(())
+        } else {
+            self.geographic.altitude = zref;
+            // due to potential rounding errors.
+        }
         let direction = [
             -self.state.direction[0],
             -self.state.direction[1],
             -self.state.direction[2],
         ];
         self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
-
-        // Apply the decay probability.
-        const MUON_C_TAU: f64 = 658.654;
-        let pdec = (-self.state.time / MUON_C_TAU).exp();
-        self.state.weight *= pdec;
 
         Ok(())
     }

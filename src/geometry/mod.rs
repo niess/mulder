@@ -107,14 +107,9 @@ pub struct Intersection {
 }
 
 pub struct EarthGeometryStepper {
-    pub stepper: *mut turtle::Stepper,
-    pub zlim: f64,
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct Doublet<T> {
-    pub layers: T,
-    pub opensky: T,
+    pub ptr: *mut turtle::Stepper,
+    pub zmin: f64,
+    pub zmax: f64,
 }
 
 #[pymethods]
@@ -430,63 +425,36 @@ impl EarthGeometry {
     // Height of the bottom layer, in m.
     const ZMIN: f64 = -11E+03;
 
-    // Top most height, in m.
+    // Height of the atmosphere layer, in m.
     const ZMAX: f64 = 120E+03;
 
+    // Top layer min width, in m.
+    const DELTA_Z: f64 = 300.0;
 
-    pub fn create_steppers(
-        &self,
-        py: Python,
-        zref: Option<(f64, f64)>,
-    ) -> PyResult<Doublet<EarthGeometryStepper>> {
-        let zlim = zref.map(|zref| {
-            if self.z.max() <= zref.min() {
-                Doublet { layers: zref.min(), opensky: zref.min() }
-            } else if self.z.max() <= zref.max() {
-                Doublet { layers: self.z.max(), opensky: self.z.max() }
-            } else {
-                Doublet { layers: self.z.max(), opensky: zref.max() }
-            }
-        });
-
+    pub fn create_stepper(&self,py: Python, clamp: bool) -> PyResult<EarthGeometryStepper> {
         const WHAT: Option<&str> = Some("geometry");
-        let mut stepper = null_mut();
-        error::to_result(unsafe { turtle::stepper_create(&mut stepper) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMIN) }, WHAT)?;
+        let mut ptr = null_mut();
+        error::to_result(unsafe { turtle::stepper_create(&mut ptr) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(ptr, Self::ZMIN) }, WHAT)?;
         for layer in self.layers.iter() {
             let layer = layer.bind(py).borrow();
-            unsafe { layer.insert(py, stepper)?; }
+            unsafe { layer.insert(py, ptr)?; }
         }
-        if let Some(zlim) = zlim {
-            error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
-            error::to_result(unsafe { turtle::stepper_add_flat(stepper, zlim.layers) }, WHAT)?;
-        }
-        error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
-        let stepper = match zlim {
-            Some(zlim) => EarthGeometryStepper { stepper, zlim: zlim.layers },
-            None => EarthGeometryStepper { stepper, zlim: 0.0 },
+        let zmin = Self::ZMIN;
+        let zmax = if clamp {
+            self.z.max() + Self::DELTA_Z
+        } else {
+            Self::ZMAX
         };
-
-        let opensky_stepper = match zlim {
-            Some(zlim) => {
-                let mut stepper = null_mut();
-                error::to_result(unsafe { turtle::stepper_create(&mut stepper) }, WHAT)?;
-                error::to_result(unsafe { turtle::stepper_add_flat(stepper, zlim.opensky) }, WHAT)?;
-
-                error::to_result(unsafe { turtle::stepper_add_layer(stepper) }, WHAT)?;
-                error::to_result(unsafe { turtle::stepper_add_flat(stepper, Self::ZMAX) }, WHAT)?;
-                EarthGeometryStepper { stepper, zlim: zlim.opensky }
-            },
-            None => EarthGeometryStepper { stepper: null_mut(), zlim: 0.0 },
-        };
-
-        Ok(Doublet { layers: stepper, opensky: opensky_stepper })
+        error::to_result(unsafe { turtle::stepper_add_layer(ptr) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(ptr, zmax) }, WHAT)?;
+        let stepper = EarthGeometryStepper { ptr, zmin, zmax };
+        Ok(stepper)
     }
 
     pub fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
         if self.stepper == null_mut() {
-            self.stepper = self.create_steppers(py, None)?.layers.stepper;
+            self.stepper = self.create_stepper(py, false)?.ptr;
         }
         Ok(())
     }
@@ -643,7 +611,7 @@ impl_dtype!(
 
 impl Default for EarthGeometryStepper {
     fn default() -> Self {
-        Self { stepper: null_mut(), zlim: 0.0 }
+        Self { ptr: null_mut(), zmin: 0.0, zmax: 0.0 }
     }
 }
 
