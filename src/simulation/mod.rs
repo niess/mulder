@@ -4,10 +4,8 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::numpy::{ArrayMethods, NewArray};
 use crate::utils::traits::MinMax;
-use crate::geometry::{EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRefMut};
-use crate::geometry::atmosphere::Atmosphere;
+use crate::geometry::{EarthGeometry, EarthGeometryStepper, Geometry, GeometryArg, GeometryRef};
 use crate::geometry::external;
-use crate::geometry::magnet::Magnet;
 use crate::geometry::layer::Layer;
 use crate::utils::convert::TransportMode;
 use crate::utils::io::PathString;
@@ -18,14 +16,17 @@ use std::ffi::{c_uint, c_void};
 use std::ops::DerefMut;
 use std::ptr::null_mut;
 use std::pin::Pin;
-use std::sync::OnceLock;
 
+pub mod atmosphere;
+pub mod geomagnet;
 pub mod materials;
 pub mod physics;
 pub mod random;
 pub mod reference;
 pub mod states;
 
+use atmosphere::{Atmosphere, AtmosphereArg};
+use geomagnet::{EarthMagnet, EarthMagnetArg};
 use states::{
     ExtractedState, FlavouredGeographicState, FlavouredLocalState, NewStates, StatesExtractor,
     UnflavouredGeographicState, UnflavouredLocalState,
@@ -36,11 +37,19 @@ use states::{
 pub struct Fluxmeter {
     geometry: Geometry,
 
+    /// The atmosphere model.
+    #[pyo3(get)]
+    pub atmosphere: Py<Atmosphere>,
+
+    /// The geomagnetic field.
+    #[pyo3(get)]
+    pub geomagnet: Option<Py<EarthMagnet>>,
+
     /// The transport mode.
     #[pyo3(get, set)]
     mode: TransportMode,
 
-    /// The Monte Carlo physics.
+    /// The muon physics.
     #[pyo3(get)]
     physics: Py<physics::Physics>,
 
@@ -48,7 +57,7 @@ pub struct Fluxmeter {
     #[pyo3(get, set)]
     random: Py<random::Random>,
 
-    /// The reference flux.
+    /// The reference muon flux.
     #[pyo3(get)]
     reference: Py<reference::Reference>,
 
@@ -69,17 +78,12 @@ struct MediumData {
 }
 
 struct Proxy<'py> {
-    geometry: GeometryRefMut<'py>,
-    atmosphere: AtmosphereRef<'py>,
-    magnet: Option<PyRefMut<'py, Magnet>>,
+    geometry: GeometryRef<'py>,
+    atmosphere: PyRef<'py, Atmosphere>,
+    geomagnet: Option<PyRefMut<'py, EarthMagnet>>,
     physics: PyRefMut<'py, physics::Physics>,
     random: PyRefMut<'py, random::Random>,
     reference: PyRef<'py, reference::Reference>,
-}
-
-enum AtmosphereRef<'py> {
-    Default(&'static Atmosphere),
-    Some(PyRef<'py, Atmosphere>),
 }
 
 #[repr(C)]
@@ -90,15 +94,15 @@ struct Agent<'a> {
 
     atmosphere: &'a Atmosphere,
     fluxmeter: &'a mut Fluxmeter,
-    magnet: Option<&'a mut Magnet>,
+    geomagnet: Option<&'a mut EarthMagnet>,
     geometry: GeometryAgent<'a>,
     physics: &'a physics::Physics,
     reference: &'a reference::Reference,
     context: &'a mut pumas::Context,
 
-    magnet_field: [f64; 3],
-    magnet_position: [f64; 3],
-    use_magnet: bool,
+    geomagnet_field: [f64; 3],
+    geomagnet_position: [f64; 3],
+    use_geomagnet: bool,
     opensky: Opensky,
 }
 
@@ -181,9 +185,27 @@ impl Fluxmeter {
             }
         };
 
+        let atmosphere = match extract_field("atmosphere")? {
+            Some(arg) => arg.extract::<AtmosphereArg>()?
+                .into_atmosphere(py)?,
+            None => {
+                let atmosphere = Atmosphere::new(None)?;
+                Py::new(py, atmosphere)?
+            },
+        };
+
+        let geomagnet = match extract_field("geomagnet")? { // XXX Apply any date arg?
+            Some(arg) => arg.extract::<EarthMagnetArg>()?
+                .into_geomagnet(py)?,
+            None => {
+                let geomagnet = EarthMagnet::new(py, None, None, None, None)?;
+                Some(Py::new(py, geomagnet)?)
+            },
+        };
+
         let geometry = {
             let geometry_kwargs = extract_kwargs(
-                &["atmosphere", "magnet", "materials"]
+                &["materials"]
             )?;
             match extract_field("geometry")? {
                 Some(geometry) => if layers.is_empty() && geometry_kwargs.is_none() {
@@ -197,7 +219,7 @@ impl Fluxmeter {
                     return Err(err)
                 },
                 None => {
-                    let geometry = EarthGeometry::new(layers, None, None, None)?;
+                    let geometry = EarthGeometry::new(layers, None)?;
                     let geometry = Bound::new(py, geometry)?;
                     if let Some(kwargs) = geometry_kwargs {
                         for (key, value) in kwargs.iter() {
@@ -244,7 +266,7 @@ impl Fluxmeter {
             }
         };
 
-        let random = match extract_field("random")? {
+        let random = match extract_field("random")? { // XXX apply any seed?
             Some(random) => {
                 let random: Py<random::Random> = random.extract()?;
                 random
@@ -264,7 +286,8 @@ impl Fluxmeter {
         let atmosphere_medium = CMedium::default();
 
         let fluxmeter = Self {
-            geometry, mode, physics, random, reference, atmosphere_medium, media,
+            atmosphere, geomagnet, geometry, mode, physics, random, reference, atmosphere_medium,
+            media,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -278,7 +301,24 @@ impl Fluxmeter {
         Ok(fluxmeter.unbind())
     }
 
-    /// The Monte Carlo geometry.
+    #[setter]
+    fn set_atmosphere(&mut self, py: Python, value: Option<AtmosphereArg>) -> PyResult<()> {
+        self.atmosphere = match value {
+            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
+            None => Py::new(py, Atmosphere::new(None)?)?,
+        };
+        Ok(())
+    }
+
+    #[setter]
+    fn set_geomagnet(&mut self, py: Python, value: Option<EarthMagnetArg>) -> PyResult<()> {
+        self.geomagnet = value.and_then(|magnet|
+            magnet.into_geomagnet(py).transpose()
+        ).transpose()?;
+        Ok(())
+    }
+
+    /// The local geometry.
     #[getter]
     fn get_geometry(&mut self, py: Python) -> PyObject {
         match &self.geometry {
@@ -373,7 +413,8 @@ impl Fluxmeter {
 
             match &agent.fluxmeter.mode {
                 TransportMode::Continuous => {
-                    flux[i] = if agent.magnet.is_none() || (state.energy() >= Agent::HIGH_ENERGY) {
+                    flux[i] = if agent.geomagnet.is_none() ||
+                                 (state.energy() >= Agent::HIGH_ENERGY) {
                         let particle = if states.is_flavoured() {
                             Particle::from_pid(state.pid())?
                         } else {
@@ -507,7 +548,7 @@ impl Fluxmeter {
         let size = states.size();
         let mut shape = states.shape();
 
-        if agent.magnet.is_some() && !states.is_flavoured() {
+        if agent.geomagnet.is_some() && !states.is_flavoured() {
             let err = Error::new(TypeError)
                 .what("states")
                 .why("a pid is required for a magnetized geometry")
@@ -586,41 +627,27 @@ impl Fluxmeter {
     }
 }
 
-static DEFAULT_ATMOSPHERE: OnceLock<Atmosphere> = OnceLock::new();
-
 impl Fluxmeter {
     const TOP_MATERIAL: &str = "Air";
 
-    fn borrow<'py>(&self, py: Python<'py>) -> Proxy<'py> {
-        let mut geometry = self.geometry.borrow_mut(py);
-        let atmosphere = match &geometry {
-            GeometryRefMut::Earth(geometry) => {
-                AtmosphereRef::Some(geometry.atmosphere.bind(py).borrow())
-            },
-            GeometryRefMut::External(_) => {
-                AtmosphereRef::Default(DEFAULT_ATMOSPHERE.get_or_init(|| Atmosphere::default()))
-            },
-        };
-        let magnet = match &mut geometry {
-            GeometryRefMut::Earth(geometry) => {
-                geometry.magnet.as_mut().map(|magnet| magnet.bind(py).borrow_mut())
-            },
-            GeometryRefMut::External(_) => None,
-        };
+    fn borrow<'py>(&mut self, py: Python<'py>) -> Proxy<'py> {
+        let geometry = self.geometry.borrow(py);
+        let atmosphere = self.atmosphere.bind(py).borrow();
+        let geomagnet = self.geomagnet.as_mut().map(|geomagnet| geomagnet.bind(py).borrow_mut());
         let physics = self.physics.bind(py).borrow_mut();
         let random = self.random.bind(py).borrow_mut();
         let reference = self.reference.bind(py).borrow();
-        Proxy { geometry, atmosphere, magnet, physics, random, reference }
+        Proxy { geometry, atmosphere, geomagnet, physics, random, reference }
     }
 
     fn create_or_update_geometry(
         &mut self,
         py: Python,
-        geometry: &GeometryRefMut,
+        geometry: &GeometryRef,
         physics: &physics::Physics,
     ) -> PyResult<()> {
         match geometry {
-            GeometryRefMut::Earth(geometry) => if self.media.is_empty() {
+            GeometryRef::Earth(geometry) => if self.media.is_empty() {
                 // Map media.
                 for (index, layer) in geometry.layers.iter().enumerate() {
                     let layer = layer.bind(py).borrow();
@@ -640,7 +667,7 @@ impl Fluxmeter {
                     physics,
                 )?;
             },
-            GeometryRefMut::External(geometry) => if self.media.is_empty() {
+            GeometryRef::External(geometry) => if self.media.is_empty() {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
                     let medium = medium.extract::<external::Medium>()?;
                     let medium = CMedium::from_external(&medium, index, physics)?;
@@ -693,36 +720,36 @@ extern "C" fn atmosphere_locals(
         LAMBDA_MAX
     };
 
-    if !agent.use_magnet || (agent.state.energy >= Agent::HIGH_ENERGY) {
+    if !agent.use_geomagnet || (agent.state.energy >= Agent::HIGH_ENERGY) {
         return lambda
     }
 
-    // Get the local magnetic field.
+    // Get the local geomagnetic field.
     const UPDATE_RADIUS: f64 = 1E+03;
     let d2 = {
         let mut d2 = 0.0;
         for i in 0..3 {
-            let tmp = agent.state.position[i] - agent.magnet_position[i];
+            let tmp = agent.state.position[i] - agent.geomagnet_position[i];
             d2 += tmp * tmp;
         }
         d2
     };
     if d2 > UPDATE_RADIUS.powi(2) {
-        // Get the local magnetic field (in ENU frame).
-        let enu = agent.magnet.as_mut().unwrap().field(
+        // Get the local geomagnetic field (in ENU frame).
+        let enu = agent.geomagnet.as_mut().unwrap().field(
             agent.geographic.latitude,
             agent.geographic.longitude,
             agent.geographic.altitude,
         ).unwrap();
 
         let frame = LocalFrame::new(agent.geographic, 0.0, 0.0);
-        agent.magnet_field = frame.to_ecef_direction(&enu);
-        agent.magnet_position = agent.state.position;
+        agent.geomagnet_field = frame.to_ecef_direction(&enu);
+        agent.geomagnet_position = agent.state.position;
     }
 
-    // Update the local magnetic field.
+    // Update the local geomagnetic field.
     unsafe {
-        (*locals).magnet = agent.magnet_field;
+        (*locals).magnet = agent.geomagnet_field;
     }
 
     let lambda_magnet = UPDATE_RADIUS / agent.context.accuracy;
@@ -1047,8 +1074,8 @@ impl<'a> Agent<'a> {
     }
 
     fn grammage(&mut self) -> PyResult<Vec<f64>> {
-        // Disable any magnetic field.
-        self.use_magnet = false;
+        // Disable any geomagnetic field.
+        self.use_geomagnet = false;
 
         // XXX check that point is inside the geometry.
 
@@ -1109,8 +1136,8 @@ impl<'a> Agent<'a> {
         py: Python,
         atmosphere: &'a Atmosphere,
         fluxmeter: &'a mut Fluxmeter,
-        geometry: &'a GeometryRefMut,
-        magnet: Option<&'a mut Magnet>,
+        geometry: &'a GeometryRef,
+        geomagnet: Option<&'a mut EarthMagnet>,
         physics: &'a mut physics::Physics,
         mut random: &'a mut random::Random,
         reference: &'a reference::Reference,
@@ -1119,11 +1146,11 @@ impl<'a> Agent<'a> {
         physics.update(py, geometry.materials())?;
         fluxmeter.create_or_update_geometry(py, geometry, &physics)?;
         let geometry = match geometry {
-            GeometryRefMut::Earth(geometry) => GeometryAgent::Earth {
+            GeometryRef::Earth(geometry) => GeometryAgent::Earth {
                 stepper: geometry.stepper(py)?,
                 zmax: geometry.z.max() + Self::DELTA_Z,
             },
-            GeometryRefMut::External(geometry) => GeometryAgent::External {
+            GeometryRef::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,
                 frame: &geometry.frame,
                 direction: [0.0; 3],
@@ -1142,14 +1169,14 @@ impl<'a> Agent<'a> {
         let geographic = GeographicCoordinates::default();
         let horizontal = HorizontalCoordinates::default();
 
-        let magnet_field = [0.0; 3];
-        let magnet_position = [0.0; 3];
-        let use_magnet = false;
+        let geomagnet_field = [0.0; 3];
+        let geomagnet_position = [0.0; 3];
+        let use_geomagnet = false;
         let opensky = Opensky::default();
 
         let agent = Self {
-            state, geographic, horizontal, atmosphere, fluxmeter, magnet, geometry, physics,
-            reference, context, magnet_field, magnet_position, use_magnet, opensky,
+            state, geographic, horizontal, atmosphere, fluxmeter, geomagnet, geometry, physics,
+            reference, context, geomagnet_field, geomagnet_position, use_geomagnet, opensky,
         };
         Ok(agent)
     }
@@ -1233,9 +1260,9 @@ impl<'a> Agent<'a> {
     }
 
     fn transport(&mut self) -> PyResult<()> {
-        if self.magnet.is_some() {
-            self.use_magnet = true;
-            self.magnet_position = [0.0; 3];
+        if self.geomagnet.is_some() {
+            self.use_geomagnet = true;
+            self.geomagnet_position = [0.0; 3];
         }
 
         self.context.event = pumas::EVENT_LIMIT_ENERGY;
@@ -1522,24 +1549,15 @@ impl<'py> Proxy<'py> {
     ) -> PyResult<Pin<Box<Agent<'a>>>> {
         let pinned = Box::pin(Agent::new(
             py,
-            self.atmosphere.as_ref(),
+            &self.atmosphere,
             fluxmeter,
             &self.geometry,
-            self.magnet.as_deref_mut(),
+            self.geomagnet.as_deref_mut(),
             &mut self.physics,
             &mut self.random,
             &self.reference,
         )?);
         Ok(pinned)
-    }
-}
-
-impl<'py> AsRef<Atmosphere> for AtmosphereRef<'py> {
-    fn as_ref(&self) -> &Atmosphere {
-        match self {
-            Self::Some(atmosphere) => atmosphere,
-            Self::Default(atmosphere) => atmosphere,
-        }
     }
 }
 

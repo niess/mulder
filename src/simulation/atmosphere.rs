@@ -13,6 +13,12 @@ pub struct Atmosphere {
 }
 
 #[derive(FromPyObject)]
+pub enum AtmosphereArg<'py> {
+    Model(AtmosphereLike<'py>),
+    Object(Py<Atmosphere>),
+}
+
+#[derive(FromPyObject)]
 pub enum AtmosphereLike<'py> {
     Model(AtmosphericModel),
     Data(AnyArray<'py, f64>),
@@ -208,5 +214,14 @@ impl Atmosphere {
 impl Default for Atmosphere {
     fn default() -> Self {
         Self::new(None).unwrap()
+    }
+}
+
+impl<'py> AtmosphereArg<'py> {
+    pub fn into_atmosphere(self, py: Python<'py>) -> PyResult<Py<Atmosphere>> {
+        match self {
+            Self::Model(model) => Py::new(py, Atmosphere::new(Some(model))?),
+            Self::Object(atmosphere) => Ok(atmosphere),
+        }
     }
 }

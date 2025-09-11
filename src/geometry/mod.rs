@@ -14,16 +14,12 @@ use pyo3::types::{PyDict, PyTuple};
 use std::ffi::c_int;
 use std::ptr::{NonNull, null, null_mut};
 
-pub mod atmosphere;
 pub mod external;
 pub mod grid;
 pub mod layer;
-pub mod magnet;
 
-use atmosphere::{Atmosphere, AtmosphereLike};
 use external::ExternalGeometry;
 use layer::{DataLike, Layer};
-use magnet::Magnet;
 
 
 #[derive(FromPyObject, IntoPyObject)]
@@ -38,9 +34,9 @@ pub enum BoundGeometry<'a, 'py> {
     External(&'a Bound<'py, ExternalGeometry>),
 }
 
-pub enum GeometryRefMut<'py> {
-    Earth(PyRefMut<'py, EarthGeometry>),
-    External(PyRefMut<'py, ExternalGeometry>),
+pub enum GeometryRef<'py> {
+    Earth(PyRef<'py, EarthGeometry>),
+    External(PyRef<'py, ExternalGeometry>),
 }
 
 #[derive(FromPyObject)]
@@ -53,14 +49,6 @@ pub enum GeometryArg {
 
 #[pyclass(module="mulder")]
 pub struct EarthGeometry {
-    /// The Earth atmosphere.
-    #[pyo3(get)]
-    pub atmosphere: Py<Atmosphere>,
-
-    /// The geomagnetic field.
-    #[pyo3(get)]
-    pub magnet: Option<Py<Magnet>>,
-
     /// The geometry materials.
     #[pyo3(get)]
     pub materials: Materials,
@@ -74,19 +62,6 @@ pub struct EarthGeometry {
 
 unsafe impl Send for EarthGeometry {}
 unsafe impl Sync for EarthGeometry {}
-
-#[derive(FromPyObject)]
-pub enum AtmosphereArg<'py> {
-    Model(AtmosphereLike<'py>),
-    Object(Py<Atmosphere>),
-}
-
-#[derive(FromPyObject)]
-pub enum MagnetArg {
-    Flag(bool),
-    Model(PathString),
-    Object(Py<Magnet>),
-}
 
 #[derive(FromPyObject)]
 enum LayerLike<'py> {
@@ -113,12 +88,10 @@ pub struct EarthGeometryStepper {
 
 #[pymethods]
 impl EarthGeometry {
-    #[pyo3(signature=(*layers, atmosphere=None, magnet=None, materials=None))]
+    #[pyo3(signature=(*layers, materials=None))]
     #[new]
     pub fn new(
         layers: &Bound<PyTuple>,
-        atmosphere: Option<AtmosphereArg>, // XXX hide in kwargs?
-        magnet: Option<MagnetArg>,
         materials: Option<MaterialsArg>,
     ) -> PyResult<Self> {
         let py = layers.py();
@@ -150,15 +123,9 @@ impl EarthGeometry {
             (v, z)
         };
 
-        let atmosphere = match atmosphere {
-            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
-            None => Py::new(py, Atmosphere::new(None)?)?,
-        };
-
-        let magnet = magnet.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
         let materials = Materials::from_arg(py, materials)?;
 
-        Ok(Self { layers, z, atmosphere, magnet, materials })
+        Ok(Self { layers, z, materials })
     }
 
     /// The geometry layers.
@@ -168,21 +135,6 @@ impl EarthGeometry {
             .iter()
             .map(|data| data.clone_ref(py));
         PyTuple::new(py, elements)
-    }
-
-    #[setter]
-    fn set_atmosphere(&mut self, py: Python, value: Option<AtmosphereArg>) -> PyResult<()> {
-        self.atmosphere = match value {
-            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
-            None => Py::new(py, Atmosphere::new(None)?)?,
-        };
-        Ok(())
-    }
-
-    #[setter]
-    fn set_magnet(&mut self, py: Python, value: Option<MagnetArg>) -> PyResult<()> {
-        self.magnet = value.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
-        Ok(())
     }
 
     #[setter]
@@ -442,33 +394,6 @@ impl EarthGeometry {
     }
 }
 
-impl<'py> AtmosphereArg<'py> {
-    fn into_atmosphere(self, py: Python<'py>) -> PyResult<Py<Atmosphere>> {
-        match self {
-            Self::Model(model) => Py::new(py, Atmosphere::new(Some(model))?),
-            Self::Object(atmosphere) => Ok(atmosphere),
-        }
-    }
-}
-
-impl MagnetArg {
-    fn into_magnet(self, py: Python) -> Option<PyResult<Py<Magnet>>> {
-        match self {
-            Self::Flag(b) => if b {
-                Some(Magnet::new(py, None, None, None, None)
-                    .and_then(|magnet| Py::new(py, magnet)))
-            } else {
-                None
-            },
-            Self::Model(model) => {
-                Some(Magnet::new(py, Some(model), None, None, None)
-                    .and_then(|magnet| Py::new(py, magnet)))
-            },
-            Self::Object(ob) => Some(Ok(ob.clone_ref(py))),
-        }
-    }
-}
-
 impl_dtype!(
     Intersection,
     [
@@ -628,10 +553,10 @@ impl Geometry {
         }
     }
 
-    pub fn borrow_mut<'py>(&self, py: Python<'py>) -> GeometryRefMut<'py> {
+    pub fn borrow<'py>(&self, py: Python<'py>) -> GeometryRef<'py> {
         match self {
-            Self::Earth(geometry) => GeometryRefMut::Earth(geometry.bind(py).borrow_mut()),
-            Self::External(geometry) => GeometryRefMut::External(geometry.bind(py).borrow_mut()),
+            Self::Earth(geometry) => GeometryRef::Earth(geometry.bind(py).borrow()),
+            Self::External(geometry) => GeometryRef::External(geometry.bind(py).borrow()),
         }
     }
 }
@@ -651,7 +576,7 @@ impl<'a, 'py> BoundGeometry<'a, 'py> {
     }
 }
 
-impl<'py> GeometryRefMut<'py> {
+impl<'py> GeometryRef<'py> {
     pub fn materials(&self) -> &Materials {
         match self {
             Self::Earth(geometry) => &geometry.materials,

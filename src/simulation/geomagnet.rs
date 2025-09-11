@@ -12,7 +12,7 @@ use std::ptr::null_mut;
 
 
 #[pyclass(module="mulder")]
-pub struct Magnet {
+pub struct EarthMagnet {
     /// The calendar day.
     #[pyo3(get)] // XXX Use date object instead?
     day: usize,
@@ -31,13 +31,22 @@ pub struct Magnet {
 
     snapshot: *mut gull::Snapshot,
     workspace: *mut f64,
+
+    // XXX add a density threshold field.
 }
 
-unsafe impl Send for Magnet {}
-unsafe impl Sync for Magnet {}
+#[derive(FromPyObject)]
+pub enum EarthMagnetArg {
+    Flag(bool),
+    Model(PathString),
+    Object(Py<EarthMagnet>),
+}
+
+unsafe impl Send for EarthMagnet {}
+unsafe impl Sync for EarthMagnet {}
 
 #[pymethods]
-impl Magnet {
+impl EarthMagnet {
     #[pyo3(signature=(model=None, /, *, day=None, month=None, year=None))]
     #[new]
     pub fn new(
@@ -152,7 +161,7 @@ impl Magnet {
     }
 }
 
-impl Magnet {
+impl EarthMagnet {
     const DEFAULT_MODEL: &str = "IGRF14.COF";
 
     pub fn field(&mut self, latitude: f64, longitude: f64, altitude: f64) -> PyResult<[f64; 3]> {
@@ -172,12 +181,31 @@ impl Magnet {
     }
 }
 
-impl Drop for Magnet {
+impl Drop for EarthMagnet {
     fn drop(&mut self) {
         unsafe {
             gull::snapshot_destroy(&mut self.snapshot);
             libc::free(self.workspace as *mut c_void);
         }
         self.workspace = null_mut();
+    }
+}
+
+impl EarthMagnetArg {
+    pub fn into_geomagnet(self, py: Python) -> PyResult<Option<Py<EarthMagnet>>> {
+        let geomagnet = match self {
+            Self::Flag(b) => if b {
+                Some(EarthMagnet::new(py, None, None, None, None)
+                    .and_then(|magnet| Py::new(py, magnet)))
+            } else {
+                None
+            },
+            Self::Model(model) => {
+                Some(EarthMagnet::new(py, Some(model), None, None, None)
+                    .and_then(|magnet| Py::new(py, magnet)))
+            },
+            Self::Object(ob) => Some(Ok(ob.clone_ref(py))),
+        };
+        Ok(geomagnet.transpose()?)
     }
 }
