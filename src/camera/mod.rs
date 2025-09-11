@@ -250,7 +250,7 @@ impl Camera {
         let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
         let picture = array.as_slice_mut();
 
-        geometry.ensure_stepper(py)?;
+        let mut stepper = geometry.stepper(py, false)?;
         let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
 
         let layers: Vec<_> = geometry.layers.iter().map(
@@ -277,17 +277,17 @@ impl Camera {
             }
         };
 
-        geometry.reset_stepper();
-        let camera_layer = geometry.locate(self.position())?;
+        stepper.reset();
+        let camera_layer = stepper.locate(self.position())?;
 
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while shooting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            geometry.reset_stepper();
+            stepper.reset();
 
             let air_layer = layers.len() as i32;
-            let (intersection, index) = geometry.trace(self.position(), direction)?;
+            let (intersection, index) = stepper.trace(self.position(), direction)?;
             let (backface, layer) = if intersection.after == camera_layer {
                 (false, -1)
             } else if (camera_layer < air_layer) && (intersection.after == air_layer) {

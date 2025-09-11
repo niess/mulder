@@ -7,11 +7,12 @@ use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
+use crate::utils::ptr::{Destroy, OwnedPtr};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::ffi::c_int;
-use std::ptr::{null, null_mut};
+use std::ptr::{NonNull, null, null_mut};
 
 pub mod atmosphere;
 pub mod external;
@@ -69,7 +70,6 @@ pub struct EarthGeometry {
     pub z: (f64, f64),
 
     pub layers: Vec<Py<Layer>>,
-    pub stepper: *mut turtle::Stepper,
 }
 
 unsafe impl Send for EarthGeometry {}
@@ -107,7 +107,9 @@ pub struct Intersection {
 }
 
 pub struct EarthGeometryStepper {
-    pub ptr: *mut turtle::Stepper,
+    ptr: OwnedPtr<turtle::Stepper>,
+
+    pub layers: usize,
     pub zmin: f64,
     pub zmax: f64,
 }
@@ -157,12 +159,9 @@ impl EarthGeometry {
         };
 
         let magnet = magnet.and_then(|magnet| magnet.into_magnet(py)).transpose()?;
-
         let materials = Materials::from_arg(py, materials)?;
 
-        let stepper = null_mut();
-
-        Ok(Self { layers, z, atmosphere, magnet, materials, stepper })
+        Ok(Self { layers, z, atmosphere, magnet, materials })
     }
 
     /// The geometry layers.
@@ -230,7 +229,7 @@ impl EarthGeometry {
             kwargs,
         )?;
 
-        self.ensure_stepper(py)?;
+        let mut stepper = self.stepper(py, false)?;
         let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
 
         let mut array = NewArray::empty(py, position.shape())?;
@@ -239,14 +238,14 @@ impl EarthGeometry {
             const WHY: &str = "while locating position(s)";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            self.reset_stepper();
+            stepper.reset();
 
             let geographic = GeographicCoordinates {
                 latitude: position.get_f64(Name::Latitude, i)?,
                 longitude: position.get_f64(Name::Longitude, i)?,
                 altitude: position.get_f64(Name::Altitude, i)?,
             };
-            layer[i] = self.locate(geographic)?;
+            layer[i] = stepper.locate(geographic)?;
             notifier.tic();
         }
         Ok(array)
@@ -279,7 +278,7 @@ impl EarthGeometry {
             (size, shape, n)
         };
 
-        self.ensure_stepper(py)?;
+        let mut stepper = self.stepper(py, false)?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
         let mut array = NewArray::<f64>::zeros(py, shape)?;
@@ -288,7 +287,7 @@ impl EarthGeometry {
             const WHY: &str = "while scanning geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            self.reset_stepper();
+            stepper.reset();
 
             // Get the starting point.
             let geographic = GeographicCoordinates {
@@ -301,7 +300,7 @@ impl EarthGeometry {
             error::to_result(
                 unsafe {
                     turtle::stepper_step(
-                        self.stepper,
+                        stepper.as_ptr(),
                         r.as_mut_ptr(),
                         null(),
                         null_mut(),
@@ -329,7 +328,7 @@ impl EarthGeometry {
                     error::to_result(
                         unsafe {
                             turtle::stepper_step(
-                                self.stepper,
+                                stepper.as_ptr(),
                                 r.as_mut_ptr(),
                                 u.as_ptr(),
                                 null_mut(),
@@ -385,7 +384,7 @@ impl EarthGeometry {
         let size = coordinates.size();
         let shape = coordinates.shape();
 
-        self.ensure_stepper(py)?;
+        let mut stepper = self.stepper(py, false)?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
         let mut array = NewArray::empty(py, shape)?;
@@ -394,7 +393,7 @@ impl EarthGeometry {
             const WHY: &str = "while tracing geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            self.reset_stepper();
+            stepper.reset();
 
             let position = GeographicCoordinates {
                 latitude: coordinates.get_f64(Name::Latitude, i)?,
@@ -405,7 +404,7 @@ impl EarthGeometry {
                 azimuth: coordinates.get_f64(Name::Azimuth, i)?,
                 elevation: coordinates.get_f64(Name::Elevation, i)?,
             };
-            intersections[i] = self.trace(position, direction)?.0;
+            intersections[i] = stepper.trace(position, direction)?.0;
             notifier.tic();
         }
         Ok(array)
@@ -431,7 +430,7 @@ impl EarthGeometry {
     // Top layer min width, in m.
     const DELTA_Z: f64 = 300.0;
 
-    pub fn create_stepper(&self,py: Python, clamp: bool) -> PyResult<EarthGeometryStepper> {
+    pub fn stepper(&self, py: Python, clamp: bool) -> PyResult<EarthGeometryStepper> {
         const WHAT: Option<&str> = Some("geometry");
         let mut ptr = null_mut();
         error::to_result(unsafe { turtle::stepper_create(&mut ptr) }, WHAT)?;
@@ -448,125 +447,10 @@ impl EarthGeometry {
         };
         error::to_result(unsafe { turtle::stepper_add_layer(ptr) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(ptr, zmax) }, WHAT)?;
-        let stepper = EarthGeometryStepper { ptr, zmin, zmax };
+        let ptr = OwnedPtr::new(ptr)?;
+        let layers = self.layers.len();
+        let stepper = EarthGeometryStepper { ptr, layers, zmin, zmax };
         Ok(stepper)
-    }
-
-    pub fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
-        if self.stepper == null_mut() {
-            self.stepper = self.create_stepper(py, false)?.ptr;
-        }
-        Ok(())
-    }
-
-    pub fn locate(&self, position: GeographicCoordinates) -> PyResult<i32> {
-        let mut r = position.to_ecef();
-        let mut index = [ -2; 2 ];
-        error::to_result(
-            unsafe {
-                turtle::stepper_step(
-                    self.stepper,
-                    r.as_mut_ptr(),
-                    null(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    index.as_mut_ptr(),
-                )
-            },
-            None::<&str>,
-        )?;
-        Ok(layer_index(index[0]))
-    }
-
-    pub fn reset_stepper(&mut self) {
-        unsafe {
-            turtle::stepper_reset(self.stepper);
-        }
-    }
-
-    pub fn trace(
-        &self,
-        position: GeographicCoordinates,
-        direction: HorizontalCoordinates
-    ) -> PyResult<(Intersection, i32)> {
-        let mut r = position.to_ecef();
-        let mut index = [ -2; 2 ];
-        error::to_result(
-            unsafe {
-                turtle::stepper_step(
-                    self.stepper,
-                    r.as_mut_ptr(),
-                    null(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    null_mut(),
-                    index.as_mut_ptr(),
-                )
-            },
-            None::<&str>,
-        )?;
-        let start_layer = index[0];
-        let mut di = 0.0;
-        let position = if (start_layer >= 1) &&
-                          (start_layer as usize <= self.layers.len() + 1) {
-
-            // Iterate until a boundary is hit.
-            let u = direction.to_ecef(&position);
-            let mut step = 0.0_f64;
-            while index[0] == start_layer {
-                error::to_result(
-                    unsafe {
-                        turtle::stepper_step(
-                            self.stepper,
-                            r.as_mut_ptr(),
-                            u.as_ptr(),
-                            null_mut(),
-                            null_mut(),
-                            null_mut(),
-                            null_mut(),
-                            &mut step,
-                            index.as_mut_ptr(),
-                        )
-                    },
-                    None::<&str>,
-                )?;
-                di += step;
-            }
-
-            // Push the particle through the boundary.
-            const EPS: f64 = f32::EPSILON as f64;
-            di += EPS;
-            for i in 0..3 {
-                r[i] += EPS * u[i];
-            }
-            GeographicCoordinates::from_ecef(&r)
-        } else {
-            position
-        };
-        Ok((
-            Intersection {
-                before: layer_index(start_layer),
-                after: layer_index(index[0]),
-                latitude: position.latitude,
-                longitude: position.longitude,
-                altitude: position.altitude,
-                distance: di,
-            },
-            index[1],
-        ))
-    }
-}
-
-impl Drop for EarthGeometry {
-    fn drop(&mut self) {
-        unsafe {
-            turtle::stepper_destroy(&mut self.stepper);
-        }
     }
 }
 
@@ -609,9 +493,142 @@ impl_dtype!(
     ]
 );
 
-impl Default for EarthGeometryStepper {
-    fn default() -> Self {
-        Self { ptr: null_mut(), zmin: 0.0, zmax: 0.0 }
+impl EarthGeometryStepper {
+    pub fn step(
+        &mut self,
+        position: &mut [f64; 3],
+        geographic: &mut GeographicCoordinates
+    ) -> (f64, usize) {
+        let mut step = 0.0;
+        let mut index = [ -1; 2 ];
+        unsafe {
+            turtle::stepper_step(
+                self.as_ptr(),
+                position.as_mut_ptr(),
+                null(),
+                &mut geographic.latitude,
+                &mut geographic.longitude,
+                &mut geographic.altitude,
+                null_mut(),
+                &mut step,
+                index.as_mut_ptr(),
+            );
+        }
+        (step, index[0] as usize)
+    }
+
+    #[inline]
+    pub fn reset(&mut self) {
+        unsafe {
+            turtle::stepper_reset(self.as_ptr());
+        }
+    }
+
+    #[inline]
+    fn as_ptr(&self) -> *mut turtle::Stepper {
+        self.ptr.0.as_ptr()
+    }
+
+    pub fn locate(&mut self, position: GeographicCoordinates) -> PyResult<i32> {
+        let mut r = position.to_ecef();
+        let mut index = [ -2; 2 ];
+        error::to_result(
+            unsafe {
+                turtle::stepper_step(
+                    self.as_ptr(),
+                    r.as_mut_ptr(),
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    index.as_mut_ptr(),
+                )
+            },
+            None::<&str>,
+        )?;
+        Ok(layer_index(index[0]))
+    }
+
+    pub fn trace(
+        &mut self,
+        position: GeographicCoordinates,
+        direction: HorizontalCoordinates
+    ) -> PyResult<(Intersection, i32)> {
+        let mut r = position.to_ecef();
+        let mut index = [ -2; 2 ];
+        error::to_result(
+            unsafe {
+                turtle::stepper_step(
+                    self.as_ptr(),
+                    r.as_mut_ptr(),
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    index.as_mut_ptr(),
+                )
+            },
+            None::<&str>,
+        )?;
+        let start_layer = index[0];
+        let mut di = 0.0;
+        let position = if (start_layer >= 1) &&
+                          (start_layer as usize <= self.layers + 1) {
+
+            // Iterate until a boundary is hit.
+            let u = direction.to_ecef(&position);
+            let mut step = 0.0_f64;
+            while index[0] == start_layer {
+                error::to_result(
+                    unsafe {
+                        turtle::stepper_step(
+                            self.as_ptr(),
+                            r.as_mut_ptr(),
+                            u.as_ptr(),
+                            null_mut(),
+                            null_mut(),
+                            null_mut(),
+                            null_mut(),
+                            &mut step,
+                            index.as_mut_ptr(),
+                        )
+                    },
+                    None::<&str>,
+                )?;
+                di += step;
+            }
+
+            // Push the particle through the boundary.
+            const EPS: f64 = f32::EPSILON as f64;
+            di += EPS;
+            for i in 0..3 {
+                r[i] += EPS * u[i];
+            }
+            GeographicCoordinates::from_ecef(&r)
+        } else {
+            position
+        };
+        Ok((
+            Intersection {
+                before: layer_index(start_layer),
+                after: layer_index(index[0]),
+                latitude: position.latitude,
+                longitude: position.longitude,
+                altitude: position.altitude,
+                distance: di,
+            },
+            index[1],
+        ))
+    }
+}
+
+impl Destroy for NonNull<turtle::Stepper> {
+    fn destroy(self) {
+        unsafe { turtle::stepper_destroy(&mut self.as_ptr()); }
     }
 }
 

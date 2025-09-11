@@ -1,4 +1,4 @@
-use crate::bindings::{turtle, pumas};
+use crate::bindings::pumas;
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use std::ffi::{c_uint, c_void};
 use std::ops::DerefMut;
-use std::ptr::{null, null_mut};
+use std::ptr::null_mut;
 use std::pin::Pin;
 use std::sync::OnceLock;
 
@@ -52,7 +52,6 @@ pub struct Fluxmeter {
     #[pyo3(get)]
     reference: Py<reference::Reference>,
 
-    stepper: EarthGeometryStepper,
     atmosphere_medium: CMedium,
     media: Vec<CMedium>,
 }
@@ -104,7 +103,9 @@ struct Agent<'a> {
 }
 
 enum GeometryAgent<'a> {
-    Earth,
+    Earth {
+        stepper: EarthGeometryStepper,
+    },
     External {
         tracer: external::ExternalTracer<'a>,
         frame: &'a LocalFrame,
@@ -258,12 +259,11 @@ impl Fluxmeter {
         let reference = reference::Reference::new(None, None)?;
         let reference = Py::new(py, reference)?;
 
-        let stepper = EarthGeometryStepper::default();
         let media = Vec::new();
         let atmosphere_medium = CMedium::default();
 
         let fluxmeter = Self {
-            geometry, mode, physics, random, reference, stepper, atmosphere_medium, media,
+            geometry, mode, physics, random, reference, atmosphere_medium, media,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -620,7 +620,7 @@ impl Fluxmeter {
         physics: &physics::Physics,
     ) -> PyResult<()> {
         match geometry {
-            GeometryRefMut::Earth(geometry) => if self.stepper.ptr == null_mut() {
+            GeometryRefMut::Earth(geometry) => if self.media.is_empty() {
                 // Map media.
                 for (index, layer) in geometry.layers.iter().enumerate() {
                     let layer = layer.bind(py).borrow();
@@ -628,9 +628,6 @@ impl Fluxmeter {
                     self.media.push(medium);
                 }
                 self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
-
-                // Create stepper.
-                self.stepper = geometry.create_stepper(py, true)?;
             } else {
                 for (index, layer) in geometry.layers.iter().enumerate() {
                     self.media[index].update_material(
@@ -668,18 +665,7 @@ impl Fluxmeter {
     }
 
     fn reset(&mut self) {
-        if self.stepper.ptr == null_mut() {
-            unsafe {
-                turtle::stepper_destroy(&mut self.stepper.ptr); 
-            }
-        }
         self.media.clear();
-    }
-}
-
-impl Drop for Fluxmeter {
-    fn drop(&mut self) {
-        self.reset()
     }
 }
 
@@ -770,24 +756,12 @@ extern "C" fn layers_geometry(
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let (step, layer) = {
-        let mut step = 0.0;
-        let mut index = [ -1; 2 ];
-        unsafe {
-            turtle::stepper_step(
-                agent.fluxmeter.stepper.ptr,
-                agent.state.position.as_mut_ptr(),
-                null(),
-                &mut agent.geographic.latitude,
-                &mut agent.geographic.longitude,
-                &mut agent.geographic.altitude,
-                null_mut(),
-                &mut step,
-                index.as_mut_ptr(),
-            );
-        }
-        (step, index[0] as usize)
-    };
+    let GeometryAgent::Earth { stepper } = &mut agent.geometry
+        else { unreachable!() };
+
+    let (step, layer) = stepper.step(
+        &mut agent.state.position, &mut agent.geographic
+    );
 
     if step_ptr != null_mut() {
         let step_ptr = unsafe { &mut*step_ptr };
@@ -796,10 +770,9 @@ extern "C" fn layers_geometry(
 
     if medium_ptr != null_mut() {
         let medium_ptr = unsafe { &mut*medium_ptr };
-        let n = agent.fluxmeter.media.len();
-        if (layer >= 1) && (layer <= n) {
+        if (layer >= 1) && (layer <= stepper.layers) {
             *medium_ptr = agent.fluxmeter.media[layer - 1].as_mut_ptr();
-        } else if layer == n + 1 {
+        } else if layer == stepper.layers + 1 {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -1000,7 +973,7 @@ impl<'a> Agent<'a> {
 
     fn get_flavoured_geographic_state(&self) -> FlavouredGeographicState {
         let (geographic, horizontal) = match self.geometry {
-            GeometryAgent::Earth => (self.geographic, self.horizontal),
+            GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
             GeometryAgent::External { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
@@ -1019,7 +992,7 @@ impl<'a> Agent<'a> {
 
     fn get_flavoured_local_state(&self, frame: &LocalFrame) -> FlavouredLocalState {
         let (position, direction) = match self.geometry {
-            GeometryAgent::Earth => frame.from_geographic(
+            GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
             ),
             GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
@@ -1037,7 +1010,7 @@ impl<'a> Agent<'a> {
 
     fn get_unflavoured_geographic_state(&self) -> UnflavouredGeographicState {
         let (geographic, horizontal) = match self.geometry {
-            GeometryAgent::Earth => (self.geographic, self.horizontal),
+            GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
             GeometryAgent::External { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
@@ -1055,7 +1028,7 @@ impl<'a> Agent<'a> {
 
     fn get_unflavoured_local_state(&self, frame: &LocalFrame) -> UnflavouredLocalState {
         let (position, direction) = match self.geometry {
-            GeometryAgent::Earth => frame.from_geographic(
+            GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
             ),
             GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
@@ -1083,11 +1056,9 @@ impl<'a> Agent<'a> {
         self.context.event = pumas::EVENT_MEDIUM;
 
         match &mut self.geometry {
-            GeometryAgent::Earth => {
+            GeometryAgent::Earth { stepper } => {
                 self.context.medium = Some(layers_geometry);
-                unsafe {
-                    turtle::stepper_reset(self.fluxmeter.stepper.ptr);
-                }
+                stepper.reset();
             },
             GeometryAgent::External { tracer, status, .. } => {
                 self.context.medium = Some(external_geometry);
@@ -1145,7 +1116,9 @@ impl<'a> Agent<'a> {
         physics.update(py, geometry.materials())?;
         fluxmeter.create_or_update_geometry(py, geometry, &physics)?;
         let geometry = match geometry {
-            GeometryRefMut::Earth(_) => GeometryAgent::Earth,
+            GeometryRefMut::Earth(geometry) => GeometryAgent::Earth {
+                stepper: geometry.stepper(py, true)?,
+            },
             GeometryRefMut::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,
                 frame: &geometry.frame,
@@ -1189,7 +1162,7 @@ impl<'a> Agent<'a> {
 
     fn set_state<'py>(&mut self, state: &ExtractedState) -> PyResult<()> {
         match &self.geometry {
-            GeometryAgent::Earth => {
+            GeometryAgent::Earth { .. } => {
                 match state {
                     ExtractedState::Geographic { state } => {
                         let FlavouredGeographicState {
@@ -1269,16 +1242,13 @@ impl<'a> Agent<'a> {
         // Check that the initial state lies within the geometry.
         let n_media = self.fluxmeter.media.len();
         let is_inside = match &mut self.geometry {
-            GeometryAgent::Earth => {
-                let EarthGeometryStepper { zmin, zmax, .. } = &self.fluxmeter.stepper;
+            GeometryAgent::Earth { stepper } => {
                 let is_inside =
-                    (self.geographic.altitude > *zmin + Self::EPSILON) &&
-                    (self.geographic.altitude < *zmax - Self::EPSILON);
+                    (self.geographic.altitude > stepper.zmin + Self::EPSILON) &&
+                    (self.geographic.altitude < stepper.zmax - Self::EPSILON);
                 if is_inside {
                     self.context.medium = Some(layers_geometry);
-                    unsafe {
-                        turtle::stepper_reset(self.fluxmeter.stepper.ptr);
-                    }
+                    stepper.reset();
                 }
                 is_inside
             },
@@ -1575,7 +1545,7 @@ impl<'py> AsRef<Atmosphere> for AtmosphereRef<'py> {
 impl<'a> GeometryAgent<'a> {
     fn frame(&self) -> Option<&'a LocalFrame> {
         match self {
-            Self::Earth => None,
+            Self::Earth { .. } => None,
             Self::External { frame, .. } => Some(frame),
         }
     }
