@@ -250,7 +250,7 @@ impl Camera {
         let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
         let picture = array.as_slice_mut();
 
-        let mut stepper = geometry.stepper(py, false)?;
+        let mut stepper = geometry.stepper(py)?;
         let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
 
         let layers: Vec<_> = geometry.layers.iter().map(

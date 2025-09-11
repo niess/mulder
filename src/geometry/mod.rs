@@ -108,10 +108,7 @@ pub struct Intersection {
 
 pub struct EarthGeometryStepper {
     ptr: OwnedPtr<turtle::Stepper>,
-
     pub layers: usize,
-    pub zmin: f64,
-    pub zmax: f64,
 }
 
 #[pymethods]
@@ -229,7 +226,7 @@ impl EarthGeometry {
             kwargs,
         )?;
 
-        let mut stepper = self.stepper(py, false)?;
+        let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
 
         let mut array = NewArray::empty(py, position.shape())?;
@@ -278,7 +275,7 @@ impl EarthGeometry {
             (size, shape, n)
         };
 
-        let mut stepper = self.stepper(py, false)?;
+        let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
         let mut array = NewArray::<f64>::zeros(py, shape)?;
@@ -384,7 +381,7 @@ impl EarthGeometry {
         let size = coordinates.size();
         let shape = coordinates.shape();
 
-        let mut stepper = self.stepper(py, false)?;
+        let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
         let mut array = NewArray::empty(py, shape)?;
@@ -422,15 +419,12 @@ fn layer_index(stepper_index: c_int) -> c_int {
 
 impl EarthGeometry {
     // Height of the bottom layer, in m.
-    const ZMIN: f64 = -11E+03;
+    pub const ZMIN: f64 = -11E+03;
 
     // Height of the atmosphere layer, in m.
-    const ZMAX: f64 = 120E+03;
+    pub const ZMAX: f64 = 120E+03;
 
-    // Top layer min width, in m.
-    const DELTA_Z: f64 = 300.0;
-
-    pub fn stepper(&self, py: Python, clamp: bool) -> PyResult<EarthGeometryStepper> {
+    pub fn stepper(&self, py: Python) -> PyResult<EarthGeometryStepper> {
         const WHAT: Option<&str> = Some("geometry");
         let mut ptr = null_mut();
         error::to_result(unsafe { turtle::stepper_create(&mut ptr) }, WHAT)?;
@@ -439,17 +433,11 @@ impl EarthGeometry {
             let layer = layer.bind(py).borrow();
             unsafe { layer.insert(py, ptr)?; }
         }
-        let zmin = Self::ZMIN;
-        let zmax = if clamp {
-            self.z.max() + Self::DELTA_Z
-        } else {
-            Self::ZMAX
-        };
         error::to_result(unsafe { turtle::stepper_add_layer(ptr) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(ptr, zmax) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(ptr, Self::ZMAX) }, WHAT)?;
         let ptr = OwnedPtr::new(ptr)?;
         let layers = self.layers.len();
-        let stepper = EarthGeometryStepper { ptr, layers, zmin, zmax };
+        let stepper = EarthGeometryStepper { ptr, layers };
         Ok(stepper)
     }
 }

@@ -105,6 +105,7 @@ struct Agent<'a> {
 enum GeometryAgent<'a> {
     Earth {
         stepper: EarthGeometryStepper,
+        zmax: f64,
     },
     External {
         tracer: external::ExternalTracer<'a>,
@@ -749,14 +750,14 @@ extern "C" fn uniform01(context: *mut pumas::Context) -> f64 {
 }
 
 #[no_mangle]
-extern "C" fn layers_geometry(
+extern "C" fn earth_geometry(
     _context: *mut pumas::Context,
     state: *mut pumas::State,
     medium_ptr: *mut *mut pumas::Medium,
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let GeometryAgent::Earth { stepper } = &mut agent.geometry
+    let GeometryAgent::Earth { stepper, zmax } = &mut agent.geometry
         else { unreachable!() };
 
     let (step, layer) = stepper.step(
@@ -772,7 +773,7 @@ extern "C" fn layers_geometry(
         let medium_ptr = unsafe { &mut*medium_ptr };
         if (layer >= 1) && (layer <= stepper.layers) {
             *medium_ptr = agent.fluxmeter.media[layer - 1].as_mut_ptr();
-        } else if layer == stepper.layers + 1 {
+        } else if (layer == stepper.layers + 1) && (agent.geographic.altitude < *zmax) {
             *medium_ptr = agent.fluxmeter.atmosphere_medium.as_mut_ptr();
         } else {
             *medium_ptr = null_mut();
@@ -951,6 +952,9 @@ impl Default for CMedium {
 }
 
 impl<'a> Agent<'a> {
+    // Min atmospheric depth for the stepping.
+    const DELTA_Z: f64 = 300.0;
+
     const EPSILON: f64 = f32::EPSILON as f64;
 
     fn flux(&mut self, particle: Particle) -> PyResult<f64> {
@@ -1056,8 +1060,8 @@ impl<'a> Agent<'a> {
         self.context.event = pumas::EVENT_MEDIUM;
 
         match &mut self.geometry {
-            GeometryAgent::Earth { stepper } => {
-                self.context.medium = Some(layers_geometry);
+            GeometryAgent::Earth { stepper, .. } => {
+                self.context.medium = Some(earth_geometry);
                 stepper.reset();
             },
             GeometryAgent::External { tracer, status, .. } => {
@@ -1117,7 +1121,8 @@ impl<'a> Agent<'a> {
         fluxmeter.create_or_update_geometry(py, geometry, &physics)?;
         let geometry = match geometry {
             GeometryRefMut::Earth(geometry) => GeometryAgent::Earth {
-                stepper: geometry.stepper(py, true)?,
+                stepper: geometry.stepper(py)?,
+                zmax: geometry.z.max() + Self::DELTA_Z,
             },
             GeometryRefMut::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,
@@ -1242,12 +1247,12 @@ impl<'a> Agent<'a> {
         // Check that the initial state lies within the geometry.
         let n_media = self.fluxmeter.media.len();
         let is_inside = match &mut self.geometry {
-            GeometryAgent::Earth { stepper } => {
+            GeometryAgent::Earth { stepper, zmax } => {
                 let is_inside =
-                    (self.geographic.altitude > stepper.zmin + Self::EPSILON) &&
-                    (self.geographic.altitude < stepper.zmax - Self::EPSILON);
+                    (self.geographic.altitude > EarthGeometry::ZMIN + Self::EPSILON) &&
+                    (self.geographic.altitude < *zmax - Self::EPSILON);
                 if is_inside {
-                    self.context.medium = Some(layers_geometry);
+                    self.context.medium = Some(earth_geometry);
                     stepper.reset();
                 }
                 is_inside
