@@ -51,10 +51,10 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Register class object(s).
     module.add_class::<camera::Camera>()?;
-    module.add_class::<geometry::EarthGeometry>()?;
+    module.add_class::<geometry::earth::EarthGeometry>()?;
+    module.add_class::<geometry::earth::Grid>()?;
+    module.add_class::<geometry::earth::Layer>()?;
     module.add_class::<geometry::external::ExternalGeometry>()?;
-    module.add_class::<geometry::grid::Grid>()?;
-    module.add_class::<geometry::layer::Layer>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::atmosphere::Atmosphere>()?;
     module.add_class::<simulation::geomagnet::EarthMagnet>()?;

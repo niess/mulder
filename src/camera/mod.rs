@@ -1,4 +1,4 @@
-use crate::geometry::EarthGeometry;
+use crate::geometry::earth::EarthGeometry;
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
