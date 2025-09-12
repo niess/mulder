@@ -1,4 +1,5 @@
 use crate::bindings::turtle;
+use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
 use crate::simulation::materials::{Materials, MaterialsArg};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::{self, Error};
@@ -34,7 +35,8 @@ pub struct EarthGeometry {
     #[pyo3(get)]
     pub z: (f64, f64),
 
-    pub layers: Vec<Py<Layer>>,
+    pub layers: Vec<Py<Layer>>, // XXX use a PyTuple?
+    pub subscribers: Vec<MaterialsSubscriber>,
 }
 
 unsafe impl Send for EarthGeometry {}
@@ -70,7 +72,7 @@ impl EarthGeometry {
     pub fn new(
         layers: &Bound<PyTuple>,
         materials: Option<MaterialsArg>,
-    ) -> PyResult<Self> {
+    ) -> PyResult<Py<Self>> {
         let py = layers.py();
         let (layers, z) = {
             let mut z = (f64::INFINITY, -f64::INFINITY);
@@ -101,8 +103,16 @@ impl EarthGeometry {
         };
 
         let materials = Materials::from_arg(py, materials)?;
+        let subscribers = Vec::new();
 
-        Ok(Self { layers, z, materials })
+        let geometry = Self { layers, z, materials, subscribers };
+        let geometry = Py::new(py, geometry)?;
+        for layer in geometry.bind(py).borrow().layers.iter() {
+            let mut layer = layer.bind(py).borrow_mut();
+            layer.geometry = Some(geometry.clone_ref(py));
+        }
+
+        Ok(geometry)
     }
 
     /// The geometry layers.
@@ -352,6 +362,23 @@ impl EarthGeometry {
 
     // Height of the atmosphere layer, in m.
     pub const ZMAX: f64 = 120E+03;
+
+    pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
+        for layer in self.layers.iter() {
+            let layer = layer.bind(py).borrow();
+            set.add(layer.material.as_str());
+        }
+        self.subscribers.push(set.subscribe());
+        self.subscribers.retain(|s| s.is_alive());
+    }
+
+    pub fn unsubscribe(&mut self, py: Python, set: &MaterialsSet) {
+        for layer in self.layers.iter() {
+            let layer = layer.bind(py).borrow();
+            set.remove(layer.material.as_str());
+        }
+        self.subscribers.retain(|s| s.is_alive() && !s.is_subscribed(set));
+    }
 
     pub fn stepper(&self, py: Python) -> PyResult<EarthGeometryStepper> {
         const WHAT: Option<&str> = Some("geometry");

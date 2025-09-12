@@ -1,3 +1,4 @@
+use crate::materials::set::MaterialsSet;
 use crate::simulation::materials::Materials;
 use crate::utils::io::PathString;
 use pyo3::prelude::*;
@@ -44,6 +45,20 @@ impl Geometry {
         match self {
             Self::Earth(geometry) => GeometryRef::Earth(geometry.bind(py).borrow()),
             Self::External(geometry) => GeometryRef::External(geometry.bind(py).borrow()),
+        }
+    }
+
+    pub fn subscribe(&self, py: Python, set: &MaterialsSet) {
+        match self {
+            Self::Earth(geometry) => geometry.bind(py).borrow_mut().subscribe(py, set),
+            Self::External(geometry) => geometry.bind(py).borrow_mut().subscribe(py, set),
+        }
+    }
+
+    pub fn unsubscribe(&self, py: Python, set: &MaterialsSet) {
+        match self {
+            Self::Earth(geometry) => geometry.bind(py).borrow_mut().unsubscribe(py, set),
+            Self::External(geometry) => geometry.bind(py).borrow_mut().unsubscribe(py, set),
         }
     }
 }

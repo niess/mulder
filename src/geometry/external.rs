@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
 use crate::simulation::materials::{
     AtomicElement, Component, ElementsTable, Material, Materials, MaterialsData
 };
@@ -30,29 +31,37 @@ pub struct ExternalGeometry {
     lib: Library, // for keeping the library alive.
     interface: CInterface,
     geometry: OwnedPtr<CGeometry>,
+    subscribers: Vec<MaterialsSubscriber>,
 
     /// The geometry materials.
     #[pyo3(get)]
     pub materials: Materials,
 
+    /// The geometry media.
     #[pyo3(get)]
-    pub media: Py<PyTuple>, // sequence of Py<Medium>. XXX Harmonize with EarthGeometry.
+    pub media: Py<PyTuple>, // sequence of Py<Medium>.
 
+    /// The geometry reference frame.
     #[pyo3(get, set)]
     pub frame: LocalFrame,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[pyclass(module="mulder")]
 pub struct Medium {
-    #[pyo3(get, set)]
+    /// The medium constitutive material.
+    #[pyo3(get)]
     pub material: String,
 
+    /// The medium bulk density.
     #[pyo3(get, set)]
     pub density: Option<f64>,
 
+    /// A brief description of this medium.
     #[pyo3(get, set)]
     pub description: Option<String>,
+
+    pub geometry: Option<Py<ExternalGeometry>>,
 }
 
 pub struct ExternalTracer<'a> {
@@ -215,7 +224,11 @@ fn type_error(what: &str, why: &str) -> PyErr {
 impl ExternalGeometry {
     #[new]
     #[pyo3(signature=(path, /, *, frame=None))]
-    pub unsafe fn new(py: Python, path: PathString, frame: Option<LocalFrame>) -> PyResult<Self> {
+    pub unsafe fn new(
+        py: Python,
+        path: PathString,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<Py<Self>> {
         // Fetch geometry description from entry point.
         type Initialise = unsafe fn() -> CInterface;
         const INITIALISE: &[u8] = b"mulder_initialise\0";
@@ -265,15 +278,23 @@ impl ExternalGeometry {
         let media = PyTuple::new(py, media)?.unbind();
 
         // Bundle the geometry definition.
+        let subscribers = Vec::new();
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
         let external_geometry = Self {
             lib: library,
             interface,
+            subscribers,
             geometry,
             media,
             materials,
             frame,
         };
+        let external_geometry = Py::new(py, external_geometry)?;
+        for medium in external_geometry.bind(py).borrow().media.bind(py).iter() {
+            let medium: &Bound<Medium> = medium.downcast().unwrap();
+            medium.borrow_mut().geometry = Some(external_geometry.clone_ref(py));
+        }
+
         Ok(external_geometry)
     }
 
@@ -360,6 +381,21 @@ impl ExternalGeometry {
 }
 
 impl ExternalGeometry {
+    pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
+        for medium in self.media.bind(py).iter() {
+            set.add(medium.downcast::<Medium>().unwrap().borrow().material.as_str());
+        }
+        self.subscribers.push(set.subscribe());
+        self.subscribers.retain(|s| s.is_alive());
+    }
+
+    pub fn unsubscribe(&mut self, py: Python, set: &MaterialsSet) {
+        for medium in self.media.bind(py).iter() {
+            set.remove(medium.downcast::<Medium>().unwrap().borrow().material.as_str());
+        }
+        self.subscribers.retain(|s| s.is_alive() && !s.is_subscribed(set));
+    }
+
     pub fn tracer<'a>(&'a self) -> PyResult<ExternalTracer<'a>> {
         let tracer = self.interface.tracer(&self.geometry)?;
         if tracer.is_none_locate() {
@@ -466,6 +502,19 @@ impl Medium {
         let tokens = tokens.join(", ");
         format!("Medium({})", tokens)
     }
+
+    #[setter]
+    fn set_material(&mut self, py: Python, value: &str) {
+        if value != self.material {
+            if let Some(geometry) = self.geometry.as_ref() {
+                let mut geometry = geometry.bind(py).borrow_mut();
+                geometry.subscribers.retain(|subscriber|
+                    subscriber.replace(self.material.as_str(), value)
+                )
+            }
+            self.material = value.to_owned();
+        }
+    }
 }
 
 impl OwnedPtr<CMaterial> {
@@ -528,7 +577,8 @@ impl TryFrom<OwnedPtr<CMedium>> for Medium {
         let material = value.material()?;
         let density = value.density();
         let description = value.description()?;
-        Ok(Self { material, density, description })
+        let geometry = None;
+        Ok(Self { material, density, description, geometry })
     }
 }
 

@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use super::grid::{self, Grid, GridLike};
 use std::ptr::{null, null_mut};
+use super::EarthGeometry;
 
 
 #[pyclass(module="mulder")]
@@ -16,7 +17,7 @@ pub struct Layer {
     pub density: Option<f64>,
 
     /// The layer constitutive material.
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub material: String,
 
     /// The layer limits along the z-coordinates.
@@ -27,6 +28,7 @@ pub struct Layer {
 
     pub data: Vec<Data>,
     pub stepper: *mut turtle::Stepper,
+    pub geometry: Option<Py<EarthGeometry>>,
 }
 
 unsafe impl Send for Layer {}
@@ -99,6 +101,19 @@ impl Layer {
             None => self.density = None,
         }
         Ok(())
+    }
+
+    #[setter]
+    fn set_material(&mut self, py: Python, value: &str) {
+        if value != self.material {
+            if let Some(geometry) = self.geometry.as_ref() {
+                let mut geometry = geometry.bind(py).borrow_mut();
+                geometry.subscribers.retain(|subscriber|
+                    subscriber.replace(self.material.as_str(), value)
+                )
+            }
+            self.material = value.to_owned();
+        }
     }
 
     fn __getitem__(&self, py: Python, index: usize) -> PyResult<Data> {
@@ -259,7 +274,8 @@ impl Layer {
         };
         let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
         let stepper = null_mut();
-        let mut layer = Self { density: None, material, z, data, stepper };
+        let geometry = None;
+        let mut layer = Self { density: None, material, z, data, stepper, geometry };
         if density.is_some() {
             layer.set_density(density)?;
         }

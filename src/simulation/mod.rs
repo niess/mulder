@@ -1,15 +1,16 @@
 use crate::bindings::pumas;
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
-use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{TypeError, ValueError};
-use crate::utils::numpy::{ArrayMethods, NewArray};
-use crate::utils::traits::MinMax;
 use crate::geometry::{Geometry, GeometryArg, GeometryRef};
 use crate::geometry::earth::{EarthGeometry, EarthGeometryStepper, Layer};
 use crate::geometry::external;
+use crate::materials::set::MaterialsSet;
+use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::convert::TransportMode;
+use crate::utils::error::{self, Error};
+use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
+use crate::utils::numpy::{ArrayMethods, NewArray};
+use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use std::ffi::{c_uint, c_void};
@@ -61,6 +62,7 @@ pub struct Fluxmeter {
     #[pyo3(get)]
     reference: Py<reference::Reference>,
 
+    materials: MaterialsSet,
     atmosphere_medium: CMedium,
     media: Vec<CMedium>,
 }
@@ -283,12 +285,15 @@ impl Fluxmeter {
         let reference = reference::Reference::new(None, None)?;
         let reference = Py::new(py, reference)?;
 
+        let materials = MaterialsSet::new();
+        geometry.subscribe(py, &materials);
+
         let media = Vec::new();
         let atmosphere_medium = CMedium::default();
 
         let fluxmeter = Self {
-            atmosphere, geomagnet, geometry, mode, physics, random, reference, atmosphere_medium,
-            media,
+            atmosphere, geomagnet, geometry, mode, physics, random, reference, materials,
+            atmosphere_medium, media,
         };
         let fluxmeter = Bound::new(py, fluxmeter)?;
 
@@ -332,7 +337,9 @@ impl Fluxmeter {
     fn set_geometry(&mut self, py: Python, value: GeometryArg) -> PyResult<()> {
         let value = value.into_geometry(py)?;
         if !self.geometry.bind(py).is(value.bind(py)) {
+            self.geometry.unsubscribe(py, &self.materials);
             self.geometry = value;
+            self.geometry.subscribe(py, &self.materials);
             self.reset();
         }
         Ok(())
@@ -673,14 +680,14 @@ impl Fluxmeter {
             },
             GeometryRef::External(geometry) => if self.media.is_empty() {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
-                    let medium = medium.extract::<external::Medium>()?;
+                    let medium = medium.downcast::<external::Medium>().unwrap().borrow();
                     let medium = CMedium::from_external(&medium, index, physics)?;
                     self.media.push(medium);
                 }
                 self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
             } else {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
-                    let medium = medium.extract::<external::Medium>()?;
+                    let medium = medium.downcast::<external::Medium>().unwrap().borrow();
                     self.media[index].update(
                         medium.density,
                         medium.material.as_str(),
