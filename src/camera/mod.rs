@@ -1,4 +1,4 @@
-use crate::geometry::earth::EarthGeometry;
+use crate::geometry::earth::{EarthGeometry, Layer};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -253,8 +253,8 @@ impl Camera {
         let mut stepper = geometry.stepper(py)?;
         let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
 
-        let layers: Vec<_> = geometry.layers.iter().map(
-            |layer| layer.bind_borrowed(py).borrow()
+        let layers: Vec<_> = geometry.layers.bind(py).iter().map(
+            |layer| layer.downcast::<Layer>().unwrap().borrow()
         ).collect();
         let data: Vec<_> = layers.iter().map(
             |layer| layer.get_data_ref(py)
@@ -326,8 +326,8 @@ impl Camera {
         }
         let pixels = array.into_bound().unbind();
 
-        let materials: Vec<_> = geometry.layers.iter()
-            .map(|layer| layer.bind(py).borrow().material.clone())
+        let materials: Vec<_> = geometry.layers.bind(py).iter()
+            .map(|layer| layer.downcast::<Layer>().unwrap().borrow().material.clone())
             .collect();
 
         let transform = self.transform();

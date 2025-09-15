@@ -2,8 +2,7 @@ use crate::bindings::turtle;
 use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
 use crate::simulation::materials::{Materials, MaterialsArg};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
-use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::IndexError;
+use crate::utils::error;
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
@@ -35,7 +34,10 @@ pub struct EarthGeometry {
     #[pyo3(get)]
     pub z: (f64, f64),
 
-    pub layers: Vec<Py<Layer>>, // XXX use a PyTuple?
+    /// The geometry layers.
+    #[pyo3(get)]
+    pub layers: Py<PyTuple>,  // sequence of Py<Layer>.
+
     pub subscribers: Vec<MaterialsSubscriber>,
 }
 
@@ -101,50 +103,25 @@ impl EarthGeometry {
             }
             (v, z)
         };
+        let layers = PyTuple::new(py, layers)?.unbind();
 
         let materials = Materials::from_arg(py, materials)?;
         let subscribers = Vec::new();
 
         let geometry = Self { layers, z, materials, subscribers };
         let geometry = Py::new(py, geometry)?;
-        for layer in geometry.bind(py).borrow().layers.iter() {
-            let mut layer = layer.bind(py).borrow_mut();
+        for layer in geometry.bind(py).borrow().layers.bind(py).iter() {
+            let mut layer = layer.downcast::<Layer>().unwrap().borrow_mut();
             layer.geometry = Some(geometry.clone_ref(py));
         }
 
         Ok(geometry)
     }
 
-    /// The geometry layers.
-    #[getter]
-    fn get_layers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        let elements = self.layers
-            .iter()
-            .map(|data| data.clone_ref(py));
-        PyTuple::new(py, elements)
-    }
-
     #[setter]
     fn set_materials(&mut self, py: Python, value: Option<MaterialsArg>) -> PyResult<()> {
         self.materials = Materials::from_arg(py, value)?;
         Ok(())
-    }
-
-    fn __getitem__(&self, py: Python, index: usize) -> PyResult<Py<Layer>> {
-        self.layers
-            .get(index)
-            .map(|layer| layer.clone_ref(py))
-            .ok_or_else(|| {
-                let why = format!(
-                    "expected a value in [0, {}], found '{}'",
-                    self.layers.len() - 1,
-                    index,
-                );
-                Error::new(IndexError)
-                    .what("layer index")
-                    .why(&why)
-                    .to_err()
-            })
     }
 
     #[pyo3(name="locate", signature=(position=None, /, *, notify=None, **kwargs))]
@@ -209,7 +186,7 @@ impl EarthGeometry {
         let (size, shape, n) = {
             let size = coordinates.size();
             let mut shape = coordinates.shape();
-            let n = self.layers.len();
+            let n = self.layers.bind(py).len();
             shape.push(n);
             (size, shape, n)
         };
@@ -364,8 +341,8 @@ impl EarthGeometry {
     pub const ZMAX: f64 = 120E+03;
 
     pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
-        for layer in self.layers.iter() {
-            let layer = layer.bind(py).borrow();
+        for layer in self.layers.bind(py).iter() {
+            let layer = layer.downcast::<Layer>().unwrap().borrow();
             set.add(layer.material.as_str());
         }
         self.subscribers.push(set.subscribe());
@@ -373,26 +350,27 @@ impl EarthGeometry {
     }
 
     pub fn unsubscribe(&mut self, py: Python, set: &MaterialsSet) {
-        for layer in self.layers.iter() {
-            let layer = layer.bind(py).borrow();
+        for layer in self.layers.bind(py).iter() {
+            let layer = layer.downcast::<Layer>().unwrap().borrow();
             set.remove(layer.material.as_str());
         }
         self.subscribers.retain(|s| s.is_alive() && !s.is_subscribed(set));
     }
 
     pub fn stepper(&self, py: Python) -> PyResult<EarthGeometryStepper> {
+        let layers = self.layers.bind(py);
         const WHAT: Option<&str> = Some("geometry");
         let mut ptr = null_mut();
         error::to_result(unsafe { turtle::stepper_create(&mut ptr) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(ptr, Self::ZMIN) }, WHAT)?;
-        for layer in self.layers.iter() {
-            let layer = layer.bind(py).borrow();
+        for layer in layers.iter() {
+            let layer = layer.downcast::<Layer>().unwrap().borrow();
             unsafe { layer.insert(py, ptr)?; }
         }
         error::to_result(unsafe { turtle::stepper_add_layer(ptr) }, WHAT)?;
         error::to_result(unsafe { turtle::stepper_add_flat(ptr, Self::ZMAX) }, WHAT)?;
         let ptr = OwnedPtr::new(ptr)?;
-        let layers = self.layers.len();
+        let layers = layers.len();
         let stepper = EarthGeometryStepper { ptr, layers };
         Ok(stepper)
     }

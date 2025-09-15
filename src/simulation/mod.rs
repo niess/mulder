@@ -657,15 +657,15 @@ impl Fluxmeter {
         match geometry {
             GeometryRef::Earth(geometry) => if self.media.is_empty() {
                 // Map media.
-                for (index, layer) in geometry.layers.iter().enumerate() {
-                    let layer = layer.bind(py).borrow();
+                for (index, layer) in geometry.layers.bind(py).iter().enumerate() {
+                    let layer = layer.downcast::<Layer>().unwrap().borrow();
                     let medium = CMedium::from_layer(&layer, index, physics)?;
                     self.media.push(medium);
                 }
                 self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
             } else {
-                for (index, layer) in geometry.layers.iter().enumerate() {
-                    let layer = layer.bind(py).borrow();
+                for (index, layer) in geometry.layers.bind(py).iter().enumerate() {
+                    let layer = layer.downcast::<Layer>().unwrap().borrow();
                     self.media[index].update(
                         layer.density,
                         layer.material.as_str(),
