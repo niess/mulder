@@ -1,5 +1,4 @@
 use crate::materials::set::MaterialsSet;
-use crate::simulation::materials::Materials;
 use crate::utils::io::PathString;
 use pyo3::prelude::*;
 
@@ -74,15 +73,6 @@ impl<'a, 'py> BoundGeometry<'a, 'py> {
                 Self::External(other) => geometry.is(other),
                 _ => false,
             },
-        }
-    }
-}
-
-impl<'py> GeometryRef<'py> {
-    pub fn materials(&self) -> &Materials {
-        match self {
-            Self::Earth(geometry) => &geometry.materials,
-            Self::External(geometry) => &geometry.materials,
         }
     }
 }

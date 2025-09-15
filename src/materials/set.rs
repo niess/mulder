@@ -1,6 +1,12 @@
+use crate::utils::cache;
+use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock, RwLockReadGuard, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use super::registry::Registry;
+use super::toml::ToToml;
 
 
 #[derive(Clone)]
@@ -12,18 +18,26 @@ pub struct MaterialsSubscriber {
     inner: Weak<RwLock<Set>>
 }
 
+pub struct MaterialsBorrow<'a> (RwLockReadGuard<'a, Set>);
+
+pub struct CachePath {
+    hash: u64,
+    suffix: &'static str,
+    tag: Option<String>,
+    makedirs: bool,
+}
+
 struct Set {
     pub data: HashMap<String, usize>,
     pub version: usize,
+    pub hash: Option<u64>,
 }
 
 static VERSION: AtomicUsize = AtomicUsize::new(0);
 
 impl MaterialsSet {
     pub fn new() -> Self {
-        let data = HashMap::new();
-        let version = VERSION.fetch_add(1, Ordering::SeqCst);
-        let set = Set { data, version };
+        let set = Set::new();
         let inner = Arc::new(RwLock::new(set));
         Self { inner }
     }
@@ -39,7 +53,7 @@ impl MaterialsSet {
             Some(rc) => *rc += 1,
             None => {
                 set.data.insert(material.to_owned(), 1);
-                set.version = VERSION.fetch_add(1, Ordering::SeqCst);
+                set.update();
             },
         }
     }
@@ -51,9 +65,77 @@ impl MaterialsSet {
                 *rc -= 1;
             } else {
                 set.data.remove(material);
-                set.version = VERSION.fetch_add(1, Ordering::SeqCst);
+                set.update();
             }
         }
+    }
+
+    pub fn hash(&self, py: Python) -> PyResult<u64> {
+        let mut set = self.inner.write().unwrap();
+        if set.hash.is_none() {
+            let registry = &Registry::get(py)?.read().unwrap();
+            let mut materials = set.data.keys().collect::<Vec<_>>();
+            materials.sort();
+            let mut state = DefaultHasher::new();
+            for material in materials {
+                material.hash(&mut state);
+                let definition = registry.get_material(material)?;
+                definition.hash(&mut state);
+            }
+            set.hash = Some(state.finish());
+        }
+        let hash = set.hash.unwrap();
+        Ok(hash)
+    }
+
+    pub fn version(&self) -> usize {
+        self.inner.read().unwrap().version
+    }
+
+    pub fn is_cached(&self, py: Python) -> PyResult<bool> {
+        let path = self.cache_path(py, "toml")?
+            .into_path()?;
+        let cached = if path.try_exists().unwrap_or(false) {
+            let registry = &Registry::get(py)?.read().unwrap();
+            let mut cached = Registry::default();
+            cached.load(py, &path)?;
+            for (k, v) in cached.elements.iter() {
+                match registry.elements.get(k) {
+                    Some(def) => if def != v {
+                        return Ok(false) // XXX Clear any associated dump.
+                    },
+                    None => return Ok(false), // XXX Clear any associated dump.
+                }
+            }
+            for (k, v) in cached.materials.iter() {
+                match registry.materials.get(k) {
+                    Some(def) => if def != v {
+                        return Ok(false) // XXX Clear any associated dump.
+                    },
+                    None => return Ok(false), // XXX Clear any associated dump.
+                }
+            }
+            true
+        } else {
+            false
+        };
+        Ok(cached)
+    }
+
+    pub fn cache_path(&self, py: Python, suffix: &'static str) -> PyResult<CachePath> {
+        let path = CachePath::new(self.hash(py)?, suffix);
+        Ok(path)
+    }
+
+    pub fn cache_definitions(&self, py: Python) -> PyResult<()> {
+        let path = self.cache_path(py, "toml")?
+            .into_path()?;
+        std::fs::write(path, self.to_toml(py)?)?;
+        Ok(())
+    }
+
+    pub fn borrow<'a>(&'a self) -> MaterialsBorrow<'a> {
+        MaterialsBorrow(self.inner.read().unwrap())
     }
 }
 
@@ -88,9 +170,73 @@ impl MaterialsSubscriber {
                 update = true;
             },
         }
-        if update {
-            set.version = VERSION.fetch_add(1, Ordering::SeqCst);
-        }
+        if update { set.update() }
         true
+    }
+}
+
+impl Set {
+    fn new() -> Self {
+        let data = HashMap::new();
+        let version = VERSION.fetch_add(1, Ordering::SeqCst);
+        let hash = None;
+        Self { data, version, hash }
+    }
+
+    fn update(&mut self) {
+        self.version = VERSION.fetch_add(1, Ordering::SeqCst);
+        self.hash = None;
+    }
+}
+
+impl CachePath {
+    pub fn new(hash: u64, suffix: &'static str) -> Self {
+        let tag = None;
+        let makedirs = false;
+        Self { hash, suffix, tag, makedirs }
+    }
+
+    pub fn with_tag(mut self, value: String) -> Self {
+        self.tag = Some(value);
+        self
+    }
+
+    pub fn with_makedirs(mut self) -> Self {
+        self.makedirs = true;
+        self
+    }
+
+    pub fn into_path(self) -> PyResult<PathBuf> {
+        let path = cache::path()?.join("materials");
+        if self.makedirs {
+            std::fs::create_dir_all(&path)?;
+        }
+        let path = match self.tag {
+            Some(tag) => path.join(format!("{:016x}-{}.{}", self.hash, tag, self.suffix)),
+            None => path.join(format!("{:016x}.{}", self.hash, self.suffix)),
+        };
+        Ok(path)
+    }
+}
+
+impl<'a> MaterialsBorrow<'a> {
+    pub fn iter(&self) -> impl Iterator<Item=&String> {
+        self.0.data.keys()
+    }
+}
+
+impl<'a, I> From<I> for MaterialsSet
+where
+    I: IntoIterator<Item=String>
+{
+    fn from(materials: I) -> Self {
+        let mut set = Set::new();
+        for material in materials {
+            set.data.entry(material)
+                .and_modify(|rc| { *rc += 1 })
+                .or_insert(1);
+        }
+        let inner = Arc::new(RwLock::new(set));
+        Self { inner }
     }
 }

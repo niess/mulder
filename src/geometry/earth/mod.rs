@@ -1,6 +1,5 @@
 use crate::bindings::turtle;
 use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
-use crate::simulation::materials::{Materials, MaterialsArg};
 use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error;
 use crate::utils::extract::{Field, Extractor, Name};
@@ -26,10 +25,6 @@ pub use layer::Layer;
 
 #[pyclass(module="mulder")]
 pub struct EarthGeometry {
-    /// The geometry materials.
-    #[pyo3(get)]
-    pub materials: Materials,
-
     /// Geometry limits along the z-coordinates.
     #[pyo3(get)]
     pub z: (f64, f64),
@@ -69,12 +64,9 @@ pub struct EarthGeometryStepper {
 
 #[pymethods]
 impl EarthGeometry {
-    #[pyo3(signature=(*layers, materials=None))]
+    #[pyo3(signature=(*layers))]
     #[new]
-    pub fn new(
-        layers: &Bound<PyTuple>,
-        materials: Option<MaterialsArg>,
-    ) -> PyResult<Py<Self>> {
+    pub fn new(layers: &Bound<PyTuple>) -> PyResult<Py<Self>> {
         let py = layers.py();
         let (layers, z) = {
             let mut z = (f64::INFINITY, -f64::INFINITY);
@@ -105,10 +97,9 @@ impl EarthGeometry {
         };
         let layers = PyTuple::new(py, layers)?.unbind();
 
-        let materials = Materials::from_arg(py, materials)?;
         let subscribers = Vec::new();
 
-        let geometry = Self { layers, z, materials, subscribers };
+        let geometry = Self { layers, z, subscribers };
         let geometry = Py::new(py, geometry)?;
         for layer in geometry.bind(py).borrow().layers.bind(py).iter() {
             let mut layer = layer.downcast::<Layer>().unwrap().borrow_mut();
@@ -116,12 +107,6 @@ impl EarthGeometry {
         }
 
         Ok(geometry)
-    }
-
-    #[setter]
-    fn set_materials(&mut self, py: Python, value: Option<MaterialsArg>) -> PyResult<()> {
-        self.materials = Materials::from_arg(py, value)?;
-        Ok(())
     }
 
     #[pyo3(name="locate", signature=(position=None, /, *, notify=None, **kwargs))]

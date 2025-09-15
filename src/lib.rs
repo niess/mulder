@@ -47,9 +47,6 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     // Initialise the numpy interface.
     utils::numpy::initialise(py)?;
 
-    // Initialise the materials.
-    simulation::materials::initialise()?;
-
     // Register class object(s).
     module.add_class::<camera::Camera>()?;
     module.add_class::<geometry::earth::EarthGeometry>()?;
@@ -59,16 +56,12 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::atmosphere::Atmosphere>()?;
     module.add_class::<simulation::geomagnet::EarthMagnet>()?;
-    module.add_class::<simulation::materials::Materials>()?;
     module.add_class::<simulation::physics::Physics>()?;
     module.add_class::<simulation::random::Random>()?;
     module.add_class::<simulation::reference::Reference>()?;
     module.add_class::<simulation::states::GeographicStates>()?;
     module.add_class::<simulation::states::LocalStates>()?;
     module.add_class::<utils::coordinates::LocalFrame>()?;
-
-    // Register function(s).
-    module.add_function(wrap_pyfunction!(simulation::physics::compile, module)?)?;
 
     // Set config wrapper.
     module.add("config", Config())?;

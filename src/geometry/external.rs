@@ -1,9 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
-use crate::simulation::materials::{
-    AtomicElement, Component, ElementsTable, Material, Materials, MaterialsData
-};
+use crate::materials::{Component, Element, Material, MaterialsSet, MaterialsSubscriber, Registry};
 use crate::utils::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -15,9 +12,7 @@ use libloading::Library;
 use paste::paste;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::collections::HashMap;
 use std::ffi::{c_char, c_double, c_int, CStr};
-use std::path::Path;
 use std::ptr::NonNull;
 
 
@@ -32,10 +27,6 @@ pub struct ExternalGeometry {
     interface: CInterface,
     geometry: OwnedPtr<CGeometry>,
     subscribers: Vec<MaterialsSubscriber>,
-
-    /// The geometry materials.
-    #[pyo3(get)]
-    pub materials: Materials,
 
     /// The geometry media.
     #[pyo3(get)]
@@ -246,27 +237,13 @@ impl ExternalGeometry {
         let interface = unsafe { initialise() };
         let geometry = interface.definition()?;
 
-        // Build material definitions.
+        // Register any materials.
         let size = geometry.materials_len()?;
-        let mut table = ElementsTable::empty();
-        let mut materials = HashMap::<String, Material>::new();
+        let mut registry = Registry::get(py)?.write().unwrap();
         for i in 0..size {
-            if let Some((name, material)) = geometry.material(i)?.to_material(&mut table)? {
-                materials.insert(name, material);
-            }
+            geometry.material(i)?.register(&mut registry)?;
         }
-        let materials = if materials.len() > 0 {
-            let materials = MaterialsData::new(materials)
-                .with_table(table)
-                .with_air(py)?;
-            let tag = Path::new(path.as_str())
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().to_string())
-                .unwrap_or_else(|| "external".to_owned());
-            Materials::new(tag, materials)?
-        } else {
-            Materials::default(py)?
-        };
+        drop(registry);
 
         // Build geometry media.
         let size = geometry.media_len()?;
@@ -286,7 +263,6 @@ impl ExternalGeometry {
             subscribers,
             geometry,
             media,
-            materials,
             frame,
         };
         let external_geometry = Py::new(py, external_geometry)?;
@@ -518,17 +494,17 @@ impl Medium {
 }
 
 impl OwnedPtr<CMaterial> {
-    fn to_material(
+    fn register(
         self,
-        table: &mut ElementsTable,
-    ) -> PyResult<Option<(String, Material)>> {
+        registry: &mut Registry,
+    ) -> PyResult<()> {
         let name = self.name()?;
         if self.is_none_density() &&
             self.is_none_element() &&
             self.is_none_elements_len() &&
             self.is_none_I()
         {
-            return Ok(None)
+            return Ok(())
         }
 
         let n = self.elements_len()
@@ -538,7 +514,7 @@ impl OwnedPtr<CMaterial> {
         for i in 0..n {
             let element = self.element(i)?
                 .ok_or_else(|| null_pointer_fmt!("element#{} for {} material", i, name))?;
-            let mut symbol = element.symbol()?;
+            let symbol = element.symbol()?;
             if element.is_some_Z() || element.is_some_A() || element.is_some_I() {
                 let Z = element.Z()
                     .ok_or_else(|| null_pointer_fmt!("Z for {} element", symbol))? as u32;
@@ -546,13 +522,8 @@ impl OwnedPtr<CMaterial> {
                     .ok_or_else(|| null_pointer_fmt!("A for {} element", symbol))?;
                 let I = element.I()
                     .ok_or_else(|| null_pointer_fmt!("I for {} element", symbol))?;
-                let element = AtomicElement { Z, A, I };
-                if let Some(other) = table.get(&name) {
-                    if other != &element {
-                        symbol = format!("{name}:{symbol}");
-                    }
-                }
-                table.insert(symbol.clone(), element);
+                let element = Element { Z, A, I };
+                registry.add_element(symbol.clone(), element)?;
             }
             let weight = element.weight()?;
             composition.push(Component { name: symbol, weight });
@@ -561,12 +532,13 @@ impl OwnedPtr<CMaterial> {
         let density = self.density()
             .ok_or_else(|| null_pointer_fmt!("density for {} material", name))?;
         let I = self.I();
-        let material = Material::from_elements(density, &composition, I, table)
+        let material = Material::from_elements(density, &composition, I, registry)
             .map_err(|(kind, why)| {
                 let what = format!("{} material", name);
                 Error::new(kind).what(&what).why(&why).to_err()
             })?;
-        Ok(Some((name, material)))
+        registry.add_material(name, material)?;
+        Ok(())
     }
 }
 

@@ -2,9 +2,11 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use ordered_float::OrderedFloat;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use super::registry::Registry;
 
 
@@ -56,19 +58,15 @@ impl Element {
     fn __new__(py: Python, symbol: &str, kwargs: Option<&Bound<PyDict>>) -> PyResult<Self> {
         let registry = &Registry::get(py)?;
 
-        if let Some(kwargs) = kwargs { // XXX ecplicit 'define' function?
+        if let Some(kwargs) = kwargs { // XXX explicit 'define' function?
             let element: Element = (symbol, kwargs).try_into()?;
             registry.write().unwrap().add_element(symbol.to_owned(), element)?;
         }
 
-        match registry.read().unwrap().elements.get(symbol) {
-            Some(element) => Ok(element.clone()),
-            None => {
-                let why = format!("unknown element '{}'", symbol);
-                let err = Error::new(KeyError).why(&why).to_err();
-                Err(err)
-            }
-        }
+        let element = registry.read().unwrap()
+            .get_element(symbol)?
+            .clone();
+        Ok(element)
     }
 
     /// The element Mean Excitation Energy, in GeV.
@@ -91,14 +89,10 @@ impl Material {
             registry.write().unwrap().add_material(name.to_owned(), material)?;
         }
 
-        match registry.read().unwrap().materials.get(name) {
-            Some(material) => Ok(material.clone()),
-            None => {
-                let why = format!("unknown material '{}'", name);
-                let err = Error::new(KeyError).why(&why).to_err();
-                Err(err)
-            }
-        }
+        let material = registry.read().unwrap()
+            .get_material(name)?
+            .clone();
+        Ok(material)
     }
 
     /// The material mass composition.
@@ -181,7 +175,7 @@ impl Material {
                         },
                         None => {
                             let why = format!(
-                                "unknown element, material or molecule '{}'",
+                                "undefined element, material or molecule '{}'",
                                 name.as_str(),
                             );
                             return Err((KeyError, why))
@@ -244,7 +238,7 @@ impl Material {
         for captures in re.captures_iter(formula) {
             let symbol = captures.get(1).unwrap().as_str();
             if !registry.elements.contains_key(symbol) {
-                let why = format!("unknown element '{}'", symbol);
+                let why = format!("undefined element '{}'", symbol);
                 return Err((KeyError, why))
             }
             let weight = captures.get(2).unwrap().as_str();
@@ -406,5 +400,48 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Material {
             },
         };
         Ok(material)
+    }
+}
+
+impl Hash for Element {
+    #[allow(non_snake_case)]
+    fn hash<H>(&self, state: &mut H)
+       where H: Hasher
+    {
+        let Self { Z, A, I } = self;  // ensure that no attribute is ommitted.
+        Z.hash(state);
+        let A: &OrderedFloat<f64> = unsafe { std::mem::transmute(A) };
+        A.hash(state);
+        let I: &OrderedFloat<f64> = unsafe { std::mem::transmute(I) };
+        I.hash(state);
+    }
+}
+
+impl Hash for Material {
+    #[allow(non_snake_case)]
+    fn hash<H>(&self, state: &mut H)
+       where H: Hasher
+    {
+        let Self { density, I, mass, composition } = self;  // ensure that no attribute is ommitted.
+        let density: &OrderedFloat<f64> = unsafe { std::mem::transmute(density) };
+        density.hash(state);
+        if let Some(I) = I.as_ref() {
+            let I: &OrderedFloat<f64> = unsafe { std::mem::transmute(I) };
+            I.hash(state);
+        }
+        let mass: &OrderedFloat<f64> = unsafe { std::mem::transmute(mass) };
+        mass.hash(state);
+        composition.hash(state);
+    }
+}
+
+impl Hash for Component {
+    fn hash<H>(&self, state: &mut H)
+       where H: Hasher
+    {
+        let Self { name, weight } = self;  // ensure that no attribute is ommitted.
+        name.hash(state);
+        let weight: &OrderedFloat<f64> = unsafe { std::mem::transmute(weight) };
+        weight.hash(state);
     }
 }

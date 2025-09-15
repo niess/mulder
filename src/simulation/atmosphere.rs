@@ -1,3 +1,4 @@
+use crate::materials::{MaterialsSet, MaterialsSubscriber};
 use crate::utils::convert::AtmosphericModel;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{ValueError, TypeError};
@@ -5,11 +6,16 @@ use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
 
 
-#[pyclass(frozen, module="mulder")]
+#[pyclass(module="mulder")]
 pub struct Atmosphere {
     lambda: Vec<f64>,
     rho: Vec<f64>,
     z: Vec<f64>,
+
+    #[pyo3(get)]
+    pub material: String,
+
+    pub subscribers: Vec<MaterialsSubscriber>,
 }
 
 #[derive(FromPyObject)]
@@ -32,9 +38,9 @@ pub struct Density {
 
 #[pymethods]
 impl Atmosphere {
-    #[pyo3(signature=(model=None, /))]
+    #[pyo3(signature=(model=None, /, *, material=None))]
     #[new]
-    pub fn new(model: Option<AtmosphereLike>) -> PyResult<Self> {
+    pub fn new(model: Option<AtmosphereLike>, material: Option<String>) -> PyResult<Self> {
         let model = model
             .unwrap_or_else(|| AtmosphereLike::Model(AtmosphericModel::default()));
 
@@ -175,7 +181,21 @@ impl Atmosphere {
             lambda.push((z[i + 1] - z[i]) / (rho[i + 1] / rho[i]).ln())
         }
 
-        Ok(Atmosphere { lambda, z, rho })
+        let material = material
+            .unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_owned());
+        let subscribers = Vec::new();
+
+        Ok(Atmosphere { lambda, z, rho, material, subscribers })
+    }
+
+    #[setter]
+    fn set_material(&mut self, value: &str) {
+        if value != self.material.as_str() {
+            self.subscribers.retain(|subscriber| {
+                subscriber.replace(self.material.as_str(), value)
+            });
+            self.material = value.to_owned();
+        }
     }
 
     #[pyo3(signature=(altitude, /))]
@@ -194,6 +214,8 @@ impl Atmosphere {
 }
 
 impl Atmosphere {
+    pub const DEFAULT_MATERIAL: &str = "Air";
+
     pub fn compute_density(&self, z: f64) -> Density {
         if z < self.z[0] {
             return Density { value: self.rho[0], lambda: self.lambda[0] }
@@ -209,18 +231,29 @@ impl Atmosphere {
             return Density { value: self.rho[n - 1], lambda: self.lambda[n - 2] }
         }
     }
+
+    pub fn subscribe(&mut self, set: &MaterialsSet) {
+        set.add(self.material.as_str());
+        self.subscribers.push(set.subscribe());
+        self.subscribers.retain(|s| s.is_alive());
+    }
+
+    pub fn unsubscribe(&mut self, set: &MaterialsSet) {
+        set.remove(self.material.as_str());
+        self.subscribers.retain(|s| s.is_alive() && !s.is_subscribed(set));
+    }
 }
 
 impl Default for Atmosphere {
     fn default() -> Self {
-        Self::new(None).unwrap()
+        Self::new(None, None).unwrap()
     }
 }
 
 impl<'py> AtmosphereArg<'py> {
     pub fn into_atmosphere(self, py: Python<'py>) -> PyResult<Py<Atmosphere>> {
         match self {
-            Self::Model(model) => Py::new(py, Atmosphere::new(Some(model))?),
+            Self::Model(model) => Py::new(py, Atmosphere::new(Some(model), None)?),
             Self::Object(atmosphere) => Ok(atmosphere),
         }
     }

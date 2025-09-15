@@ -20,7 +20,6 @@ use std::pin::Pin;
 
 pub mod atmosphere;
 pub mod geomagnet;
-pub mod materials;
 pub mod physics;
 pub mod random;
 pub mod reference;
@@ -192,7 +191,7 @@ impl Fluxmeter {
             Some(arg) => arg.extract::<AtmosphereArg>()?
                 .into_atmosphere(py)?,
             None => {
-                let atmosphere = Atmosphere::new(None)?;
+                let atmosphere = Atmosphere::new(None, None)?;
                 Py::new(py, atmosphere)?
             },
         };
@@ -207,53 +206,29 @@ impl Fluxmeter {
         };
 
         let geometry = {
-            let geometry_kwargs = extract_kwargs(
-                &["materials"]
-            )?;
             match extract_field("geometry")? {
-                Some(geometry) => if layers.is_empty() && geometry_kwargs.is_none() {
+                Some(geometry) => if layers.is_empty() {
                     geometry.extract::<GeometryArg>()?
                         .into_geometry(py)?
                 } else {
                     let err = Error::new(TypeError)
                         .what("geometry argument(s)")
-                        .why("geometry already provided as *layers and/or **kwargs")
+                        .why("geometry already provided as *layers")
                         .to_err();
                     return Err(err)
                 },
                 None => {
-                    let geometry = EarthGeometry::new(layers, None)?;
+                    let geometry = EarthGeometry::new(layers)?;
                     let geometry = Bound::new(py, geometry)?;
-                    if let Some(kwargs) = geometry_kwargs {
-                        for (key, value) in kwargs.iter() {
-                            let key: Bound<PyString> = key.extract()?;
-                            geometry.setattr(key, value)?
-                        }
-                    }
                     Geometry::Earth(geometry.unbind())
                 }
             }
         };
 
         let physics = {
-            let mut physics_kwargs = extract_kwargs(
+            let physics_kwargs = extract_kwargs(
                 &["bremsstrahlung", "pair_production", "photonuclear"]
             )?;
-            if let Some(kwargs) = kwargs {
-                if let Some(materials) = kwargs.get_item("materials")? {
-                    kwargs.del_item("materials")?;
-                    match physics_kwargs.as_mut() {
-                        None => {
-                            let dict = PyDict::new(py);
-                            dict.set_item("materials", materials)?;
-                            physics_kwargs.replace(dict);
-                        },
-                        Some(physics_kwargs) => {
-                            physics_kwargs.set_item("materials", materials)?;
-                        }
-                    }
-                }
-            }
             match extract_field("physics")? {
                 Some(physics) => if physics_kwargs.is_none() {
                     let physics: Py<physics::Physics> = physics.extract()?;
@@ -287,6 +262,7 @@ impl Fluxmeter {
 
         let materials = MaterialsSet::new();
         geometry.subscribe(py, &materials);
+        atmosphere.bind(py).borrow_mut().subscribe(&materials);
 
         let media = Vec::new();
         let atmosphere_medium = CMedium::default();
@@ -309,10 +285,17 @@ impl Fluxmeter {
 
     #[setter]
     fn set_atmosphere(&mut self, py: Python, value: Option<AtmosphereArg>) -> PyResult<()> {
-        self.atmosphere = match value {
-            Some(atmosphere) => atmosphere.into_atmosphere(py)?,
-            None => Py::new(py, Atmosphere::new(None)?)?,
+        let new = match value {
+            Some(atmosphere) => atmosphere.into_atmosphere(py)?.bind(py).clone(),
+            None => Bound::new(py, Atmosphere::new(None, None)?)?,
         };
+        let current = self.atmosphere.bind(py);
+        if !current.is(&new) {
+            current.borrow_mut().unsubscribe(&self.materials);
+            new.borrow_mut().subscribe(&self.materials);
+            self.atmosphere = new.unbind();
+            self.reset();
+        }
         Ok(())
     }
 
@@ -636,8 +619,6 @@ impl Fluxmeter {
 }
 
 impl Fluxmeter {
-    const TOP_MATERIAL: &str = "Air";
-
     fn borrow<'py>(&mut self, py: Python<'py>) -> Proxy<'py> {
         let geometry = self.geometry.borrow(py);
         let atmosphere = self.atmosphere.bind(py).borrow();
@@ -651,6 +632,7 @@ impl Fluxmeter {
     fn create_or_update_geometry(
         &mut self,
         py: Python,
+        atmosphere: &Atmosphere,
         geometry: &GeometryRef,
         physics: &physics::Physics,
     ) -> PyResult<()> {
@@ -662,7 +644,11 @@ impl Fluxmeter {
                     let medium = CMedium::from_layer(&layer, index, physics)?;
                     self.media.push(medium);
                 }
-                self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
+                self.atmosphere_medium = CMedium::atmosphere(
+                    self.media.len(),
+                    atmosphere.material.as_str(),
+                    physics
+                )?;
             } else {
                 for (index, layer) in geometry.layers.bind(py).iter().enumerate() {
                     let layer = layer.downcast::<Layer>().unwrap().borrow();
@@ -674,7 +660,7 @@ impl Fluxmeter {
                 }
                 self.atmosphere_medium.update(
                     None,
-                    Fluxmeter::TOP_MATERIAL, // XXX Read from atmosphere?
+                    atmosphere.material.as_str(),
                     physics,
                 )?;
             },
@@ -684,7 +670,11 @@ impl Fluxmeter {
                     let medium = CMedium::from_external(&medium, index, physics)?;
                     self.media.push(medium);
                 }
-                self.atmosphere_medium = CMedium::atmosphere(self.media.len(), physics)?;
+                self.atmosphere_medium = CMedium::atmosphere(
+                    self.media.len(),
+                    atmosphere.material.as_str(),
+                    physics
+                )?;
             } else {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
                     let medium = medium.downcast::<external::Medium>().unwrap().borrow();
@@ -696,7 +686,7 @@ impl Fluxmeter {
                 }
                 self.atmosphere_medium.update(
                     None,
-                    Fluxmeter::TOP_MATERIAL,
+                    atmosphere.material.as_str(),
                     physics,
                 )?;
             },
@@ -910,8 +900,8 @@ impl CMedium {
         &mut self.0.api
     }
 
-    fn atmosphere(layer: usize, physics: &physics::Physics) -> PyResult<Self> {
-        Self::new(Fluxmeter::TOP_MATERIAL, None, layer, Some(atmosphere_locals), physics)
+    fn atmosphere(layer: usize, material: &str, physics: &physics::Physics) -> PyResult<Self> {
+        Self::new(material, None, layer, Some(atmosphere_locals), physics)
     }
 
     fn new(
@@ -1146,8 +1136,8 @@ impl<'a> Agent<'a> {
         reference: &'a reference::Reference,
     ) -> PyResult<Self> {
         // Configure physics and geometry.
-        physics.update(py, geometry.materials())?;
-        fluxmeter.create_or_update_geometry(py, geometry, &physics)?;
+        physics.update(py, &fluxmeter.materials)?;
+        fluxmeter.create_or_update_geometry(py, atmosphere, geometry, &physics)?;
         let geometry = match geometry {
             GeometryRef::Earth(geometry) => GeometryAgent::Earth {
                 stepper: geometry.stepper(py)?,

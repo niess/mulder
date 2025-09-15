@@ -1,4 +1,6 @@
-use crate::simulation::materials::{AtomicElement, Component, Material, MaterialsData};
+use crate::materials::definitions::{Element, Component, Material};
+use crate::materials::registry::Registry;
+use crate::materials::set::MaterialsSet;
 use pyo3::prelude::*;
 use ::std::path::Path;
 
@@ -12,37 +14,42 @@ use ::std::path::Path;
 pub struct Mdf (String);
 
 impl Mdf {
-    pub fn new(materials: &MaterialsData) -> Self {
-        let table = materials.table();
+    pub fn new(py: Python, materials: &MaterialsSet) -> PyResult<Self> {
+        let registry = &Registry::get(py)?.read().unwrap();
         let mut lines = Vec::<String>::new();
         lines.push("<pumas>".to_string());
 
         let mut elements = Vec::<&str>::new();
-        for material in materials.map.values() {
-            for Component { name, .. } in material.composition.iter() {
+        for material in materials.borrow().iter() {
+            let definition = registry.get_material(material)?;
+            for Component { name, .. } in definition.composition.iter() {
                 elements.push(name)
             }
         }
         elements.sort();
         elements.dedup();
 
-        for key in elements {
-            let element = table.get(key).unwrap();
-            let element = element.to_xml(key);
+        for symbol in elements {
+            let element = registry.get_element(symbol).unwrap();
+            let element = element.to_xml(symbol);
             lines.push(element);
         }
 
-        let mut keys: Vec<_> = materials.map.keys().collect();
+        let borrow = materials.borrow();
+        let mut keys = borrow.iter().collect::<Vec<_>>();
         keys.sort();
         for key in keys.drain(..) {
-            let material = &materials.map[key];
+            let material = registry.get_material(key).unwrap();
             let material = material.to_xml(key);
             lines.push(material);
         }
+        drop(borrow);
 
         lines.push("</pumas>".to_string());
         let mdf = lines.join("\n");
-        Self (mdf)
+        let mdf = Self (mdf);
+
+        Ok(mdf)
     }
 
     pub fn dump<P: AsRef<Path>>(&self, destination: P) -> PyResult<()> {
@@ -62,7 +69,7 @@ trait ToXml {
     fn to_xml(&self, key: &str) -> String;
 }
 
-impl ToXml for AtomicElement {
+impl ToXml for Element {
     fn to_xml(&self, key: &str) -> String {
         format!(
             "<element name=\"{}\" Z=\"{}\" A=\"{}\" I=\"{}\" />",

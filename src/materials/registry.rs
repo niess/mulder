@@ -10,6 +10,7 @@ use std::sync::RwLock;
 use super::definitions::{Element, Material};
 
 
+#[derive(Default)]
 pub struct Registry {
     pub elements: HashMap<String, Element>,
     pub materials: HashMap<String, Material>,
@@ -224,5 +225,21 @@ impl Registry {
             .join(format!("data/materials/{}.toml", Self::DEFAULT_MATERIALS));
         registry.load(py, &path)?;
         Ok(registry)
+    }
+
+    pub fn get_element<'a>(&'a self, symbol: &str) -> PyResult<&'a Element> {
+        self.elements.get(symbol)
+            .ok_or_else(|| {
+                let why = format!("undefined element '{}'", symbol);
+                Error::new(ValueError).why(&why).to_err()
+            })
+    }
+
+    pub fn get_material<'a>(&'a self, name: &str) -> PyResult<&'a Material> {
+        self.materials.get(name)
+            .ok_or_else(|| {
+                let why = format!("undefined material '{}'", name);
+                Error::new(ValueError).why(&why).to_err()
+            })
     }
 }

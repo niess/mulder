@@ -4,9 +4,13 @@ use pyo3::prelude::*;
 pub mod definitions;
 pub mod registry;
 pub mod set;
+pub mod toml;
+pub mod xml;
 
-pub use definitions::{Element, Material};
-use registry::Registry;
+pub use definitions::{Component, Element, Material};
+pub use set::{MaterialsSet, MaterialsSubscriber};
+pub use xml::Mdf;
+pub use registry::Registry;
 
 
 /// Load material definitions.
