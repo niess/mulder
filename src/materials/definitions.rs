@@ -69,6 +69,10 @@ impl Element {
         Ok(element)
     }
 
+    fn __repr__(&self) -> String {
+        format!("{{'Z': {}, 'A': {}, 'I': {:.10}}}", self.Z, self.A, self.I * 1E-09)
+    }
+
     /// The element Mean Excitation Energy, in GeV.
     #[allow(non_snake_case)]
     #[getter]
@@ -93,6 +97,21 @@ impl Material {
             .get_material(name)?
             .clone();
         Ok(material)
+    }
+
+    fn __repr__(&self) -> String {
+        let composition = self.composition.iter()
+            .map(|c| format!("'{}': {}", c.name, c.weight))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut attributes = vec![
+            format!("'density': {}", self.density),
+        ];
+        if let Some(mee) = self.I {
+            attributes.push(format!("'I': {}", mee));
+        }
+        attributes.push(format!("'composition': {{{}}}", composition));
+        format!("{{{}}}", attributes.join(", "))
     }
 
     /// The material mass composition.
