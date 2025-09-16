@@ -53,6 +53,7 @@ namespace G4Mulder{
         ~WeightedElement() {};
 
         const G4Element * g4Element;
+        std::string name;
         double molarWeight;
     };
 
@@ -311,7 +312,7 @@ static const char * element_symbol(
     const struct mulder_weighted_element * self
 ){
     auto element = (G4Mulder::WeightedElement *)self;
-    return element->g4Element->GetSymbol().c_str();
+    return element->name.c_str();
 }
 
 static double element_weight(
@@ -326,6 +327,11 @@ G4Mulder::WeightedElement::WeightedElement(
 ):
     g4Element(element), molarWeight(weight_)
 {
+    this->name = element->GetSymbol();
+    if (this->name.rfind("G4_", 0) != 0) {
+        this->name = "G4_" + this->name;
+    }
+
     // Set interface.
     this->destroy = &element_destroy;
     this->Z = &element_Z;

@@ -196,13 +196,13 @@ impl Fluxmeter {
             },
         };
 
-        let geomagnet = match extract_field("geomagnet")? { // XXX Apply any date arg?
-            Some(arg) => arg.extract::<EarthMagnetArg>()?
-                .into_geomagnet(py)?,
-            None => {
-                let geomagnet = EarthMagnet::new(py, None, None, None, None)?;
-                Some(Py::new(py, geomagnet)?)
+        let geomagnet = match extract_field("geomagnet")? { 
+            Some(arg) => {
+                arg.extract::<EarthMagnetArg>()?
+                    .into_geomagnet(py)?
+                // XXX Apply any date arg?
             },
+            None => None,
         };
 
         let geometry = {

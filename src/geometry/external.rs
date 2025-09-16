@@ -520,8 +520,9 @@ impl OwnedPtr<CMaterial> {
                     .ok_or_else(|| null_pointer_fmt!("Z for {} element", symbol))? as u32;
                 let A = element.A()
                     .ok_or_else(|| null_pointer_fmt!("A for {} element", symbol))?;
-                let I = element.I()
+                let mut I = element.I()
                     .ok_or_else(|| null_pointer_fmt!("I for {} element", symbol))?;
+                I *= 1E+09; // to eV.
                 let element = Element { Z, A, I };
                 registry.add_element(symbol.clone(), element)?;
             }
