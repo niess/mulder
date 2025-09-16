@@ -99,23 +99,31 @@ impl MaterialsSet {
             let registry = &Registry::get(py)?.read().unwrap();
             let mut cached = Registry::default();
             cached.load(py, &path)?;
-            for (k, v) in cached.elements.iter() {
-                match registry.elements.get(k) {
-                    Some(def) => if def != v {
-                        return Ok(false) // XXX Clear any associated dump.
-                    },
-                    None => return Ok(false), // XXX Clear any associated dump.
+            let eq = || {
+                for (k, v) in cached.elements.iter() {
+                    match registry.elements.get(k) {
+                        Some(def) => if def != v {
+                            return false
+                        },
+                        None => return false
+                    }
                 }
-            }
-            for (k, v) in cached.materials.iter() {
-                match registry.materials.get(k) {
-                    Some(def) => if def != v {
-                        return Ok(false) // XXX Clear any associated dump.
-                    },
-                    None => return Ok(false), // XXX Clear any associated dump.
+                for (k, v) in cached.materials.iter() {
+                    match registry.materials.get(k) {
+                        Some(def) => if def != v {
+                            return false
+                        },
+                        None => return false
+                    }
                 }
+                true
+            };
+            if eq() {
+                true
+            } else {
+                self.delete_dumps(py)?;
+                false
             }
-            true
         } else {
             false
         };
@@ -136,6 +144,25 @@ impl MaterialsSet {
 
     pub fn borrow<'a>(&'a self) -> MaterialsBorrow<'a> {
         MaterialsBorrow(self.inner.read().unwrap())
+    }
+
+    fn delete_dumps(&self, py: Python) -> PyResult<()> {
+        let materials_cache = cache::path()?.join("materials");
+        let hash = format!("{:016x}", self.hash(py)?);
+        if let Ok(content) = std::fs::read_dir(&materials_cache) {
+            // Remove any cached pumas dumps.
+            for entry in content {
+                if let Ok(entry) = entry {
+                    if let Some(filename) = entry.file_name().to_str() {
+                        if filename.starts_with(&hash) &&
+                           filename.ends_with(".pumas") {
+                            std::fs::remove_file(&entry.path())?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
