@@ -1,6 +1,7 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{ValueError, TypeError};
 use crate::utils::io::{ConfigFormat, Toml};
+use crate::utils::traits::TypeName;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::sync::GILOnceCell;
@@ -54,8 +55,7 @@ impl Registry {
 
     pub fn load<P: AsRef<Path>>(&mut self, py: Python, path: P) -> PyResult<()> {
         let to_err = |expected: &str, found: &Bound<PyAny>| {
-            let tp = found.get_type();
-            let why = format!("expected a '{}', found a '{:?}'", expected, tp);
+            let why = format!("expected a '{}', found a '{:?}'", expected, found.type_name());
             Error::new(TypeError)
                 .what("materials")
                 .why(&why)

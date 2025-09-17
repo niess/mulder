@@ -1,5 +1,6 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
+use crate::utils::traits::TypeName;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use ordered_float::OrderedFloat;
@@ -58,7 +59,7 @@ impl Element {
     fn __new__(py: Python, symbol: &str, kwargs: Option<&Bound<PyDict>>) -> PyResult<Self> {
         let registry = &Registry::get(py)?;
 
-        if let Some(kwargs) = kwargs { // XXX explicit 'define' function?
+        if let Some(kwargs) = kwargs {
             let element: Element = (symbol, kwargs).try_into()?;
             registry.write().unwrap().add_element(symbol.to_owned(), element)?;
         }
@@ -394,11 +395,10 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Material {
             None => {
                 let composition: Bound<PyDict> = composition.extract() // XXX Try from a sequence?
                     .map_err(|_| {
-                        let tp = composition.get_type();
                         let why = format!(
                             "expected a 'dict' or a 'string' for 'composition', found a '{:?}'",
-                            tp,
-                        ); // XXX tp prints out as <class 'T'>, instead of 'T'.
+                            composition.as_any().type_name(),
+                        );
                         to_err(TypeError, &why)
                     })?;
                 let mut components = Vec::<Component>::new();

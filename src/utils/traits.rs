@@ -1,3 +1,4 @@
+use pyo3::prelude::*;
 use std::ops::{Add, Mul, Sub};
 
 
@@ -90,5 +91,25 @@ impl Vector3 for [f64; 3] {
     #[inline]
     fn z(&self) -> Self::Number {
         self[2]
+    }
+}
+
+pub trait TypeName {
+    fn type_name(&self) -> String;
+}
+
+impl<'py> TypeName for Bound<'py, PyAny> {
+    fn type_name(&self) -> String {
+        const UNKNOWN: &str = "unknown";
+        match self.get_type().getattr("__name__").ok() {
+            Some(name) => {
+                let name: String = name
+                    .extract()
+                    .ok()
+                    .unwrap_or_else(|| UNKNOWN.to_owned());
+                name
+            },
+            None => UNKNOWN.to_owned(),
+        }
     }
 }

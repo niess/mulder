@@ -39,7 +39,7 @@ pub fn dump(py: Python, path: PathString, mut materials: Vec<String>) -> PyResul
     Ok(())
 }
 
-/// Return the current definitions.
+/// Get the current definitions.
 #[pyfunction]
 #[pyo3(name="definitions", signature=(*, elements=true, materials=true))]
 pub fn get_definitions<'py>(
