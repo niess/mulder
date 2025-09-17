@@ -8,7 +8,7 @@ pub mod set;
 pub mod toml;
 pub mod xml;
 
-pub use definitions::{Component, Element, Material};
+pub use definitions::{Component, Composite, Element, Material, Mixture};
 pub use set::{MaterialsSet, MaterialsSubscriber};
 pub use xml::Mdf;
 pub use registry::Registry;
@@ -41,14 +41,16 @@ pub fn dump(py: Python, path: PathString, mut materials: Vec<String>) -> PyResul
 
 /// Get the current definitions.
 #[pyfunction]
-#[pyo3(name="definitions", signature=(*, elements=true, materials=true))]
+#[pyo3(name="definitions", signature=(*, composites=true, elements=true, mixtures=true))]
 pub fn get_definitions<'py>(
     py: Python<'py>,
+    composites: Option<bool>,
     elements: Option<bool>,
-    materials: Option<bool>,
+    mixtures: Option<bool>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    let composites = composites.unwrap_or(true);
     let elements = elements.unwrap_or(true);
-    let materials = materials.unwrap_or(true);
+    let mixtures = mixtures.unwrap_or(true);
     let definitions = PyDict::new(py);
     let registry = &Registry::get(py)?.read().unwrap();
     if elements {
@@ -58,14 +60,23 @@ pub fn get_definitions<'py>(
         }
         definitions.set_item("elements", elements)?;
     }
-    if materials {
-        let materials = PyDict::new(py);
+    if mixtures {
+        let mixtures = PyDict::new(py);
         for (k, v) in registry.materials.iter() {
-            materials.set_item(k.clone(), v.clone())?;
+            if let Some(v) = v.as_mixture() {
+                mixtures.set_item(k.clone(), v.clone())?;
+            }
         }
-        definitions.set_item("materials", materials)?;
+        definitions.set_item("mixtures", mixtures)?;
+    }
+    if composites {
+        let composites = PyDict::new(py);
+        for (k, v) in registry.materials.iter() {
+            if let Some(v) = v.as_composite() {
+                composites.set_item(k.clone(), v.clone())?;
+            }
+        }
+        definitions.set_item("composites", composites)?;
     }
     Ok(definitions)
 }
-
-// XXX Composite materials?

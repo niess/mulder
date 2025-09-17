@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
-use crate::materials::{Component, Element, Material, MaterialsSet, MaterialsSubscriber, Registry};
+use crate::materials::{
+    Component, Element, Material, MaterialsSet, MaterialsSubscriber, Mixture, Registry,
+};
 use crate::utils::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -15,6 +17,8 @@ use pyo3::types::PyTuple;
 use std::ffi::{c_char, c_double, c_int, CStr};
 use std::ptr::NonNull;
 
+
+// XXX Manage composites, and mixtures of mixtures.
 
 // ===============================================================================================
 // External geometry, dynamicaly loaded.
@@ -77,7 +81,7 @@ struct CGeometry {
         extern "C" fn(*mut CGeometry)
     >,
     material: Option<
-        extern "C" fn(*const CGeometry, index: usize) -> *mut CMaterial
+        extern "C" fn(*const CGeometry, index: usize) -> *mut CMixture
     >,
     materials_len: Option<
         extern "C" fn(*const CGeometry) -> usize
@@ -107,24 +111,24 @@ struct CMedium {
 }
 
 #[repr(C)]
-struct CMaterial {
+struct CMixture {
     destroy: Option<
-        extern "C" fn(*mut CMaterial)
+        extern "C" fn(*mut CMixture)
     >,
     name: Option<extern "C" fn(
-        *const CMaterial) -> *const c_char
+        *const CMixture) -> *const c_char
     >,
     density: Option<extern "C" fn(
-        *const CMaterial) -> c_double
+        *const CMixture) -> c_double
     >,
     element: Option<
-        extern "C" fn(*const CMaterial, usize) -> *mut CElement
+        extern "C" fn(*const CMixture, usize) -> *mut CElement
     >,
     elements_len: Option<
-        extern "C" fn(*const CMaterial) -> usize
+        extern "C" fn(*const CMixture) -> usize
     >,
     I: Option<extern "C" fn(
-        *const CMaterial) -> c_double
+        *const CMixture) -> c_double
     >,
 }
 
@@ -493,7 +497,7 @@ impl Medium {
     }
 }
 
-impl OwnedPtr<CMaterial> {
+impl OwnedPtr<CMixture> {
     fn register(
         self,
         registry: &mut Registry,
@@ -533,12 +537,12 @@ impl OwnedPtr<CMaterial> {
         let density = self.density()
             .ok_or_else(|| null_pointer_fmt!("density for {} material", name))?;
         let I = self.I();
-        let material = Material::from_elements(density, &composition, I, registry)
+        let mixture = Mixture::from_elements(density, &composition, I, registry)
             .map_err(|(kind, why)| {
                 let what = format!("{} material", name);
                 Error::new(kind).what(&what).why(&why).to_err()
             })?;
-        registry.add_material(name, material)?;
+        registry.add_material(name, Material::Mixture(mixture))?;
         Ok(())
     }
 }
@@ -573,7 +577,7 @@ macro_rules! impl_destroy {
     }
 }
 
-impl_destroy! { CGeometry, CElement, CMaterial, CMedium, CTracer }
+impl_destroy! { CGeometry, CElement, CMixture, CMedium, CTracer }
 
 impl CInterface {
     fn definition(&self) -> PyResult<OwnedPtr<CGeometry>> {
@@ -684,11 +688,11 @@ macro_rules! impl_get_opt_item {
 impl OwnedPtr<CGeometry> {
     impl_get_attr!(materials_len, usize);
     impl_get_attr!(media_len, usize);
-    impl_get_item!(material, CMaterial);
+    impl_get_item!(material, CMixture);
     impl_get_item!(medium, CMedium);
 }
 
-impl OwnedPtr<CMaterial> {
+impl OwnedPtr<CMixture> {
     impl_get_str_attr!(name);
     impl_get_opt_attr!(density, c_double);
     impl_get_opt_item!(element, CElement);

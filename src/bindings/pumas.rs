@@ -216,6 +216,22 @@ extern "C" {
     #[link_name="pumas_error_function"]
     pub fn error_function(function: Function) -> *const c_char;
 
+    #[link_name="pumas_physics_composite_properties"]
+    pub fn physics_composite_properties(
+        physics: *const Physics,
+        index: c_int,
+        length: *mut c_int,
+        components: *mut c_int,
+        fractions: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_composite_update"]
+    pub fn physics_composite_update(
+        physics: *const Physics,
+        material: c_int,
+        fractions: *const c_double,
+    ) -> c_uint;
+
     #[link_name="pumas_physics_create"]
     pub fn physics_create(
         physics: *mut *mut Physics,

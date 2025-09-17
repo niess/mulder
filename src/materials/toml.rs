@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use std::cmp::Ordering::{Less, Equal, Greater};
-use super::definitions::{Component, Element, Material};
+use super::definitions::{Component, Composite, Element, Mixture};
 use super::registry::Registry;
 use super::set::MaterialsSet;
 
@@ -23,9 +23,13 @@ impl ToToml for MaterialsSet {
 
         let mut elements = Vec::<&str>::new();
         for material in materials.iter() {
-            let definition = registry.get_material(material)?;
-            for Component { name, .. } in definition.composition.iter() {
-                elements.push(name)
+            let definition = registry
+                .get_material(material)?
+                .as_mixture();
+            if let Some(definition) = definition {
+                for Component { name, .. } in definition.composition.iter() {
+                    elements.push(name)
+                }
             }
         }
         elements.sort();
@@ -53,16 +57,21 @@ impl ToToml for MaterialsSet {
                 element.1.to_toml(py)?,
             ));
         }
-        lines.push("".to_string());
 
         let mut keys: Vec<_> = materials.iter().collect();
         keys.sort();
-        let n = keys.len();
-        for (i, key) in keys.iter().enumerate() {
-            lines.push(format!("[{}]", key));
-            lines.push(registry.get_material(key)?.to_toml(py)?);
-            if i < n - 1 {
-                lines.push("".to_string());
+
+        for key in keys.iter() {
+            if let Some(mixture) = registry.get_material(key)?.as_mixture() {
+                lines.push(format!("\n[{}]", key));
+                lines.push(mixture.to_toml(py)?);
+            }
+        }
+
+        for key in keys {
+            if let Some(composite) = registry.get_material(key)?.as_composite() {
+                lines.push(format!("\n[{}]", key));
+                lines.push(composite.to_toml(py)?);
             }
         }
 
@@ -70,7 +79,7 @@ impl ToToml for MaterialsSet {
     }
 }
 
-impl<'a> ToToml for Element {
+impl ToToml for Element {
     fn to_toml(&self, _py: Python) -> PyResult<String> {
         const EV: f64 = 1E-09;
         Ok(format!(
@@ -82,14 +91,30 @@ impl<'a> ToToml for Element {
     }
 }
 
-impl ToToml for Material {
+impl ToToml for Composite {
+    #[inline]
+    fn to_toml(&self, py: Python) -> PyResult<String> {
+        let data = self.read();
+        data.composition.to_toml(py)
+    }
+}
+
+impl ToToml for Mixture {
     fn to_toml(&self, py: Python) -> PyResult<String> {
         let mut lines = Vec::<String>::new();
         lines.push(format!("density = {}", self.density));
         if let Some(mee) = self.I {
             lines.push(format!("I = {}", mee));
         }
-        let components = self.composition.iter()
+        lines.push(self.composition.to_toml(py)?);
+        Ok(lines.join("\n"))
+    }
+}
+
+impl ToToml for Vec<Component> {
+    fn to_toml(&self, py: Python) -> PyResult<String> {
+        let mut lines = Vec::<String>::new();
+        let components = self.iter()
             .map(|component| component.to_toml(py))
             .collect::<PyResult<Vec<_>>>()?;
         let composition = components.join(", ");
@@ -98,7 +123,7 @@ impl ToToml for Material {
     }
 }
 
-impl<'a> ToToml for Component {
+impl ToToml for Component {
     fn to_toml(&self, _py: Python) -> PyResult<String> {
         Ok(format!("{} = {}", self.name, self.weight))
     }

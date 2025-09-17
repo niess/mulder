@@ -1,6 +1,7 @@
 use console::style;
 use crate::bindings::pumas;
-use crate::materials::{Material, MaterialsSet, Mdf, Registry};
+use crate::materials::{MaterialsSet, Mdf, Material, Registry};
+use crate::materials::definitions::CompositeData;
 use crate::utils::convert::{Bremsstrahlung, PairProduction, Photonuclear, TransportMode};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
@@ -34,6 +35,7 @@ pub struct Physics {
     pub context: Option<OwnedPtr<pumas::Context>>,
     materials_version: Option<usize>,
     materials_indices: HashMap<String, c_int>,
+    composites_version: HashMap<String, usize>,
 }
 
 #[pyclass(module="mulder", frozen)]
@@ -61,10 +63,11 @@ impl Physics {
         let context = None;
         let materials_version = None;
         let materials_indices = HashMap::new();
+        let composites_version = HashMap::new();
 
         let physics = Self {
             bremsstrahlung, pair_production, photonuclear, physics, context,
-            materials_version, materials_indices,
+            materials_version, materials_indices, composites_version,
         };
         let physics = Bound::new(py, physics)?;
 
@@ -173,7 +176,8 @@ impl Physics {
             }
             self.context = Some(OwnedPtr::new(context)?);
 
-            // Map materials indices.
+            // Map materials indices and set composites.
+            let registry = Registry::get(py)?.read().unwrap();
             for material in materials.borrow().iter() {
                 let mut index: c_int = 0;
                 unsafe {
@@ -185,6 +189,24 @@ impl Physics {
                     Self::check_pumas(rc)?;
                 }
                 self.materials_indices.insert(material.to_owned(), index);
+
+                if let Some(composite) = registry.materials
+                    .get(material.as_str())
+                        .and_then(|m| m.as_composite()) {
+                    update_composite(&composite.read(), physics, index)?;
+                }
+            }
+        } else {
+            // Update any composite.
+            let registry = Registry::get(py)?.read().unwrap();
+            let physics = self.physics.as_ref().unwrap().0.as_ptr();
+            for material in materials.borrow().iter() {
+                if let Some(composite) = registry.materials
+                    .get(material.as_str())
+                        .and_then(|m| m.as_composite()) {
+                    let index = self.materials_indices[material.as_str()];
+                    update_composite(&composite.read(), physics, index)?;
+                }
             }
         }
         Ok(())
@@ -280,6 +302,7 @@ impl Physics {
         self.context = None;
         self.physics = None;
         self.materials_indices.clear();
+        self.composites_version.clear();
     }
 
     pub fn material_index(&self, name: &str) -> PyResult<c_int> {
@@ -383,6 +406,40 @@ impl Destroy for NonNull<pumas::Physics> {
     }
 }
 
+fn update_composite(
+    data: &CompositeData,
+    physics: *const pumas::Physics,
+    index: c_int,
+) -> PyResult<()> {
+    let mut current_fractions = vec![0.0_f64; data.composition.len()];
+    unsafe {
+        let rc = pumas::physics_composite_properties(
+            physics,
+            index,
+            null_mut(),
+            null_mut(),
+            current_fractions.as_mut_ptr(),
+        );
+        Physics::check_pumas(rc)?;
+    }
+
+    let fractions = data.composition.iter()
+        .map(|c| c.weight as std::ffi::c_double)
+        .collect::<Vec<_>>();
+
+    if fractions.ne(&current_fractions) {
+        unsafe {
+            let rc = pumas::physics_composite_update(
+                physics,
+                index,
+                fractions.as_ptr(),
+            );
+            Physics::check_pumas(rc)?;
+        }
+    }
+
+    Ok(())
+}
 
 // ===============================================================================================
 //
@@ -401,7 +458,7 @@ impl CompiledMaterial {
     }
 
     #[getter]
-    fn get_definition(&self, py: Python) -> PyResult<Material> {
+    fn get_definition(&self, py: Python) -> PyResult<Material> { // XXX mixture as well.
         let registry = &Registry::get(py)?.read().unwrap();
         let definition = registry.get_material(self.name.as_str())?;
         Ok(definition.clone())
@@ -419,6 +476,10 @@ impl CompiledMaterial {
             None => pumas::MODE_CSDA,
         };
         let physics = self.physics.as_ref().0.as_ptr();
+        let registry = &Registry::get(py)?.read().unwrap();
+        if let Some(composite) = registry.get_material(self.name.as_str())?.as_composite() {
+            update_composite(&composite.read(), physics, self.index)?;
+        }
 
         let mut array = NewArray::empty(py, energy.shape())?;
         let n = array.size();

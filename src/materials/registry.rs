@@ -8,7 +8,7 @@ use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::RwLock;
-use super::definitions::{Element, Material};
+use super::definitions::{Composite, Element, Material, Mixture};
 
 
 #[derive(Default)]
@@ -55,7 +55,7 @@ impl Registry {
 
     pub fn load<P: AsRef<Path>>(&mut self, py: Python, path: P) -> PyResult<()> {
         let to_err = |expected: &str, found: &Bound<PyAny>| {
-            let why = format!("expected a '{}', found a '{:?}'", expected, found.type_name());
+            let why = format!("expected a '{}', found a '{}'", expected, found.type_name());
             Error::new(TypeError)
                 .what("materials")
                 .why(&why)
@@ -227,6 +227,15 @@ impl Registry {
         Ok(registry)
     }
 
+    pub fn get_composite<'a>(&'a self, name: &str) -> PyResult<&'a Composite> {
+        self.materials.get(name)
+            .and_then(|m| m.as_composite())
+            .ok_or_else(|| {
+                let why = format!("undefined composite '{}'", name);
+                Error::new(ValueError).why(&why).to_err()
+            })
+    }
+
     pub fn get_element<'a>(&'a self, symbol: &str) -> PyResult<&'a Element> {
         self.elements.get(symbol)
             .ok_or_else(|| {
@@ -239,6 +248,15 @@ impl Registry {
         self.materials.get(name)
             .ok_or_else(|| {
                 let why = format!("undefined material '{}'", name);
+                Error::new(ValueError).why(&why).to_err()
+            })
+    }
+
+    pub fn get_mixture<'a>(&'a self, name: &str) -> PyResult<&'a Mixture> {
+        self.materials.get(name)
+            .and_then(|m| m.as_mixture())
+            .ok_or_else(|| {
+                let why = format!("undefined mixture '{}'", name);
                 Error::new(ValueError).why(&why).to_err()
             })
     }

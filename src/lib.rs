@@ -68,8 +68,9 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Set the materials submodule.
     let materials = PyModule::new(py, "materials")?;
+    materials.add_class::<materials::Composite>()?;
     materials.add_class::<materials::Element>()?;
-    materials.add_class::<materials::Material>()?;
+    materials.add_class::<materials::Mixture>()?;
     materials.add_function(wrap_pyfunction!(materials::get_definitions, &materials)?)?;
     materials.add_function(wrap_pyfunction!(materials::dump, &materials)?)?;
     materials.add_function(wrap_pyfunction!(materials::load, &materials)?)?;
