@@ -1,6 +1,6 @@
 use crate::materials::definitions::{Component, Composite, Element, Mixture};
 use crate::materials::registry::Registry;
-use crate::materials::set::MaterialsSet;
+use crate::materials::set::{MaterialsSet, UnpackedMaterials};
 use pyo3::prelude::*;
 use ::std::path::Path;
 
@@ -16,22 +16,11 @@ pub struct Mdf (String);
 impl Mdf {
     pub fn new(py: Python, materials: &MaterialsSet) -> PyResult<Self> {
         let registry = &Registry::get(py)?.read().unwrap();
+        let materials = materials.borrow();
+        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(registry)?;
+
         let mut lines = Vec::<String>::new();
         lines.push("<pumas>".to_string());
-
-        let mut elements = Vec::<&str>::new();
-        for material in materials.borrow().iter() {
-            let definition = registry
-                .get_material(material)?
-                .as_mixture();
-            if let Some(definition) = definition {
-                for Component { name, .. } in definition.composition.iter() {
-                    elements.push(name)
-                }
-            }
-        }
-        elements.sort();
-        elements.dedup();
 
         for symbol in elements {
             let element = registry.get_element(symbol).unwrap();
@@ -39,22 +28,18 @@ impl Mdf {
             lines.push(element);
         }
 
-        let borrow = materials.borrow();
-        let mut keys = borrow.iter().collect::<Vec<_>>();
-        keys.sort();
-        for key in keys.iter() {
-            if let Some(mixture) = registry.get_material(key).unwrap().as_mixture() {
-                let mixture = mixture.to_xml(Some(key));
+        for name in mixtures {
+            if let Some(mixture) = registry.get_material(name.as_str()).unwrap().as_mixture() {
+                let mixture = mixture.to_xml(Some(name.as_str()));
                 lines.push(mixture);
             }
         }
-        for key in keys.iter() {
-            if let Some(composite) = registry.get_material(key).unwrap().as_composite() {
-                let composite = composite.to_xml(Some(key));
+        for name in composites {
+            if let Some(composite) = registry.get_material(name).unwrap().as_composite() {
+                let composite = composite.to_xml(Some(name));
                 lines.push(composite);
             }
         }
-        drop(borrow);
 
         lines.push("</pumas>".to_string());
         let mdf = lines.join("\n");

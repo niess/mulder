@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use std::cmp::Ordering::{Less, Equal, Greater};
 use super::definitions::{Component, Composite, Element, Mixture};
 use super::registry::Registry;
-use super::set::MaterialsSet;
+use super::set::{MaterialsSet, UnpackedMaterials};
 
 
 // ===============================================================================================
@@ -19,21 +19,7 @@ impl ToToml for MaterialsSet {
     fn to_toml(&self, py: Python) -> PyResult<String> {
         let registry = &Registry::get(py)?.read().unwrap();
         let materials = self.borrow();
-        let mut lines = Vec::<String>::new();
-
-        let mut elements = Vec::<&str>::new();
-        for material in materials.iter() {
-            let definition = registry
-                .get_material(material)?
-                .as_mixture();
-            if let Some(definition) = definition {
-                for Component { name, .. } in definition.composition.iter() {
-                    elements.push(name)
-                }
-            }
-        }
-        elements.sort();
-        elements.dedup();
+        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(registry)?;
 
         let mut elements = elements
             .iter()
@@ -49,7 +35,10 @@ impl ToToml for MaterialsSet {
             Greater => Greater,
 
         });
+
+        let mut lines = Vec::<String>::new();
         lines.push("[elements]".to_string());
+
         for element in elements {
             lines.push(format!(
                 "\"{}\" = {}",
@@ -58,19 +47,16 @@ impl ToToml for MaterialsSet {
             ));
         }
 
-        let mut keys: Vec<_> = materials.iter().collect();
-        keys.sort();
-
-        for key in keys.iter() {
-            if let Some(mixture) = registry.get_material(key)?.as_mixture() {
-                lines.push(format!("\n[{}]", key));
+        for name in mixtures {
+            if let Some(mixture) = registry.get_material(name.as_str())?.as_mixture() {
+                lines.push(format!("\n[{}]", name));
                 lines.push(mixture.to_toml(py)?);
             }
         }
 
-        for key in keys {
-            if let Some(composite) = registry.get_material(key)?.as_composite() {
-                lines.push(format!("\n[{}]", key));
+        for name in composites {
+            if let Some(composite) = registry.get_material(name)?.as_composite() {
+                lines.push(format!("\n[{}]", name));
                 lines.push(composite.to_toml(py)?);
             }
         }
