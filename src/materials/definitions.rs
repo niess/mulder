@@ -1,6 +1,5 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
-use crate::utils::traits::TypeName;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use ordered_float::OrderedFloat;
@@ -53,9 +52,11 @@ pub struct Mixture {
     mass: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromPyObject)]
 pub struct Component {
+    #[pyo3(item(0))]
     pub name: String,
+    #[pyo3(item(1))]
     pub weight: f64,
 }
 
@@ -205,16 +206,16 @@ impl Composite {
     #[getter]
     fn get_density<'py>(&self, py: Python<'py>) -> PyResult<f64> {
         let registry = Registry::get(py)?.read().unwrap();
-        let mut density = 0.0;
+        let mut inverse_density = 0.0;
         let mut sum = 0.0;
         let data = self.read();
         for component in data.composition.iter() {
             let Component { name, weight } = component;
             let mixture = registry.get_mixture(name.as_str()).unwrap();
-            density += *weight * mixture.density; // XXX Check this.
+            inverse_density += *weight / mixture.density;
             sum += *weight;
         }
-        Ok(density / sum)
+        Ok(sum / inverse_density)
     }
 }
 
@@ -490,6 +491,7 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Composite {
 
     fn try_from(value: MaterialContext) -> PyResult<Self> {
         let (name, data, registry) = value;
+        let py = data.py();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' composite", name);
             Error::new(kind)
@@ -511,39 +513,33 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Composite {
         }
         let composition = composition
             .ok_or_else(|| to_err(KeyError, "missing 'composition'"))?;
-        let composition: Bound<PyDict> = composition.extract() // XXX Try from a sequence?
-            .map_err(|_| {
-                let why = format!(
-                    "expected a 'dict' for 'composition', found a '{:?}'",
-                    composition.as_any().type_name(),
-                );
-                to_err(TypeError, &why)
-            })?;
-        let composition = Composition::try_from(&composition)
-            .map_err(|(kind, why)| to_err(kind, &why))?;
-        Composite::new(composition.0, registry)
-            .map_err(|(kind, why)| to_err(kind, &why))
-    }
-}
 
-impl<'py> TryFrom<&Bound<'py, PyDict>> for Composition {
-    type Error = ErrorData;
+        #[derive(FromPyObject)]
+        enum CompositeComposition {
+            #[pyo3(annotation="seq[str]")]
+            Names(Vec<String>),
 
-    fn try_from(value: &Bound<'py, PyDict>) -> Result<Self, Self::Error> {
-        let mut composition = Vec::<Component>::new();
-        for (k, v) in value {
-            let name: String = k.extract()
-                .map_err(|_| (TypeError, "key is not a string".to_owned()))?;
-            let weight: f64 = v.extract()
-                .map_err(|_| {
-                    let why = format!("weight for '{}' is not a float", k);
-                    (TypeError, why)
-                })?;
-            if weight > 0.0 {
-                composition.push(Component { name, weight })
-            }
+            #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
+            Composition(Composition),
         }
-        Ok(Self(composition))
+
+        let composition: CompositeComposition = composition.extract()
+            .map_err(|err| to_err(TypeError, &err.value(py).to_string()))?;
+
+        let composition = match composition {
+            CompositeComposition::Names(composition) => if composition.len() > 0 {
+                let weight = 1.0 / composition.len() as f64;
+                composition.into_iter()
+                    .map(|name| Component { name, weight })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::<Component>::new()
+            },
+            CompositeComposition::Composition(composition) => composition.0,
+        };
+
+        Composite::new(composition, registry)
+            .map_err(|(kind, why)| to_err(kind, &why))
     }
 }
 
@@ -568,6 +564,7 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Mixture {
 
     fn try_from(value: MaterialContext) -> PyResult<Self> {
         let (name, data, registry) = value;
+        let py = data.py();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' mixture", name);
             Error::new(kind)
@@ -604,26 +601,58 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Mixture {
         let composition = composition
             .ok_or_else(|| to_err(KeyError, "missing 'composition'"))?;
 
-        let formula: Option<String> = composition.extract().ok();
-        let mixture = match formula {
-            Some(formula) => Mixture::from_formula(density, formula.as_str(), mee, registry)
-                .map_err(|(kind, why)| to_err(kind, &why))?,
-            None => {
-                let composition: Bound<PyDict> = composition.extract() // XXX Try from a sequence?
-                    .map_err(|_| {
-                        let why = format!(
-                            "expected a 'dict' or a 'string' for 'composition', found a '{:?}'",
-                            composition.as_any().type_name(),
-                        );
-                        to_err(TypeError, &why)
-                    })?;
-                let composition = Composition::try_from(&composition)
-                    .map_err(|(kind, why)| to_err(kind, &why))?;
+        #[derive(FromPyObject)]
+        enum MixtureComposition {
+            #[pyo3(annotation="str")]
+            Formula(String),
+
+            #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
+            Composition(Composition),
+        }
+
+        let composition: MixtureComposition = composition.extract()
+            .map_err(|err| to_err(TypeError, &err.value(py).to_string()))?;
+
+        let mixture = match composition {
+            MixtureComposition::Formula(formula) => {
+                Mixture::from_formula(density, formula.as_str(), mee, registry)
+                    .map_err(|(kind, why)| to_err(kind, &why))?
+            },
+            MixtureComposition::Composition(composition) => {
                 Mixture::from_composition(density, &composition.0, mee, registry)
                     .map_err(|(kind, why)| to_err(kind, &why))?
             },
         };
+
         Ok(mixture)
+    }
+}
+
+impl FromPyObject<'_> for Composition {
+    fn extract_bound(obj: &Bound<'_, PyAny>) -> PyResult<Self> {
+        #[derive(FromPyObject)]
+        enum CompositionArg {
+            #[pyo3(annotation="dict[str,float]")]
+            Dict(HashMap<String, f64>),
+
+            #[pyo3(annotation="seq[(str,float)]")]
+            Sequence(Vec<Component>),
+        }
+
+        let arg: CompositionArg = obj.extract()?;
+        let composition = match arg {
+            CompositionArg::Dict(d) => {
+                let mut composition = Vec::<Component>::with_capacity(d.len());
+                for (name, weight) in d.into_iter() {
+                    if weight > 0.0 {
+                        composition.push(Component { name, weight })
+                    }
+                }
+                composition
+            },
+            CompositionArg::Sequence(s) => s,
+        };
+        Ok(Self(composition))
     }
 }
 
