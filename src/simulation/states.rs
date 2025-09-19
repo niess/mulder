@@ -1,10 +1,10 @@
-use crate::utils::coordinates::{GeographicCoordinates, LocalFrame, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{AttributeError, TypeError};
 use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
+use super::coordinates::{GeographicCoordinates, LocalFrame, HorizontalCoordinates};
 use super::Particle;
 
 

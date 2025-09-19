@@ -3,7 +3,6 @@ use crate::geometry::{Geometry, GeometryArg, GeometryRef};
 use crate::geometry::earth::{EarthGeometry, EarthGeometryStepper, Layer};
 use crate::geometry::external;
 use crate::materials::set::MaterialsSet;
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::convert::TransportMode;
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -19,6 +18,7 @@ use std::ptr::null_mut;
 use std::pin::Pin;
 
 pub mod atmosphere;
+pub mod coordinates;
 pub mod geomagnet;
 pub mod physics;
 pub mod random;
@@ -26,6 +26,7 @@ pub mod reference;
 pub mod states;
 
 use atmosphere::{Atmosphere, AtmosphereArg};
+use coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use geomagnet::{EarthMagnet, EarthMagnetArg};
 use states::{
     ExtractedState, FlavouredGeographicState, FlavouredLocalState, NewStates, StatesExtractor,

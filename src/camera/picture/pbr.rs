@@ -1,4 +1,4 @@
-use crate::utils::coordinates::HorizontalCoordinates;
+use crate::simulation::coordinates::HorizontalCoordinates;
 use super::atmosphere::Atmosphere;
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;

@@ -3,7 +3,7 @@
 use crate::materials::{
     Component, Element, Material, MaterialsSet, MaterialsSubscriber, Mixture, Registry,
 };
-use crate::utils::coordinates::LocalFrame;
+use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::Size;

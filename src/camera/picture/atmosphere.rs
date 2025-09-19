@@ -1,4 +1,4 @@
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::namespace::Namespace;
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;

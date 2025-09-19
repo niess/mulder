@@ -56,12 +56,12 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::atmosphere::Atmosphere>()?;
     module.add_class::<simulation::geomagnet::EarthMagnet>()?;
+    module.add_class::<simulation::coordinates::LocalFrame>()?;
+    module.add_class::<simulation::states::LocalStates>()?;
     module.add_class::<simulation::physics::Physics>()?;
     module.add_class::<simulation::random::Random>()?;
     module.add_class::<simulation::reference::Reference>()?;
     module.add_class::<simulation::states::GeographicStates>()?;
-    module.add_class::<simulation::states::LocalStates>()?;
-    module.add_class::<utils::coordinates::LocalFrame>()?;
 
     // Set config wrapper.
     module.add("config", Config())?;

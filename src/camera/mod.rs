@@ -1,5 +1,5 @@
 use crate::geometry::earth::{EarthGeometry, Layer};
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
+use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::{Field, Extractor, Name};

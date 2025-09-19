@@ -1,4 +1,4 @@
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};

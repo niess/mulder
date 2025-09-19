@@ -7,6 +7,7 @@ extern "C" {
 /* C standard library. */
 #include <stddef.h>
 
+// XXX Clean the interface, or promote to a proper module system.
 
 /* ============================================================================
  *  External geometry interface.

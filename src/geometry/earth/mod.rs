@@ -1,6 +1,6 @@
 use crate::bindings::turtle;
 use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
-use crate::utils::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use crate::utils::error;
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
