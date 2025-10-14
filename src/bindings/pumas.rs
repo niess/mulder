@@ -147,8 +147,11 @@ pub struct State {
     pub decayed: c_int,
 }
 
+#[allow(non_snake_case)]
 pub type Dcs = Option<
-    unsafe extern "C" fn(Z: c_double, A: c_double, m: c_double, K: c_double, q: c_double) -> c_double,
+    unsafe extern "C" fn(
+        Z: c_double, A: c_double, m: c_double, K: c_double, q: c_double,
+    ) -> c_double,
 >;
 
 #[repr(C)]

@@ -38,7 +38,7 @@ in-source (under `src/python/mulder
    cargo build --release
 
    # Link the resulting binary.
-   ln -rs target/release/libmulder.so src/python/mulder/mulder.so
+   ln -rs target/release/lib_core.so src/python/mulder/_core.so
 
 .. caution::
 

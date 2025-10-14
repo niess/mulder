@@ -11,6 +11,9 @@ This section contains a list of academic `references`_ related to Mulder.
 References
 ----------
 
+.. [AbAn96] L. W. Abreu, and G. P. Anderson. "The MODTRAN 2/3 report and LOWTRAN
+   7 model." Contract 19628.91-C (1996) 0132.
+
 .. [NBCL18] V. Niess, A. Barnoud, C. Cârloganu, E. Le Menedeu, Comput.
    Phys. Commun. 229, 54 (2018), `doi:10.1016/j.cpc.2018.04.001
    <https://doi.org/10.1016/j.cpc.2018.04.001>`_ [`arXiv:1705.05636

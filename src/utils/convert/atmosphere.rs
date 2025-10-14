@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 
 #[derive(Clone, Copy, Default, EnumVariantsStrings, PartialEq)]
-#[enum_variants_strings_transform(transform="none")]
+#[enum_variants_strings_transform(transform="kebab_case")]
 pub enum AtmosphericModel {
     MidlatitudeSummer,
     MidlatitudeWinter,
@@ -12,7 +12,7 @@ pub enum AtmosphericModel {
     SubarticWinter,
     Tropical,
     #[default]
-    USStandard,
+    UsStandard,
 }
 
 impl Convert for AtmosphericModel {

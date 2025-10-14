@@ -17,7 +17,7 @@ def _docdir(request, doctest_namespace):
     doctest_plugin = request.config.pluginmanager.getplugin("doctest")
     if isinstance(request.node, doctest_plugin.DoctestItem):
         doctest_namespace["mulder"] = mulder
-        doctest_namespace["numpy"] = numpy
+        doctest_namespace["np"] = numpy
         tmpdir = request.getfixturevalue("tmpdir")
         with tmpdir.as_cwd():
             if not DOCTEST_INITIALISED:

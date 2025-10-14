@@ -3,6 +3,7 @@ use crate::utils::convert::AtmosphericModel;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{ValueError, TypeError};
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
+use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
 
 
@@ -11,8 +12,10 @@ pub struct Atmosphere {
     lambda: Vec<f64>,
     rho: Vec<f64>,
     z: Vec<f64>,
+    model: ModelAttribute,
 
     #[pyo3(get)]
+    /// The constitutive material.
     pub material: String,
 
     pub subscribers: Vec<MaterialsSubscriber>,
@@ -36,8 +39,25 @@ pub struct Density {
     pub lambda: f64,
 }
 
+enum ModelAttribute {
+    Model(AtmosphericModel),
+    Data(Option<PyObject>),
+}
+
 #[pymethods]
 impl Atmosphere {
+    /// Predefined atmospheric models.
+    #[classattr]
+    fn models() -> Vec<String> {
+        match AtmosphericModel::from_str("") {
+            Err(models) => models
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect(),
+            Ok(_) => unreachable!(),
+        }
+    }
+
     #[pyo3(signature=(model=None, /, *, material=None))]
     #[new]
     pub fn new(model: Option<AtmosphereLike>, material: Option<String>) -> PyResult<Self> {
@@ -45,7 +65,7 @@ impl Atmosphere {
             .unwrap_or_else(|| AtmosphereLike::Model(AtmosphericModel::default()));
 
         const WHAT: &str = "model";
-        let (z, rho) = match model {
+        let (z, rho, model) = match model {
             AtmosphereLike::Model(model) => {
                 let z = vec![
                       0.00E+03,   1.00E+03,   2.00E+03,   3.00E+03,   4.00E+03,   5.00E+03,
@@ -119,7 +139,7 @@ impl Atmosphere {
                         4.49028E-05, 2.07443E-05, 8.57436E-06, 3.31224E-06, 1.25689E-06,
                         4.97255E-07, 1.95932E-07, 8.31279E-08, 3.58794E-08, 1.68312E-08,
                     ],
-                    AtmosphericModel::USStandard => vec![
+                    AtmosphericModel::UsStandard => vec![
                         1.23114E+00, 1.11643E+00, 1.00982E+00, 9.11106E-01, 8.20488E-01,
                         7.37320E-01, 6.60602E-01, 5.90707E-01, 5.26182E-01, 4.67394E-01,
                         4.13654E-01, 3.64933E-01, 3.12034E-01, 2.66687E-01, 2.27881E-01,
@@ -132,7 +152,7 @@ impl Atmosphere {
                         5.38466E-07, 2.21851E-07, 9.18219E-08, 3.99264E-08, 2.03728E-08,
                     ],
                 };
-                (z, rho)
+                (z, rho, ModelAttribute::Model(model))
             },
             AtmosphereLike::Data(data) => {
                 if data.ndim() != 2 {
@@ -158,8 +178,8 @@ impl Atmosphere {
                         let why = format!("expected a strictly positive value, found {}", ri);
                         return Err(Error::new(ValueError).what("density").why(&why).to_err())
                     }
-                    z[i] = zi;
-                    rho[i] = ri;
+                    z.push(zi);
+                    rho.push(ri);
                     if i > 0 {
                         let i0 = i - 1;
                         let z0 = z[i0];
@@ -171,7 +191,7 @@ impl Atmosphere {
                         }
                     }
                 }
-                (z, rho)
+                (z, rho, ModelAttribute::Data(None))
             },
         };
 
@@ -185,7 +205,7 @@ impl Atmosphere {
             .unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_owned());
         let subscribers = Vec::new();
 
-        Ok(Atmosphere { lambda, z, rho, material, subscribers })
+        Ok(Atmosphere { lambda, z, rho, model, material, subscribers })
     }
 
     #[setter]
@@ -198,6 +218,32 @@ impl Atmosphere {
         }
     }
 
+    /// The density model.
+    #[getter]
+    fn get_model<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let model = match &mut self.model {
+            ModelAttribute::Model(model) => model.into_pyobject(py)?.into_any(),
+            ModelAttribute::Data(ref mut data) => match data {
+                Some(ob) => ob.clone_ref(py).into_bound(py),
+                None => {
+                    let n = self.z.len();
+                    let mut array = NewArray::<f64>::empty(py, [n, 2])?
+                        .readonly();
+                    let values = array.as_slice_mut();
+                    for i in 0..n {
+                        values[2 * i] = self.z[i];
+                        values[2 * i + 1] = self.rho[i];
+                    }
+                    let array = array.into_bound().into_any();
+                    data.replace(array.clone().unbind());
+                    array
+                },
+            },
+        };
+        Ok(model)
+    }
+
+    /// Compute the density value(s) at given altitude(s).
     #[pyo3(signature=(altitude, /))]
     fn density<'py>(&self, altitude: AnyArray<'py, f64>) -> PyResult<NewArray<'py, f64>> {
         let py = altitude.py();
@@ -209,8 +255,6 @@ impl Atmosphere {
         }
         Ok(array)
     }
-
-    // XXX export the model as attribute?
 }
 
 impl Atmosphere {

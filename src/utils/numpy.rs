@@ -212,6 +212,8 @@ unsafe impl<T: Dtype> PyTypeInfo for PyArray<T> {
 }
 
 impl<'py, T> NewArray<'py, T> {
+    const WRITEABLE: c_int = 0x0400;
+
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         let object = unsafe { &*(self.array.as_ptr() as *const PyArrayObject<T>) };
@@ -282,8 +284,6 @@ impl<'py, T> NewArray<'py, T> {
         S: IntoIterator<Item=usize, IntoIter: ExactSizeIterator>,
         T: Dtype,
     {
-        pub const WRITEABLE: c_int = 0x0400;
-
         let py = owner.py();
         let api = API.get().unwrap();
         let dtype = T::dtype(py)?;
@@ -303,7 +303,7 @@ impl<'py, T> NewArray<'py, T> {
             shape.as_ptr() as *const npy_intp,
             null_mut(),
             data.as_ptr() as *mut c_void,
-            WRITEABLE,
+            Self::WRITEABLE,
             null_mut(),
         );
         if PyErr::occurred(py) {
@@ -337,6 +337,12 @@ impl<'py, T> NewArray<'py, T> {
     #[inline]
     pub fn iter_mut(&mut self) -> impl Iterator<Item=&'_ mut T> + ExactSizeIterator {
         self.as_slice_mut().iter_mut()
+    }
+
+    pub fn readonly(self) -> Self {
+        let object = unsafe { &mut *(self.array.as_ptr() as *mut PyArrayObject<T>) };
+        object.flags &= !Self::WRITEABLE;
+        self
     }
 
     #[inline]

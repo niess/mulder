@@ -46,7 +46,8 @@ html_theme_options = {
         "text": f"Mulder {release} documentation",
         "image_light": "_static/images/logo.svg",
         "image_dark": "_static/images/logo-dark.svg",
-    }
+    },
+    "show_toc_level": 2,
 }
 html_static_path = ["_static"]
 html_css_files = [ "css/custom.css"]
