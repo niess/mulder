@@ -243,7 +243,7 @@ impl Atmosphere {
         Ok(model)
     }
 
-    /// Compute the density value(s) at given altitude(s).
+    /// Compute the density value(s) at the specified altitude(s).
     #[pyo3(signature=(altitude, /))]
     fn density<'py>(&self, altitude: AnyArray<'py, f64>) -> PyResult<NewArray<'py, f64>> {
         let py = altitude.py();

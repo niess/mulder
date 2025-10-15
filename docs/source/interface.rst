@@ -185,17 +185,18 @@ Simulation interface
    An atmospheric medium.
 
    This class manages the properties of the atmosphere medium. The atmosphere is
-   assumed to be homogeneous in composition, but with a density varying
+   assumed to be homogeneous in composition, but with a density that varies
    vertically.
 
    .. method:: __new__(model=None, /, *, material=None)
 
       Create a new atmospheric medium.
 
-      The *model* argument specifies the vertical density profile, provided as
-      an :math:`N \times 2` array mapped as :math:`[(z_0, \rho_0), \ldots,
-      (z_{N-1}, \rho_{N-1})]` with altitudes (:math:`z`) in meters and densities
-      (:math:`\rho`) in :math:`\mathrm{kg} / \mathrm{m}^3`. For instance,
+      The *model* argument specifies the vertical density profile, which is
+      provided as an :math:`N \times 2` array mapped as :math:`[(z_0, \rho_0),
+      \ldots, (z_{N-1}, \rho_{N-1})]` with altitudes (:math:`z`) in meters and
+      densities (:math:`\rho`) in :math:`\mathrm{kg} / \mathrm{m}^3`. For
+      instance,
 
       >>> atmosphere = mulder.Atmosphere((
       ...     (     0, 1.225E+00),
@@ -206,7 +207,7 @@ Simulation interface
 
       .. note::
 
-         The provided altitude values (:math:`z`) should be strictly increasing
+         The provided altitude values (:math:`z`) should be strictly increasing,
          and the density values (:math:`\rho`) must be strictly positive.
 
       Alternatively, a predefined model can be specified, e.g. as
@@ -217,7 +218,7 @@ Simulation interface
       list of predefined density models.
 
       By default, the atmosphere is composed of :python:`"Air"`. This can be
-      overriden with the optional *material* argument, for instance as
+      overridden using the optional *material* argument, for examples as follows
 
       >>> atmosphere = mulder.Atmosphere(material="SaturatedAir")
 
@@ -226,7 +227,7 @@ Simulation interface
 
    .. automethod:: density
 
-      This method is vectorised. It accepts a scalar *altitude* input as well as
+      This method is vectorised. It can accomodate a scalar *altitude* input or
       an array of *altitude* values. For instance,
 
       >>> densities = atmosphere.density(np.linspace(0E+00, 1E+05, 10001))
@@ -260,13 +261,50 @@ Simulation interface
 
 .. autoclass:: mulder.EarthMagnet
 
-   .. method:: __new__(*args, **kwargs)
-   .. method:: __call__(*args, **kwargs)
+   A snapshot of the geomagnetic field.
 
-   .. autoattribute:: altitude
-   .. autoattribute:: day
-   .. autoattribute:: month
-   .. autoattribute:: year
+   This class provides an interface to a geomagnetic model, parametrised by
+   spherical harmonics. The default model used by Mulder is `IGRF14`_.
+
+   .. method:: __new__(model=None, /,  *, date=None)
+
+      Create a new snapshot of the geomagnetic field.
+
+      If provided, the *model* argument should point to a :bash:`*.COF` file
+      containing the geomagnetic model coefficients.
+
+      The optional *date* argument allows the user to specify the date of the
+      snapshot, as a :py:class:`datetime.date` object, or as an `ISO 8601
+      <ISO_8601_>`_-formatted string. For instance,
+
+      >>> from datetime import date
+      >>> magnet = mulder.EarthMagnet(date=date.today())
+
+      or
+
+      >>> magnet = mulder.EarthMagnet(date="1978-08-16")
+
+   .. automethod:: field
+
+      This method uses the `Position interface <States interface_>`_ for
+      specifying the position(s) of interest. For instance, using geographic
+      coordinates
+
+      >>> field = magnet.field(latitude=45, longitude=3)
+
+      The returned field is expressed in Tesla (T) units, with the coordinates
+      frame depending on the input position. For geographic positions, `ENU
+      <LTP_>`_ coordinates are returned. For local positions, the field is
+      returned in the local frame of the input positions.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`EarthMagnet` instances are :underline:`immutable`.
+
+   .. autoattribute:: date
+   .. autoattribute:: model
+   .. autoattribute:: zlim
 
 ----
 
@@ -340,3 +378,9 @@ Picture interface
    .. autoattribute:: pixels
    .. autoattribute:: ratio
    .. autoattribute:: resolution
+
+
+.. URL links.
+.. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
+.. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
+.. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601

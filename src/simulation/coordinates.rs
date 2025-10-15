@@ -507,3 +507,12 @@ impl<'py> PositionExtractor<'py> {
         self
     }
 }
+
+impl<'a> ExtractedPosition<'a> {
+    pub fn into_geographic(self) -> GeographicCoordinates {
+        match self {
+            Self::Geographic { position } => position,
+            Self::Local { position, frame } => frame.to_geographic_position(&position),
+        }
+    }
+}

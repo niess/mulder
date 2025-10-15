@@ -1,6 +1,28 @@
+use crate::utils::error::Error;
+use crate::utils::error::ErrorKind::ValueError;
 use pyo3::prelude::*;
 use std::ops::{Add, Mul, Sub};
+use std::path::Path;
 
+
+pub trait EnsureFile: Sized {
+    fn ensure_file(self, what: &str) -> PyResult<Self>; // XXX Use this trait.
+}
+
+impl EnsureFile for &Path {
+    fn ensure_file(self, what: &str) -> PyResult<Self> {
+        if !self.is_file() {
+            let why = if !self.exists() {
+                format!("no such file '{}'", self.display())
+            } else {
+                format!("not a file '{}'", self.display())
+            };
+            let err = Error::new(ValueError).what(what).why(&why);
+            return Err(err.to_err())
+        }
+        Ok(self)
+    }
+}
 
 pub trait MinMax {
     type Number;
