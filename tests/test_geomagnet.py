@@ -32,8 +32,21 @@ def test_field():
     """Test field method."""
 
     latitude, longitude = 45.8, 3.1
+    position = [1E+04, -1E+04, 1E+03]
     geomagnet = mulder.EarthMagnet()
-    frame = mulder.LocalFrame(latitude=latitude, longitude=longitude)
-    field0 = geomagnet.field(frame=frame, position=[0, 0, 0])
-    field1 = geomagnet.field(latitude=latitude, longitude=longitude)
+
+    # Compute field in local frame.
+    frame0 = mulder.LocalFrame(latitude=latitude, longitude=longitude)
+    field0 = geomagnet.field(frame=frame0, position=position)
+
+    # Compute field at the same point but using geographic coordinates.
+    state1 = mulder.LocalStates(frame=frame0, position=position) \
+        .to_geographic()
+    field1 = geomagnet.field(state1)
+
+    # Transform the latter field to the former local frame.
+    frame1 = mulder.LocalFrame(state1)
+    field1 = frame1.transform(field1, destination=frame0, mode="vector")
+
+    # Compare results.
     assert_allclose(field0, field1)

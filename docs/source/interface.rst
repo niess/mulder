@@ -75,13 +75,29 @@ Geometry interface
 
    .. method:: __new__(position=None, /, *, declination=None, inclination=None, **kwargs)
 
-      Create a new Earth-local reference-frame.
+      Creates a new Earth-local reference-frame.
 
       The *position* argument specifies the frame origin, using the `Position
       interface <States interface_>`_. For example, the following defines a
       local frame close to `Clermont-Ferrand`_, France.
 
       >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1)
+
+   .. automethod:: transform
+
+      The quantity, *q*, is transformed from the *self* :py:class:`LocalFrame`
+      to the *destination* one. The *mode* parameter specifies the nature of *q*
+      (i.e., :python:`"point"` or :python:`"vector"`). For example, the
+      following computes the coordinates, in :python:`frame1`, of the
+      :math:`\vec{e}_x` basis vector of :python:`frame0`.
+
+      .. doctest::
+         :hide:
+
+         >>> frame0 = frame
+         >>> frame1 = mulder.LocalFrame()
+
+      >>> ex = frame0.transform((1, 0, 0), destination=frame1, mode="vector")
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -171,6 +187,7 @@ States interface
 
    .. automethod:: from_geographic
    .. automethod:: to_geographic
+   .. automethod:: transform
 
    .. rubric:: Array methods
      :heading-level: 4
@@ -215,7 +232,7 @@ Simulation interface
 
    .. method:: __new__(model=None, /, *, material=None)
 
-      Create a new atmospheric medium.
+      Creates a new atmospheric medium.
 
       The *model* argument specifies the vertical density profile, which is
       provided as an :math:`N \times 2` array mapped as :math:`[(z_0, \rho_0),
@@ -293,7 +310,7 @@ Simulation interface
 
    .. method:: __new__(model=None, /,  *, date=None)
 
-      Create a new snapshot of the geomagnetic field.
+      Creates a new snapshot of the geomagnetic field.
 
       If provided, the *model* argument should point to a :bash:`*.COF` file
       containing the geomagnetic model coefficients.

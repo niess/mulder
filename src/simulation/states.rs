@@ -4,7 +4,9 @@ use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, ShapeArg};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
-use super::coordinates::{GeographicCoordinates, LocalFrame, HorizontalCoordinates};
+use super::coordinates::{
+    GeographicCoordinates, LocalFrame, LocalTransformer, HorizontalCoordinates,
+};
 use super::Particle;
 
 
@@ -1084,7 +1086,13 @@ impl LocalStates {
         GeographicStates::from_local(py, self)
     }
 
-    // XXX add a transform method to transform to another local frame.
+    /// Transforms to another local frame.
+    fn transform(&self, py: Python<'_>, destination: LocalFrame) -> PyResult<Self> {
+        let transformer = LocalTransformer::new(&self.frame, &destination);
+        let array = self.array.transform(py, &transformer)?;
+        let new = Self { frame: destination, array };
+        Ok(new)
+    }
 }
 
 macro_rules! convert_geographic {
@@ -1238,6 +1246,34 @@ impl LocalStatesArray {
             Self::Unflavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
         }
     }
+
+    fn transform<'py>(&self, py: Python<'py>, transformer: &LocalTransformer) -> PyResult<Self> {
+        let new = match self {
+            Self::Flavoured(array) => {
+                let array = array.bind(py);
+                let mut new = NewArray::<FlavouredLocalState>::empty(py, array.shape())?;
+                let data = new.as_slice_mut();
+                for i in 0..array.size() {
+                    data[i] = array
+                        .get_item(i)?
+                        .transform(transformer);
+                }
+                Self::Flavoured(new.into_bound().unbind())
+            },
+            Self::Unflavoured(array) => {
+                let array = array.bind(py);
+                let mut new = NewArray::<UnflavouredLocalState>::empty(py, array.shape())?;
+                let data = new.as_slice_mut();
+                for i in 0..array.size() {
+                    data[i] = array
+                        .get_item(i)?
+                        .transform(transformer);
+                }
+                Self::Unflavoured(new.into_bound().unbind())
+            },
+        };
+        Ok(new)
+    }
 }
 
 impl FlavouredLocalState {
@@ -1266,6 +1302,19 @@ impl FlavouredLocalState {
             weight: state.weight,
         }
     }
+
+    #[inline]
+    fn transform(&self, transformer: &LocalTransformer) -> Self {
+        let position = transformer.transform_point(&self.position);
+        let direction = transformer.transform_vector(&self.direction);
+        Self {
+            pid: self.pid,
+            energy: self.energy,
+            position,
+            direction,
+            weight: self.weight,
+        }
+    }
 }
 
 impl UnflavouredLocalState {
@@ -1290,6 +1339,18 @@ impl UnflavouredLocalState {
             position,
             direction,
             weight: state.weight,
+        }
+    }
+
+    #[inline]
+    fn transform(&self, transformer: &LocalTransformer) -> Self {
+        let position = transformer.transform_point(&self.position);
+        let direction = transformer.transform_vector(&self.direction);
+        Self {
+            energy: self.energy,
+            position,
+            direction,
+            weight: self.weight,
         }
     }
 }

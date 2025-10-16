@@ -130,7 +130,7 @@ impl EarthMagnet {
         Ok(Self { date, model, zlim, snapshot, workspace })
     }
 
-    /// Compute the geomagnetic field value(s) at the specified position(s).
+    /// Computes the geomagnetic field value(s) at the specified position(s).
     #[pyo3(name="field", signature=(position=None, /, *, frame=None, **kwargs))]
     fn py_field<'py>(
         &mut self,

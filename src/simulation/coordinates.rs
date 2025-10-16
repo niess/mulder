@@ -1,8 +1,9 @@
 use crate::bindings::turtle;
+use crate::utils::convert::TransformMode;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::TypeError;
 use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{Dtype, impl_dtype};
+use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -34,6 +35,11 @@ pub struct LocalFrame {
     #[pyo3(get)]
     pub inclination: f64,
 
+    pub rotation: [[f64; 3]; 3],
+    pub translation: [f64; 3],
+}
+
+pub struct LocalTransformer {
     pub rotation: [[f64; 3]; 3],
     pub translation: [f64; 3],
 }
@@ -210,6 +216,48 @@ impl LocalFrame {
         format!("LocalFrame({})", args)
     }
 
+    /// Transforms point(s) or vector(s) to another local frame.
+    #[pyo3(signature=(q, /, *, destination, mode))]
+    fn transform<'py>(
+        &self,
+        q: AnyArray<'py, f64>,
+        destination: &LocalFrame,
+        mode: TransformMode,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let py = q.py();
+        let shape = q.shape();
+        let m = shape.last().copied().unwrap_or(0);
+        if m != 3 {
+            let why = format!(
+                "expected a shape [.., 3] array, found [.., {}]",
+                m,
+            );
+            let err = Error::new(TypeError).what("point").why(&why).to_err();
+            return Err(err)
+        }
+
+        let transformer = LocalTransformer::new(self, destination);
+
+        let n = q.size() / 3;
+        let mut array = NewArray::empty(py, shape)?;
+        let data = array.as_slice_mut();
+        for i in 0..n {
+            let qi = [
+                q.get_item(3 * i + 0)?,
+                q.get_item(3 * i + 1)?,
+                q.get_item(3 * i + 2)?,
+            ];
+            let qi = match mode {
+                TransformMode::Point => transformer.transform_point(&qi),
+                TransformMode::Vector => transformer.transform_vector(&qi),
+            };
+            for j in 0..3 {
+                data[3 * i + j] = qi[j];
+            }
+        }
+        Ok(array)
+    }
+
     // XXX add point/vector transforms between frames?
 
     /// The latitude coordinate of the frame origin, in deg.
@@ -360,6 +408,44 @@ impl Default for LocalFrame {
             altitude: 0.0
         };
         Self::new(origin, 0.0, 0.0)
+    }
+}
+
+impl LocalTransformer {
+    pub fn new(from: &LocalFrame, to: &LocalFrame) -> Self {
+        let mut rotation = [[0.0_f64; 3]; 3];
+        let mut translation = [0.0_f64; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                translation[i] += to.rotation[i][j] * (from.translation[j] - to.translation[j]);
+                for k in 0..3 {
+                    rotation[i][j] += to.rotation[i][k] * from.rotation[j][k];
+                }
+            }
+        }
+        Self { rotation, translation }
+    }
+
+    #[inline]
+    pub fn transform_point(&self, p: &[f64; 3]) -> [f64; 3] {
+        let mut r = self.translation;
+        for i in 0..3 {
+            for j in 0..3 {
+                r[i] += self.rotation[i][j] * p[j];
+            }
+        }
+        r
+    }
+
+    #[inline]
+    pub fn transform_vector(&self, v: &[f64; 3]) -> [f64; 3] {
+        let mut r = [0.0_f64; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                r[i] += self.rotation[i][j] * v[j];
+            }
+        }
+        r
     }
 }
 

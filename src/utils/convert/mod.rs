@@ -8,12 +8,14 @@ mod atmosphere;
 mod light;
 mod physics;
 mod reference;
+mod transform;
 mod transport;
 
 pub use atmosphere::AtmosphericModel;
 pub use light::LightModel;
 pub use physics::{Bremsstrahlung, PairProduction, Photonuclear};
 pub use reference::ParametricModel;
+pub use transform::TransformMode;
 pub use transport::TransportMode;
 
 

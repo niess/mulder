@@ -165,3 +165,14 @@ def test_conversions():
     a = mulder.LocalStates(position=(0, 0, 100))
     b = mulder.GeographicStates.from_local(a)
     assert_allclose(a.position[2], b.altitude)
+
+    frame1 = mulder.LocalFrame()
+    a0 = mulder.LocalStates(
+        frame=frame,
+        position=(1, 2, 3),
+        direction=normed((3, 2, 1))
+    )
+    a1 = a0.transform(destination=frame1)
+    b1 = a0.to_geographic().to_local(frame1)
+    assert_allclose(a1.position, b1.position)
+    assert_allclose(a1.direction, b1.direction)
