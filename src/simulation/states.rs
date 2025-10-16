@@ -1083,6 +1083,8 @@ impl LocalStates {
     fn to_geographic(&self, py: Python) -> PyResult<GeographicStates> {
         GeographicStates::from_local(py, self)
     }
+
+    // XXX add a transform method to transform to another local frame.
 }
 
 macro_rules! convert_geographic {

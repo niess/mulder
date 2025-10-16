@@ -30,4 +30,10 @@ def test_constructor():
 
 def test_field():
     """Test field method."""
-    pass
+
+    latitude, longitude = 45.8, 3.1
+    geomagnet = mulder.EarthMagnet()
+    frame = mulder.LocalFrame(latitude=latitude, longitude=longitude)
+    field0 = geomagnet.field(frame=frame, position=[0, 0, 0])
+    field1 = geomagnet.field(latitude=latitude, longitude=longitude)
+    assert_allclose(field0, field1)

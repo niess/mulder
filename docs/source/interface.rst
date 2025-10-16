@@ -67,7 +67,32 @@ Geometry interface
 
 .. autoclass:: mulder.LocalFrame
 
-   .. method:: __new__(**kwargs)
+   An Earth-local reference-frame.
+
+   This class specifies a Local-Tangent-Plane (`LTP`_) reference frame on the
+   Earth. Optionnaly, the frame can be inclined (w.r.t. the vertical) or
+   declined (w.r.t. the geographic north).
+
+   .. method:: __new__(position=None, /, *, declination=None, inclination=None, **kwargs)
+
+      Create a new Earth-local reference-frame.
+
+      The *position* argument specifies the frame origin, using the `Position
+      interface <States interface_>`_. For example, the following defines a
+      local frame close to `Clermont-Ferrand`_, France.
+
+      >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1)
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`LocalFrame` instances are :underline:`immutable`.
+
+   .. autoattribute:: altitude
+   .. autoattribute:: declination
+   .. autoattribute:: latitude
+   .. autoattribute:: longitude
+   .. autoattribute:: inclination
 
 
 Materials interface
@@ -381,6 +406,7 @@ Picture interface
 
 
 .. URL links.
+.. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601

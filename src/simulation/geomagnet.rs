@@ -23,7 +23,7 @@ pub struct EarthMagnet {
     #[pyo3(get)]
     model: Option<String>,
 
-    /// The model altitude limits.
+    /// The model altitude limits, in m.
     #[pyo3(get)]
     zlim: (f64, f64),
 
