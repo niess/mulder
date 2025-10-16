@@ -10,11 +10,13 @@ use super::coordinates::{
 use super::Particle;
 
 
+/// A geographic representation of Mulder states.
 #[pyclass(module="mulder", sequence)]
 pub struct GeographicStates {
     pub array: GeographicStatesArray,
 }
 
+/// A local representation of Mulder states.
 #[pyclass(module="mulder", sequence)]
 pub struct LocalStates {
     /// The coordinates local frame.
@@ -146,15 +148,15 @@ impl_dtype!(
 );
 
 macro_rules! new_array {
-    ($name:ident, $func:ident, $cls:ident, $shape:ident, $with_pid:ident) => {
+    ($name:ident, $func:ident, $cls:ident, $shape:ident, $tagged:ident) => {
         {
             let py = $cls.py();
             let shape = $shape
                 .map(|shape| shape.into_vec())
                 .unwrap_or_else(|| Vec::new());
-            let with_pid = $with_pid.unwrap_or(false);
+            let tagged = $tagged.unwrap_or(false);
             paste::paste! {
-                let array = if with_pid {
+                let array = if tagged {
                     [<  $name StatesArray >] ::Flavoured (
                         NewArray::< [< Flavoured $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
@@ -421,15 +423,31 @@ impl GeographicStates {
         self.array.setattr("weight", value)
     }
 
+    /// Returns the corresponding array dtype.
+    #[classmethod]
+    #[pyo3(signature=(*, tagged=false))]
+    fn dtype<'py>(
+        cls: &Bound<'py, PyType>,
+        tagged: Option<bool>,
+    ) -> PyResult<&'py Bound<'py, PyAny>> {
+        let py = cls.py();
+        let tagged = tagged.unwrap_or(false);
+        if tagged {
+            FlavouredGeographicState::dtype(py)
+        } else {
+            UnflavouredGeographicState::dtype(py)
+        }
+    }
+
     /// Returns uninitialised geographic states.
     #[classmethod]
-    #[pyo3(signature=(shape=None, /, *, with_pid=false))]
+    #[pyo3(signature=(shape=None, /, *, tagged=false))]
     fn empty(
         cls: &Bound<PyType>,
         shape: Option<ShapeArg>,
-        with_pid: Option<bool>,
+        tagged: Option<bool>,
     ) -> PyResult<Self> {
-        new_array!(Geographic, empty, cls, shape, with_pid)
+        new_array!(Geographic, empty, cls, shape, tagged)
     }
 
     /// Creates geographic states from a Numpy array.
@@ -485,13 +503,13 @@ impl GeographicStates {
 
     /// Returns zeroed geographic states.
     #[classmethod]
-    #[pyo3(signature=(shape=None, /, *, with_pid=false))]
+    #[pyo3(signature=(shape=None, /, *, tagged=false))]
     fn zeros(
         cls: &Bound<PyType>,
         shape: Option<ShapeArg>,
-        with_pid: Option<bool>,
+        tagged: Option<bool>,
     ) -> PyResult<Self> {
-        new_array!(Geographic, zeros, cls, shape, with_pid)
+        new_array!(Geographic, zeros, cls, shape, tagged)
     }
 
     /// Converts the geographic states to local ones.
@@ -752,15 +770,15 @@ impl UnflavouredGeographicState {
 }
 
 macro_rules! new_array {
-    ($name:ident, $func:ident, $cls:ident, $shape:ident, $frame:ident, $with_pid:ident) => {
+    ($name:ident, $func:ident, $cls:ident, $shape:ident, $frame:ident, $tagged:ident) => {
         {
             let py = $cls.py();
             let shape = $shape
                 .map(|shape| shape.into_vec())
                 .unwrap_or_else(|| Vec::new());
-            let with_pid = $with_pid.unwrap_or(false);
+            let tagged = $tagged.unwrap_or(false);
             paste::paste! {
-                let array = if with_pid {
+                let array = if tagged {
                     [<  $name StatesArray >] ::Flavoured (
                         NewArray::< [< Flavoured $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
@@ -977,7 +995,7 @@ impl LocalStates {
         self.array.setattr("position", value)
     }
 
-    /// The observation's local direction.
+    /// The local direction of observation.
     #[getter]
     fn get_direction<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.array.getattr(py, "direction")
@@ -999,16 +1017,32 @@ impl LocalStates {
         self.array.setattr("weight", value)
     }
 
+    /// Returns the corresponding array dtype.
+    #[classmethod]
+    #[pyo3(signature=(*, tagged=false))]
+    fn dtype<'py>(
+        cls: &Bound<'py, PyType>,
+        tagged: Option<bool>,
+    ) -> PyResult<&'py Bound<'py, PyAny>> {
+        let py = cls.py();
+        let tagged = tagged.unwrap_or(false);
+        if tagged {
+            FlavouredLocalState::dtype(py)
+        } else {
+            UnflavouredLocalState::dtype(py)
+        }
+    }
+
     /// Returns uninitialised local states.
     #[classmethod]
-    #[pyo3(signature=(shape=None, /, *, frame=None, with_pid=false))]
+    #[pyo3(signature=(shape=None, /, *, frame=None, tagged=false))]
     fn empty(
         cls: &Bound<PyType>,
         shape: Option<ShapeArg>,
         frame: Option<LocalFrame>,
-        with_pid: Option<bool>,
+        tagged: Option<bool>,
     ) -> PyResult<Self> {
-        new_array!(Local, empty, cls, shape, frame, with_pid)
+        new_array!(Local, empty, cls, shape, frame, tagged)
     }
 
     /// Creates local states from a Numpy array.
@@ -1071,14 +1105,14 @@ impl LocalStates {
 
     /// Returns zeroed local states.
     #[classmethod]
-    #[pyo3(signature=(shape=None, /, *, frame=None, with_pid=false))]
+    #[pyo3(signature=(shape=None, /, *, frame=None, tagged=false))]
     fn zeros(
         cls: &Bound<PyType>,
         shape: Option<ShapeArg>,
         frame: Option<LocalFrame>,
-        with_pid: Option<bool>,
+        tagged: Option<bool>,
     ) -> PyResult<Self> {
-        new_array!(Local, zeros, cls, shape, frame, with_pid)
+        new_array!(Local, zeros, cls, shape, frame, tagged)
     }
 
     /// Converts the local states to geographic ones.

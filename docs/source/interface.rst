@@ -134,26 +134,153 @@ Materials interface
 States interface
 ~~~~~~~~~~~~~~~~
 
+A Mulder state is a set of variables used to characterise a flux of muons.
+Typically, a state specifies a view point (position and direction of
+observation) together with the kinetic energy of the observed muons.
+
+.. tip::
+
+   State variables may be vectorised, e.g. to represent a collection of muons,
+   or a spectrum. Mulder follows a straightforward broadcasting rule that
+   requires variables to be either scalar or to share the same size, regardless
+   of their array shape.
+
+Mulder considers two different representations of a set of states,
+:py:class:`~mulder.GeographicStates` and :py:class:`~mulder.LocalStates`,
+differing by their coordinate system. :py:class:`~mulder.GeographicStates`
+represent the position and direction of observation using geographic-like
+variables (e.g. latitude, longitude), while :py:class:`~mulder.LocalStates` use
+Cartesian coordinates w.r.t. a :py:class:`~mulder.LocalFrame`. The
+correspondence between the two representations is outlined in
+:numref:`tab-state-representations` below. Conversion methods (e.g.
+:py:meth:`~mulder.LocalStates.to_geographic`,
+:py:meth:`~mulder.GeographicStates.to_local`) can be used to transform between
+the two representations.
+
+.. _tab-state-representations:
+
+.. list-table:: State variables.
+   :width: 75%
+   :widths: auto
+   :header-rows: 1
+
+   * - Geographic representation
+     - Local representation
+   * - :py:attr:`~mulder.GeographicStates.latitude`, :py:attr:`~mulder.GeographicStates.longitude`, :py:attr:`~mulder.GeographicStates.altitude`
+     - :py:attr:`~mulder.LocalStates.position`
+   * - :py:attr:`~mulder.GeographicStates.azimuth`, :py:attr:`~mulder.GeographicStates.elevation`
+     - :py:attr:`~mulder.LocalStates.direction`
+   * - :py:attr:`~mulder.GeographicStates.energy`, :py:attr:`~mulder.GeographicStates.pid`, :py:attr:`~mulder.GeographicStates.weight`
+     - :py:attr:`~mulder.LocalStates.energy`, :py:attr:`~mulder.LocalStates.pid`, :py:attr:`~mulder.LocalStates.weight`
+
+.. note::
+
+   The direction :underline:`of observation` variable(s) specifies the opposite
+   of the muon propagation direction, in both the Geographic and Local
+   representations.
+
+.. note::
+
+   The pid variable is optional. It categorises a state as a muon
+   (:python:`pid = 13`) or as an anti-muon (:python:`pid = -13`). If ommitted,
+   each state is regarded as a superposition of muons and anti-muons.
+
+.. tip::
+
+   State variables are stored internally as NumPy `structured arrays <Structured
+   arrays_>`_ accessible via the :py:attr:`~mulder.GeographicStates.array`
+   attribute. For the sake of convenience, shape related attributes
+   (:py:attr:`~mulder.GeographicStates.ndim`,
+   :py:attr:`~mulder.GeographicStates.shape`,
+   :py:attr:`~mulder.GeographicStates.size`) are also forwarded.
+
+States objects are used as input to Mulder functions, for instance as follows
+
+.. doctest::
+   :hide:
+
+   >>> def some_state_function(states=None, /, *, frame=None, **kwargs):
+   ...     pass
+
+>>> states = mulder.GeographicStates(
+...     latitude = 45.0,
+...     energy = np.geomspace(1E-02, 1E+04, 61)
+... )
+>>> result = some_state_function(states)
+
+Alternatively, state variables can be provided directly as named arguments. For
+instance, the following syntax produces the same *result* as the previous
+example.
+
+>>> result = some_state_function(
+...     latitude = 45.0,
+...     energy = np.geomspace(1E-02, 1E+04, 61)
+... )
+
+Some Mulder functions use only a subset of state variables, thus defining
+sub-interfaces. Functions that require only position (position and direction)
+variables are said to follow the :underline:`Position interface`
+(:underline:`Coordinates interface`). These functions will also accept states
+objects as positional arguments, but only position (position and direction)
+variables as named arguments.
+
+
 .. autoclass:: mulder.GeographicStates
 
    .. method:: __new__(states=None, /, **kwargs)
 
+      Creates state(s) using geographic coordinates.
+
+      This class method uses the `States interface`_. For instance,
+
+      >>> states = mulder.GeographicStates(
+      ...     latitude = 45,
+      ...     energy = np.geomspace(1E-02, 1E+04, 61)
+      ... )
+
    .. rubric:: Coordinates methods
      :heading-level: 4
 
-   .. automethod:: from_local
+   .. automethod:: from_local(states, /)
    .. automethod:: to_local
 
    .. rubric:: Array methods
      :heading-level: 4
 
-   .. automethod:: empty
+   .. note::
+
+      Depending on the *tagged* argument, the array methods described below
+      return tagged muon or anti-muon states, or untagged ones (i.e. a
+      superposition of muons and anti-muons).
+
+   .. automethod:: dtype(*, tagged=False)
+   .. automethod:: empty(shape=None, /, *, tagged=False)
    .. automethod:: full
-   .. automethod:: from_array
-   .. automethod:: zeros
+   .. automethod:: from_array(array, /, *, copy=True)
+
+         The input NumPy *array* must be of :py:class:`GeographicStates.dtype
+         <mulder.GeographicStates.dtype>`. If *copy* is :python:`False`, the
+         returned :py:class:`~mulder.GeographicStates` object refers to the
+         input *array*.
+
+   .. automethod:: zeros(shape=None, /, *, tagged=False)
 
    .. rubric:: Coordinates attributes
      :heading-level: 4
+
+   .. note::
+
+      The direction :underline:`of observation` is the opposite of the muon
+      propagation direction.
+
+   .. note::
+
+      The :py:attr:`~mulder.GeographicStates.azimuth` and
+      :py:class:`~mulder.GeographicStates.elevation` angles refer to
+      :py:class:`~mulder.LocalFrame`\ s, the origins of which are defined by the
+      :py:attr:`~mulder.GeographicStates.latitude`,
+      :py:attr:`~mulder.GeographicStates.longitude` and
+      :py:attr:`~mulder.GeographicStates.altitude` attributes.
 
    .. autoattribute:: altitude
    .. autoattribute:: azimuth
@@ -161,11 +288,14 @@ States interface
    .. autoattribute:: latitude
    .. autoattribute:: longitude
 
-   .. rubric:: State attributes
+   .. rubric:: Common state attributes
      :heading-level: 4
 
    .. autoattribute:: energy
    .. autoattribute:: pid
+
+      For untagged states this attribute is immutably :python:`None`.
+
    .. autoattribute:: weight
 
    .. rubric:: Array attributes
@@ -182,6 +312,15 @@ States interface
 
    .. method:: __new__(states=None, /, *, frame=None, **kwargs)
 
+      Creates state(s) using local coordinates.
+
+      This class method uses the `States interface`_. For instance,
+
+      >>> states = mulder.LocalStates(
+      ...     direction = (0, 0, 1),
+      ...     energy = np.geomspace(1E-02, 1E+04, 61)
+      ... )
+
    .. rubric:: Coordinates methods
      :heading-level: 4
 
@@ -192,22 +331,42 @@ States interface
    .. rubric:: Array methods
      :heading-level: 4
 
-   .. automethod:: empty
+   .. note::
+
+      Depending on the *tagged* argument, the array methods described below
+      return tagged muon or anti-muon states, or untagged ones (i.e. a
+      superposition of muons and anti-muons).
+
+   .. automethod:: dtype(*, tagged=False)
+   .. automethod:: empty(shape=None, /, *, tagged=False)
    .. automethod:: full
-   .. automethod:: from_array
-   .. automethod:: zeros
+   .. automethod:: from_array(array, /, *, copy=True, frame=None)
+
+      The input NumPy *array* must be of :py:class:`LocalStates.dtype
+      <mulder.LocalStates.dtype>`. If *copy* is :python:`False`, the returned
+      :py:class:`~mulder.LocalStates` object refers to the input *array*.
+
+   .. automethod:: zeros(shape=None, /, *, tagged=False)
 
    .. rubric:: Coordinates attributes
      :heading-level: 4
-
+   .. autoattribute:: frame
    .. autoattribute:: position
    .. autoattribute:: direction
 
-   .. rubric:: State attributes
+   .. note::
+
+      The direction :underline:`of observation` is the opposite of the muon
+      propagation direction.
+
+   .. rubric:: Common state attributes
      :heading-level: 4
 
    .. autoattribute:: energy
    .. autoattribute:: pid
+
+      For untagged states this attribute is immutably :python:`None`.
+
    .. autoattribute:: weight
 
    .. rubric:: Array attributes
@@ -427,3 +586,4 @@ Picture interface
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
+.. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html
