@@ -12,15 +12,65 @@ Geometry interface
 
 .. autoclass:: mulder.EarthGeometry
 
-   .. method:: __new__(*layers, atmosphere=None, magnet=None)
-   .. method:: __getitem__(key, /)
+   This class represents a stratified section of the Earth. The strates (or
+   :py:class:`~mulder.Layer`\ s) form distinct propagation media that are
+   assumed to be uniform in composition and density. They are delimited by
+   parametric surfaces, :math:`z = f(x, y)`, typically described by a
+   :py:class:`Grid` of elevation values, :math:`z_{ij} = f(x_j, y_i)`, forming a
+   Digital Elevation Model (`DEM`_).
+
+   .. note::
+
+      :py:class:`~mulder.EarthGeometry` objects are immutable, i.e. their
+      structure cannot be modified. However, the
+      :py:attr:`~mulder.Layer.density` and :py:attr:`~mulder.Layer.material` of
+      :py:attr:`~mulder.EarthGeometry.layers` is mutable.
+
+   .. method:: __new__(*layers)
+
+      Creates a new Earth geometry.
+
+      The *layers* are provided in index order, i.e. the first layer has index
+      :python:`0` and is thus the bottom strate. Each individual layer argument
+      may be either an explicit :py:class:`~mulder.Layer` object, or data-like
+      objects coercing to the latter. For instance, the following syntaxes lead
+      to the same geometry.
+
+      >>> geometry = mulder.EarthGeometry(
+      ...     mulder.Layer("dem.tif", 0.0),
+      ...     mulder.Layer(-100.0)
+      ... )
+
+      >>> geometry = mulder.EarthGeometry(
+      ...     ("dem.tif", 0.0),
+      ...     -100.0
+      ... )
+
+   .. rubric:: Methods
+     :heading-level: 4
 
    .. automethod:: locate
+
+      This method uses the `Position interface <States interface_>`_ to specify
+      the coordinates of the point(s) to locate. It returns the corresponding
+      layer indices. For instance,
+
+      >>> layer = geometry.locate(latitude=45, altitude=-5.0)
+
    .. automethod:: scan
    .. automethod:: trace
 
+   .. rubric:: Attributes
+     :heading-level: 4
+
    .. autoattribute:: layers
-   .. autoattribute:: z
+
+      The first layer (of index :python:`0`) is the bottom strate, while the
+      last layer is the top-most strate. The latter can be accessed as
+
+      >>> top = geometry.layers[-1]
+
+   .. autoattribute:: zlim
 
 ----
 
@@ -32,7 +82,7 @@ Geometry interface
 
 .. autoclass:: mulder.Grid
 
-   .. method:: __new__(*args, **kwargs)
+   .. method:: __new__(data, /, *, x=None, y=None, projection=None)
    .. method:: __call__(xy, y=None, /, *, notify=None)
 
       Computes the altitude value at grid point(s).
@@ -45,15 +95,15 @@ Geometry interface
    .. automethod:: gradient
 
    .. autoattribute:: projection
-   .. autoattribute:: x
-   .. autoattribute:: y
-   .. autoattribute:: z
+   .. autoattribute:: xlim
+   .. autoattribute:: ylim
+   .. autoattribute:: zlim
 
 ----
 
 .. autoclass:: mulder.Layer
 
-   .. method:: __new__(*args, **kwargs)
+   .. method:: __new__(*data, density=None, material=None)
    .. method:: __getitem__(key, /)
 
    .. automethod:: altitude
@@ -61,7 +111,7 @@ Geometry interface
    .. autoattribute:: data
    .. autoattribute:: density
    .. autoattribute:: material
-   .. autoattribute:: z
+   .. autoattribute:: zlim
 
 ----
 
@@ -583,6 +633,7 @@ Picture interface
 
 .. URL links.
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
+.. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601

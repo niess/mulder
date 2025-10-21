@@ -1,6 +1,8 @@
 use crate::bindings::turtle;
 use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
-use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{
+    GeographicCoordinates, HorizontalCoordinates, LocalFrame, PositionExtractor,
+};
 use crate::utils::error;
 use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
@@ -23,13 +25,14 @@ pub use layer::Layer;
 
 // XXX Allow for any geoid?
 
+/// A stratified Earth geometry.
 #[pyclass(module="mulder")]
 pub struct EarthGeometry {
-    /// Geometry limits along the z-coordinates.
+    /// The Earth geometry limits along the z-coordinate.
     #[pyo3(get)]
-    pub z: (f64, f64),
+    pub zlim: (f64, f64),
 
-    /// The geometry layers.
+    /// The Earth geometry layers.
     #[pyo3(get)]
     pub layers: Py<PyTuple>,  // sequence of Py<Layer>.
 
@@ -68,8 +71,8 @@ impl EarthGeometry {
     #[new]
     pub fn new(layers: &Bound<PyTuple>) -> PyResult<Py<Self>> {
         let py = layers.py();
-        let (layers, z) = {
-            let mut z = (f64::INFINITY, -f64::INFINITY);
+        let (layers, zlim) = {
+            let mut zlim = (f64::INFINITY, -f64::INFINITY);
             let mut v = Vec::with_capacity(layers.len());
             for layer in layers.iter() {
                 let layer: LayerLike = layer.extract()?;
@@ -88,18 +91,18 @@ impl EarthGeometry {
                         Py::new(py, layer)?
                     },
                 };
-                let lz = layer.bind(py).borrow().z;
-                if lz.min() < z.min() { *z.mut_min() = lz.min(); }
-                if lz.max() > z.max() { *z.mut_max() = lz.max(); }
+                let lz = layer.bind(py).borrow().zlim;
+                if lz.min() < zlim.min() { *zlim.mut_min() = lz.min(); }
+                if lz.max() > zlim.max() { *zlim.mut_max() = lz.max(); }
                 v.push(layer)
             }
-            (v, z)
+            (v, zlim)
         };
         let layers = PyTuple::new(py, layers)?.unbind();
 
         let subscribers = Vec::new();
 
-        let geometry = Self { layers, z, subscribers };
+        let geometry = Self { layers, zlim, subscribers };
         let geometry = Py::new(py, geometry)?;
         for layer in geometry.bind(py).borrow().layers.bind(py).iter() {
             let mut layer = layer.downcast::<Layer>().unwrap().borrow_mut();
@@ -109,23 +112,17 @@ impl EarthGeometry {
         Ok(geometry)
     }
 
-    #[pyo3(name="locate", signature=(position=None, /, *, notify=None, **kwargs))]
+    /// Locates point(s) within the Earth geometry.
+    #[pyo3(name="locate", signature=(position=None, /, *, frame=None, notify=None, **kwargs))]
     fn py_locate<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
-        let position = Extractor::from_args(
-            [
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-            ],
-            position,
-            kwargs,
-        )?;
+        let position = PositionExtractor::new(py, position, kwargs, frame.as_ref(), None)?;
 
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
@@ -138,11 +135,8 @@ impl EarthGeometry {
 
             stepper.reset();
 
-            let geographic = GeographicCoordinates {
-                latitude: position.get_f64(Name::Latitude, i)?,
-                longitude: position.get_f64(Name::Longitude, i)?,
-                altitude: position.get_f64(Name::Altitude, i)?,
-            };
+            let geographic = position.extract(i)?
+                .into_geographic();
             layer[i] = stepper.locate(geographic)?;
             notifier.tic();
         }

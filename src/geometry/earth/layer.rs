@@ -20,9 +20,9 @@ pub struct Layer {
     #[pyo3(get)]
     pub material: String,
 
-    /// The layer limits along the z-coordinates.
+    /// The layer limits along the z-coordinate.
     #[pyo3(get)]
-    pub z: (f64, f64),
+    pub zlim: (f64, f64),
 
     // XXX Add a description field, or derive from Medium?
 
@@ -263,19 +263,19 @@ impl Layer {
         density: Option<f64>,
         material: Option<String>
     ) -> PyResult<Self> {
-        let z = {
-            let mut z = (f64::INFINITY, -f64::INFINITY);
+        let zlim = {
+            let mut zlim = (f64::INFINITY, -f64::INFINITY);
             for d in data.iter() {
-                let dz = d.z(py);
-                if dz.0 < z.0 { z.0 = dz.0; }
-                if dz.1 > z.1 { z.1 = dz.1; }
+                let dz = d.zlim(py);
+                if dz.0 < zlim.0 { zlim.0 = dz.0; }
+                if dz.1 > zlim.1 { zlim.1 = dz.1; }
             }
-            z
+            zlim
         };
         let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
         let stepper = null_mut();
         let geometry = None;
-        let mut layer = Self { density: None, material, z, data, stepper, geometry };
+        let mut layer = Self { density: None, material, zlim, data, stepper, geometry };
         if density.is_some() {
             layer.set_density(density)?;
         }
@@ -306,10 +306,10 @@ impl Data {
         }
     }
 
-    pub fn z(&self, py: Python) -> (f64, f64) {
+    pub fn zlim(&self, py: Python) -> (f64, f64) {
         match self {
             Self::Flat(f) => (*f, *f),
-            Self::Grid(g) => g.bind(py).borrow().z,
+            Self::Grid(g) => g.bind(py).borrow().zlim,
         }
     }
 }

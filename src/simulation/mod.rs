@@ -1142,7 +1142,7 @@ impl<'a> Agent<'a> {
         let geometry = match geometry {
             GeometryRef::Earth(geometry) => GeometryAgent::Earth {
                 stepper: geometry.stepper(py)?,
-                zmax: geometry.z.max() + Self::DELTA_Z,
+                zmax: geometry.zlim.max() + Self::DELTA_Z,
             },
             GeometryRef::External(geometry) => GeometryAgent::External {
                 tracer: geometry.tracer()?,

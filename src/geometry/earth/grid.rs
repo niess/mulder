@@ -16,9 +16,9 @@ use ::std::sync::Arc;
 
 #[pyclass(frozen, module="mulder")]
 pub struct Grid {
-    /// Grid limits along the z-coordinates.
+    /// Grid limits along the z-coordinate.
     #[pyo3(get)]
-    pub z: (f64, f64),
+    pub zlim: (f64, f64),
 
     pub data: Arc<Data>,
     pub offset: f64,
@@ -54,7 +54,7 @@ impl Grid {
         y: Option<[f64; 2]>,
         projection: Option<&str>,
     ) -> PyResult<Self> {
-        let (data, z) = match data {
+        let (data, zlim) = match data {
             DataArg::Array(array) => {
                 let shape = array.shape();
                 if shape.len() != 2 {
@@ -71,8 +71,8 @@ impl Grid {
                 let y = y.unwrap_or_else(|| [0.0, 1.0]);
 
                 let converter = ArrayConverter { array: &array, nx };
-                let (map, z) = converter.convert(nx, ny, x, y, projection)?;
-                (Data::Map(map), z)
+                let (map, zlim) = converter.convert(nx, ny, x, y, projection)?;
+                (Data::Map(map), zlim)
             },
             DataArg::Path(string) => {
                 if x.is_some() || y.is_some() {
@@ -87,7 +87,7 @@ impl Grid {
 
                 let path = Path::new(string.as_str());
                 if path.is_file() {
-                    let (map, z) = match path.extension().and_then(OsStr::to_str) {
+                    let (map, zlim) = match path.extension().and_then(OsStr::to_str) {
                         Some("asc" | "grd" | "hgt") => {
                             let mut map: *mut turtle::Map = null_mut();
                             let path = CString::new(string.0).unwrap();
@@ -144,8 +144,10 @@ impl Grid {
                                 (x, y)
                             };
                             let converter = GeotiffConverter::new(nx, ny, &x, &y, &geotiff);
-                            let (map, z) = converter.convert(nx, ny, x, y, projection.as_deref())?;
-                            (map, Some(z))
+                            let (map, zlim) = converter.convert(
+                                nx, ny, x, y, projection.as_deref()
+                            )?;
+                            (map, Some(zlim))
                         },
                         Some(ext) => {
                             let why = format!(
@@ -186,8 +188,8 @@ impl Grid {
                         };
                         error::to_result(rc, Some("projection"))?;
                     }
-                    let z = z.unwrap_or_else(|| unsafe { get_map_zlim(map) });
-                    (Data::Map(map), z)
+                    let zlim = zlim.unwrap_or_else(|| unsafe { get_map_zlim(map) });
+                    (Data::Map(map), zlim)
                 } else if path.is_dir() {
                     let mut stack: *mut turtle::Stack = null_mut();
                     let path = CString::new(string.as_str()).unwrap();
@@ -225,8 +227,8 @@ impl Grid {
                         turtle::stack_load(stack)
                     };
                     error::to_result(rc, Some("grid"))?;
-                    let z = unsafe { get_stack_zlim(stack) };
-                    (Data::Stack(stack), z)
+                    let zlim = unsafe { get_stack_zlim(stack) };
+                    (Data::Stack(stack), zlim)
                 } else {
                     let why = if path.exists() {
                         format!("{}: not a file or directory", string.as_str())
@@ -240,7 +242,7 @@ impl Grid {
                 }
             },
         };
-        Ok(Self { data: Arc::new(data), z: (z[0], z[1]), offset: 0.0 })
+        Ok(Self { data: Arc::new(data), zlim: (zlim[0], zlim[1]), offset: 0.0 })
     }
 
     /// Grid coordinates projection.
@@ -268,9 +270,9 @@ impl Grid {
         }
     }
 
-    /// Grid limits along the x-coordinates.
+    /// Grid limits along the x-coordinate.
     #[getter]
-    fn get_x(&self) -> (f64, f64) {
+    fn get_xlim(&self) -> (f64, f64) {
         match *self.data {
             Data::Map(map) => {
                 let mut info = turtle::MapInfo::default();
@@ -289,9 +291,9 @@ impl Grid {
         }
     }
 
-    /// Grid limits along the y-coordinates.
+    /// Grid limits along the y-coordinate.
     #[getter]
-    fn get_y(&self) -> (f64, f64) {
+    fn get_ylim(&self) -> (f64, f64) {
         match *self.data {
             Data::Map(map) => {
                 let mut info = turtle::MapInfo::default();
@@ -312,9 +314,9 @@ impl Grid {
 
     fn __add__(&self, offset: f64) -> Self {
         let data = Arc::clone(&self.data);
-        let z = (self.z.0 + offset, self.z.1 + offset);
+        let zlim = (self.zlim.0 + offset, self.zlim.1 + offset);
         let offset = self.offset  + offset;
-        Self { z, data, offset }
+        Self { zlim, data, offset }
     }
 
     fn __radd__(&self, offset: f64) -> Self {
@@ -479,28 +481,28 @@ fn get_shape(x: &AnyArray<f64>, y: &AnyArray<f64>) -> (usize, usize, Vec<usize>)
 unsafe fn get_map_zlim(map: *const turtle::Map) -> [f64; 2] {
     let mut info = turtle::MapInfo::default();
     turtle::map_meta(map, &mut info, null_mut());
-    let mut z = [f64::INFINITY, -f64::INFINITY];
+    let mut zlim = [f64::INFINITY, -f64::INFINITY];
     for iy in 0..info.ny {
         for ix in 0..info.nx {
             let mut zi = f64::NAN;
             turtle::map_node(map, ix, iy, null_mut(), null_mut(), &mut zi);
-            if zi < z[0] { z[0] = zi }
-            if zi > z[1] { z[1] = zi }
+            if zi < zlim[0] { zlim[0] = zi }
+            if zi > zlim[1] { zlim[1] = zi }
         }
     }
-    z
+    zlim
 }
 
 unsafe fn get_stack_zlim(stack: *const turtle::Stack) -> [f64; 2] {
-    let mut z = [f64::INFINITY, -f64::INFINITY];
+    let mut zlim = [f64::INFINITY, -f64::INFINITY];
     let mut map = (*stack).list.head as *const turtle::Map;
     while map != null() {
         let zi = get_map_zlim(map);
-        if zi[0] < z[0] { z[0] = zi[0] }
-        if zi[1] > z[1] { z[1] = zi[1] }
+        if zi[0] < zlim[0] { zlim[0] = zi[0] }
+        if zi[1] > zlim[1] { zlim[1] = zi[1] }
         map = (*map).element.next as *const turtle::Map;
     }
-    z
+    zlim
 }
 
 impl Data {

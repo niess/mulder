@@ -17,7 +17,7 @@ Carlo, that delivers discrete atmospheric muons.
 
    Mulder only simulates the transport of atmospheric muons, taking into account
    the local features surrounding the fluxmeter. Mulder does not simulate muon
-   production by comisc rays. Instead, a reference spectrum of atmospheric muons
+   production by cosmic rays. Instead, a reference spectrum of atmospheric muons
    is used as input, providing the opensky flux, i.e. the flux in the absence of
    any ground or other obstacles than the Earth atmosphere.
 
