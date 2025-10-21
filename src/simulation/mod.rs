@@ -29,8 +29,8 @@ use atmosphere::{Atmosphere, AtmosphereArg};
 use coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use geomagnet::{EarthMagnet, EarthMagnetArg};
 use states::{
-    ExtractedState, FlavouredGeographicState, FlavouredLocalState, NewStates, StatesExtractor,
-    UnflavouredGeographicState, UnflavouredLocalState,
+    ExtractedState, TaggedGeographicState, TaggedLocalState, NewStates, StatesExtractor,
+    UntaggedGeographicState, UntaggedLocalState,
 };
 
 
@@ -407,7 +407,7 @@ impl Fluxmeter {
                 TransportMode::Continuous => {
                     flux[i] = if agent.geomagnet.is_none() ||
                                  (state.energy() >= Agent::HIGH_ENERGY) {
-                        let particle = if states.is_flavoured() {
+                        let particle = if states.is_tagged() {
                             Particle::from_pid(state.pid())?
                         } else {
                             Particle::Any
@@ -431,7 +431,7 @@ impl Fluxmeter {
                         let mut s2 = 0.0;
                         for j in 0..events {
                             agent.set_state(&state)?;
-                            if !states.is_flavoured() { agent.randomise_charge(); }
+                            if !states.is_tagged() { agent.randomise_charge(); }
                             let particle = Particle::from_charge(agent.state.charge);
                             let fij = agent.flux(particle)?;
                             s1 += fij;
@@ -450,7 +450,7 @@ impl Fluxmeter {
                     },
                     None => {
                         agent.set_state(&state)?;
-                        if !states.is_flavoured() { agent.randomise_charge(); }
+                        if !states.is_tagged() { agent.randomise_charge(); }
                         let particle = Particle::from_charge(agent.state.charge);
                         flux[i] = agent.flux(particle)?;
                         notifier.tic();
@@ -540,7 +540,7 @@ impl Fluxmeter {
         let size = states.size();
         let mut shape = states.shape();
 
-        if agent.geomagnet.is_some() && !states.is_flavoured() {
+        if agent.geomagnet.is_some() && !states.is_tagged() {
             let err = Error::new(TypeError)
                 .what("states")
                 .why("a pid is required for a magnetized geometry")
@@ -555,26 +555,26 @@ impl Fluxmeter {
             })
             .unwrap_or_else(|| 1);
 
-        let array = if states.is_flavoured() {
+        let array = if states.is_tagged() {
             match &states {
                 StatesExtractor::Geographic { .. } => {
-                    let array = NewArray::<FlavouredGeographicState>::empty(py, shape)?;
-                    NewStates::FlavouredGeographic { array }
+                    let array = NewArray::<TaggedGeographicState>::empty(py, shape)?;
+                    NewStates::TaggedGeographic { array }
                 },
                 StatesExtractor::Local { frame, .. } => {
-                    let array = NewArray::<FlavouredLocalState>::empty(py, shape)?;
-                    NewStates::FlavouredLocal { array, frame: frame.clone() }
+                    let array = NewArray::<TaggedLocalState>::empty(py, shape)?;
+                    NewStates::TaggedLocal { array, frame: frame.clone() }
                 },
             }
         } else {
             match &states {
                 StatesExtractor::Geographic { .. } => {
-                    let array = NewArray::<UnflavouredGeographicState>::empty(py, shape)?;
-                    NewStates::UnflavouredGeographic { array }
+                    let array = NewArray::<UntaggedGeographicState>::empty(py, shape)?;
+                    NewStates::UntaggedGeographic { array }
                 },
                 StatesExtractor::Local { frame, .. } => {
-                    let array = NewArray::<UnflavouredLocalState>::empty(py, shape)?;
-                    NewStates::UnflavouredLocal { array, frame: frame.clone() }
+                    let array = NewArray::<UntaggedLocalState>::empty(py, shape)?;
+                    NewStates::UntaggedLocal { array, frame: frame.clone() }
                 },
             }
         };
@@ -593,19 +593,19 @@ impl Fluxmeter {
                 agent.transport()?;
 
                 match &array {
-                    NewStates::FlavouredGeographic { array } => array.set_item(
+                    NewStates::TaggedGeographic { array } => array.set_item(
                         index,
                         agent.get_flavoured_geographic_state()
                     )?,
-                    NewStates::UnflavouredGeographic { array } => array.set_item(
+                    NewStates::UntaggedGeographic { array } => array.set_item(
                         index,
                         agent.get_unflavoured_geographic_state()
                     )?,
-                    NewStates::FlavouredLocal { array, frame } => array.set_item(
+                    NewStates::TaggedLocal { array, frame } => array.set_item(
                         index,
                         agent.get_flavoured_local_state(frame)
                     )?,
-                    NewStates::UnflavouredLocal { array, frame } => array.set_item(
+                    NewStates::UntaggedLocal { array, frame } => array.set_item(
                         index,
                         agent.get_unflavoured_local_state(frame)
                     )?,
@@ -995,14 +995,14 @@ impl<'a> Agent<'a> {
         Ok(f)
     }
 
-    fn get_flavoured_geographic_state(&self) -> FlavouredGeographicState {
+    fn get_flavoured_geographic_state(&self) -> TaggedGeographicState {
         let (geographic, horizontal) = match self.geometry {
             GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
             GeometryAgent::External { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
         };
-        FlavouredGeographicState {
+        TaggedGeographicState {
             pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
             latitude: geographic.latitude,
@@ -1014,7 +1014,7 @@ impl<'a> Agent<'a> {
         }
     }
 
-    fn get_flavoured_local_state(&self, frame: &LocalFrame) -> FlavouredLocalState {
+    fn get_flavoured_local_state(&self, frame: &LocalFrame) -> TaggedLocalState {
         let (position, direction) = match self.geometry {
             GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
@@ -1023,7 +1023,7 @@ impl<'a> Agent<'a> {
                 self.state.position, self.state.direction, geometry_frame
             ),
         };
-        FlavouredLocalState {
+        TaggedLocalState {
             pid: Particle::from_charge(self.state.charge).pid(),
             energy: self.state.energy,
             position,
@@ -1032,14 +1032,14 @@ impl<'a> Agent<'a> {
         }
     }
 
-    fn get_unflavoured_geographic_state(&self) -> UnflavouredGeographicState {
+    fn get_unflavoured_geographic_state(&self) -> UntaggedGeographicState {
         let (geographic, horizontal) = match self.geometry {
             GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
             GeometryAgent::External { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
         };
-        UnflavouredGeographicState {
+        UntaggedGeographicState {
             energy: self.state.energy,
             latitude: geographic.latitude,
             longitude: geographic.longitude,
@@ -1050,7 +1050,7 @@ impl<'a> Agent<'a> {
         }
     }
 
-    fn get_unflavoured_local_state(&self, frame: &LocalFrame) -> UnflavouredLocalState {
+    fn get_unflavoured_local_state(&self, frame: &LocalFrame) -> UntaggedLocalState {
         let (position, direction) = match self.geometry {
             GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
@@ -1059,7 +1059,7 @@ impl<'a> Agent<'a> {
                 self.state.position, self.state.direction, geometry_frame
             ),
         };
-        UnflavouredLocalState {
+        UntaggedLocalState {
             energy: self.state.energy,
             position,
             direction: [-direction[0], -direction[1], -direction[2]],
@@ -1190,7 +1190,7 @@ impl<'a> Agent<'a> {
             GeometryAgent::Earth { .. } => {
                 match state {
                     ExtractedState::Geographic { state } => {
-                        let FlavouredGeographicState {
+                        let TaggedGeographicState {
                             pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
                         } = *state;
                         self.state.charge = Particle::from_pid(pid)?.charge();
@@ -1202,7 +1202,7 @@ impl<'a> Agent<'a> {
                         self.state.weight = weight;
                     }
                     ExtractedState::Local { state, frame } => {
-                        let FlavouredLocalState {
+                        let TaggedLocalState {
                             pid, energy, position, direction, weight
                         } = *state;
                         self.state.charge = Particle::from_pid(pid)?.charge();
@@ -1220,7 +1220,7 @@ impl<'a> Agent<'a> {
             GeometryAgent::External { frame: geometry_frame, .. } => {
                 match state {
                     ExtractedState::Geographic { state } => {
-                        let FlavouredGeographicState {
+                        let TaggedGeographicState {
                             pid, energy, latitude, longitude, altitude, azimuth, elevation, weight
                         } = *state;
                         self.state.charge = Particle::from_pid(pid)?.charge();
@@ -1233,7 +1233,7 @@ impl<'a> Agent<'a> {
                         self.state.weight = weight;
                     },
                     ExtractedState::Local { state, frame } => {
-                        let FlavouredLocalState {
+                        let TaggedLocalState {
                             pid, energy, position, direction, weight
                         } = *state;
                         self.state.charge = Particle::from_pid(pid)?.charge();

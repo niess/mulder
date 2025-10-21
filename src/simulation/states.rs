@@ -28,13 +28,13 @@ pub struct LocalStates {
 
 #[derive(Debug, FromPyObject, IntoPyObject)]
 pub enum GeographicStatesArray {
-    Flavoured(Py<PyArray<FlavouredGeographicState>>),
-    Unflavoured(Py<PyArray<UnflavouredGeographicState>>),
+    Tagged(Py<PyArray<TaggedGeographicState>>),
+    Untagged(Py<PyArray<UntaggedGeographicState>>),
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
-pub struct FlavouredGeographicState {
+pub struct TaggedGeographicState {
     pub pid: i32,
     pub energy: f64,
     pub latitude: f64,
@@ -47,7 +47,7 @@ pub struct FlavouredGeographicState {
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
-pub struct UnflavouredGeographicState {
+pub struct UntaggedGeographicState {
     pub energy: f64,
     pub latitude: f64,
     pub longitude: f64,
@@ -59,13 +59,13 @@ pub struct UnflavouredGeographicState {
 
 #[derive(Debug, FromPyObject, IntoPyObject)]
 pub enum LocalStatesArray {
-    Flavoured(Py<PyArray<FlavouredLocalState>>),
-    Unflavoured(Py<PyArray<UnflavouredLocalState>>),
+    Tagged(Py<PyArray<TaggedLocalState>>),
+    Untagged(Py<PyArray<UntaggedLocalState>>),
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
-pub struct FlavouredLocalState {
+pub struct TaggedLocalState {
     pub pid: i32,
     pub energy: f64,
     pub position: [f64; 3],
@@ -75,7 +75,7 @@ pub struct FlavouredLocalState {
 
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
-pub struct UnflavouredLocalState {
+pub struct UntaggedLocalState {
     pub energy: f64,
     pub position: [f64; 3],
     pub direction: [f64; 3],
@@ -83,10 +83,10 @@ pub struct UnflavouredLocalState {
 }
 
 pub enum NewStates<'py> {
-    FlavouredGeographic { array: NewArray<'py, FlavouredGeographicState> },
-    FlavouredLocal { array: NewArray<'py, FlavouredLocalState>, frame: LocalFrame },
-    UnflavouredGeographic { array: NewArray<'py, UnflavouredGeographicState> },
-    UnflavouredLocal { array: NewArray<'py, UnflavouredLocalState>, frame: LocalFrame },
+    TaggedGeographic { array: NewArray<'py, TaggedGeographicState> },
+    TaggedLocal { array: NewArray<'py, TaggedLocalState>, frame: LocalFrame },
+    UntaggedGeographic { array: NewArray<'py, UntaggedGeographicState> },
+    UntaggedLocal { array: NewArray<'py, UntaggedLocalState>, frame: LocalFrame },
 }
 
 pub enum StatesExtractor<'py> {
@@ -95,12 +95,12 @@ pub enum StatesExtractor<'py> {
 }
 
 pub enum ExtractedState<'a> {
-    Geographic { state: FlavouredGeographicState },
-    Local { state: FlavouredLocalState, frame: &'a LocalFrame },
+    Geographic { state: TaggedGeographicState },
+    Local { state: TaggedLocalState, frame: &'a LocalFrame },
 }
 
 impl_dtype!(
-    FlavouredGeographicState,
+    TaggedGeographicState,
     [
         ("pid",       "i4"),
         ("energy",    "f8"),
@@ -114,7 +114,7 @@ impl_dtype!(
 );
 
 impl_dtype!(
-    UnflavouredGeographicState,
+    UntaggedGeographicState,
     [
         ("energy",    "f8"),
         ("latitude",  "f8"),
@@ -127,7 +127,7 @@ impl_dtype!(
 );
 
 impl_dtype!(
-    FlavouredLocalState,
+    TaggedLocalState,
     [
         ("pid",       "i4"),
         ("energy",    "f8"),
@@ -138,7 +138,7 @@ impl_dtype!(
 );
 
 impl_dtype!(
-    UnflavouredLocalState,
+    UntaggedLocalState,
     [
         ("energy",    "f8"),
         ("position",  "3f8"),
@@ -157,13 +157,13 @@ macro_rules! new_array {
             let tagged = $tagged.unwrap_or(false);
             paste::paste! {
                 let array = if tagged {
-                    [<  $name StatesArray >] ::Flavoured (
-                        NewArray::< [< Flavoured $name State >] >::$func(py, shape)?
+                    [<  $name StatesArray >] ::Tagged (
+                        NewArray::< [< Tagged $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
                     )
                 } else {
-                    [< $name StatesArray >] ::Unflavoured (
-                        NewArray::< [< Unflavoured $name State >] >::$func(py, shape)?
+                    [< $name StatesArray >] ::Untagged (
+                        NewArray::< [< Untagged $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
                     )
                 };
@@ -189,8 +189,8 @@ impl GeographicStates {
 
     fn __len__(&self, py: Python) -> PyResult<usize> {
         let shape = match &self.array {
-            GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
-            GeographicStatesArray::Unflavoured(array) => array.bind(py).shape(),
+            GeographicStatesArray::Tagged(array) => array.bind(py).shape(),
+            GeographicStatesArray::Untagged(array) => array.bind(py).shape(),
         };
         shape
             .get(0)
@@ -229,10 +229,10 @@ impl GeographicStates {
         py: Python<'py>,
     ) -> PyResult<Bound<'py, PyAny>> {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => {
+            GeographicStatesArray::Tagged(array) => {
                 array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
             },
-            GeographicStatesArray::Unflavoured(array) => {
+            GeographicStatesArray::Untagged(array) => {
                 array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
             },
         }
@@ -244,10 +244,10 @@ impl GeographicStates {
         py: Python<'py>,
     ) -> PyResult<Bound<'py, PyAny>> {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => {
+            GeographicStatesArray::Tagged(array) => {
                 array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
             },
-            GeographicStatesArray::Unflavoured(array) => {
+            GeographicStatesArray::Untagged(array) => {
                 array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
             },
         }
@@ -271,11 +271,11 @@ impl GeographicStates {
 
     fn __repr__(&self) -> String {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => format!(
+            GeographicStatesArray::Tagged(array) => format!(
                 "GeographicStates({})",
                 array
             ),
-            GeographicStatesArray::Unflavoured(array) => format!(
+            GeographicStatesArray::Untagged(array) => format!(
                 "GeographicStates({})",
                 array
             ),
@@ -286,8 +286,8 @@ impl GeographicStates {
     #[getter]
     fn get_array(&self, py: Python) -> PyObject {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => array.clone_ref(py).into_any(),
-            GeographicStatesArray::Unflavoured(array) => array.clone_ref(py).into_any(),
+            GeographicStatesArray::Tagged(array) => array.clone_ref(py).into_any(),
+            GeographicStatesArray::Untagged(array) => array.clone_ref(py).into_any(),
         }
     }
 
@@ -295,8 +295,8 @@ impl GeographicStates {
     #[getter]
     fn get_ndim(&self, py: Python) -> usize {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => array.bind(py).ndim(),
-            GeographicStatesArray::Unflavoured(array) => array.bind(py).ndim(),
+            GeographicStatesArray::Tagged(array) => array.bind(py).ndim(),
+            GeographicStatesArray::Untagged(array) => array.bind(py).ndim(),
         }
     }
 
@@ -304,8 +304,8 @@ impl GeographicStates {
     #[getter]
     fn get_shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         let shape = match &self.array {
-            GeographicStatesArray::Flavoured(array) => array.bind(py).shape(),
-            GeographicStatesArray::Unflavoured(array) => array.bind(py).shape(),
+            GeographicStatesArray::Tagged(array) => array.bind(py).shape(),
+            GeographicStatesArray::Untagged(array) => array.bind(py).shape(),
         };
         PyTuple::new(py, shape)
     }
@@ -314,8 +314,8 @@ impl GeographicStates {
     #[getter]
     fn get_size(&self, py: Python) -> usize {
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => array.bind(py).size(),
-            GeographicStatesArray::Unflavoured(array) => array.bind(py).size(),
+            GeographicStatesArray::Tagged(array) => array.bind(py).size(),
+            GeographicStatesArray::Untagged(array) => array.bind(py).size(),
         }
     }
 
@@ -323,10 +323,10 @@ impl GeographicStates {
     #[getter]
     fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
         let pid = match &self.array {
-            GeographicStatesArray::Flavoured(array) => {
+            GeographicStatesArray::Tagged(array) => {
                 array.bind(py).as_any().get_item("pid")?.unbind()
             },
-            GeographicStatesArray::Unflavoured(_) => py.None(),
+            GeographicStatesArray::Untagged(_) => py.None(),
         };
         Ok(pid)
     }
@@ -335,10 +335,10 @@ impl GeographicStates {
     fn set_pid(&self, value: &Bound<PyAny>) -> PyResult<()> {
         let py = value.py();
         match &self.array {
-            GeographicStatesArray::Flavoured(array) => {
+            GeographicStatesArray::Tagged(array) => {
                 array.bind(py).as_any().set_item("pid", value)
             },
-            GeographicStatesArray::Unflavoured(_) => {
+            GeographicStatesArray::Untagged(_) => {
                 let err = Error::new(AttributeError)
                     .why("attribute 'pid' is not writable").to_err();
                 Err(err)
@@ -433,9 +433,9 @@ impl GeographicStates {
         let py = cls.py();
         let tagged = tagged.unwrap_or(false);
         if tagged {
-            FlavouredGeographicState::dtype(py)
+            TaggedGeographicState::dtype(py)
         } else {
-            UnflavouredGeographicState::dtype(py)
+            UntaggedGeographicState::dtype(py)
         }
     }
 
@@ -568,21 +568,21 @@ impl GeographicStates {
         states: Extractor<8>,
     ) -> PyResult<GeographicStates> {
         let array = if states.contains(Name::Pid) {
-            let mut array = NewArray::<FlavouredGeographicState>::empty(py, shape)?;
+            let mut array = NewArray::<TaggedGeographicState>::empty(py, shape)?;
             let size = array.size();
             let data = array.as_slice_mut();
             for i in 0..size {
-                data[i] = FlavouredGeographicState::from_extractor(&states, i)?;
+                data[i] = TaggedGeographicState::from_extractor(&states, i)?;
             }
-            GeographicStatesArray::Flavoured(array.into_bound().unbind())
+            GeographicStatesArray::Tagged(array.into_bound().unbind())
         } else {
-            let mut array = NewArray::<UnflavouredGeographicState>::empty(py, shape)?;
+            let mut array = NewArray::<UntaggedGeographicState>::empty(py, shape)?;
             let size = array.size();
             let data = array.as_slice_mut();
             for i in 0..size {
-                data[i] = UnflavouredGeographicState::from_extractor(&states, i)?;
+                data[i] = UntaggedGeographicState::from_extractor(&states, i)?;
             }
-            GeographicStatesArray::Unflavoured(array.into_bound().unbind())
+            GeographicStatesArray::Untagged(array.into_bound().unbind())
         };
         Ok(Self { array })
     }
@@ -590,11 +590,11 @@ impl GeographicStates {
     fn from_local(py: Python, local: &LocalStates) -> PyResult<Self> {
         let frame = &local.frame;
         let array = match &local.array {
-            LocalStatesArray::Flavoured(local) => {
-                convert_local!(Flavoured, py, local, frame)
+            LocalStatesArray::Tagged(local) => {
+                convert_local!(Tagged, py, local, frame)
             },
-            LocalStatesArray::Unflavoured(local) => {
-                convert_local!(Unflavoured, py, local, frame)
+            LocalStatesArray::Untagged(local) => {
+                convert_local!(Untagged, py, local, frame)
             },
         };
         Ok(Self { array })
@@ -605,24 +605,24 @@ impl GeographicStatesArray {
     #[inline]
     fn clone_ref(&self, py: Python) -> Self {
         match self {
-            Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
-            Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
+            Self::Tagged(array) => Self::Tagged(array.clone_ref(py)),
+            Self::Untagged(array) => Self::Untagged(array.clone_ref(py)),
         }
     }
 
     fn copy<'py>(self, py: Python<'py>) -> PyResult<Self> {
         let copy = match self {
-            Self::Flavoured(array) => {
-                let array = NewArray::<FlavouredGeographicState>::from_array(
+            Self::Tagged(array) => {
+                let array = NewArray::<TaggedGeographicState>::from_array(
                     py, array.bind(py).clone()
                 )?;
-                Self::Flavoured(array.into_bound().unbind())
+                Self::Tagged(array.into_bound().unbind())
             },
-            Self::Unflavoured(array) => {
-                let array = NewArray::<UnflavouredGeographicState>::from_array(
+            Self::Untagged(array) => {
+                let array = NewArray::<UntaggedGeographicState>::from_array(
                     py, array.bind(py).clone()
                 )?;
-                Self::Unflavoured(array.into_bound().unbind())
+                Self::Untagged(array.into_bound().unbind())
             },
         };
         Ok(copy)
@@ -631,45 +631,45 @@ impl GeographicStatesArray {
     #[inline]
     fn dtype<'py>(&self, py: Python<'py>) -> PyResult<&Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(_) => FlavouredGeographicState::dtype(py),
-            Self::Unflavoured(_) => UnflavouredGeographicState::dtype(py),
+            Self::Tagged(_) => TaggedGeographicState::dtype(py),
+            Self::Untagged(_) => UntaggedGeographicState::dtype(py),
         }
     }
 
     #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(py).as_any().get_item(field),
-            Self::Unflavoured(array) => array.bind(py).as_any().get_item(field),
+            Self::Tagged(array) => array.bind(py).as_any().get_item(field),
+            Self::Untagged(array) => array.bind(py).as_any().get_item(field),
         }
     }
 
     #[inline]
     fn setattr(&self, field: &'static str, value: &Bound<PyAny>) -> PyResult<()> {
         match self {
-            Self::Flavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
-            Self::Unflavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Tagged(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Untagged(array) => array.bind(value.py()).as_any().set_item(field, value),
         }
     }
 
     #[inline]
     fn getitem<'py>(&self, index: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(index.py()).as_any().get_item(index),
-            Self::Unflavoured(array) => array.bind(index.py()).as_any().get_item(index),
+            Self::Tagged(array) => array.bind(index.py()).as_any().get_item(index),
+            Self::Untagged(array) => array.bind(index.py()).as_any().get_item(index),
         }
     }
 
     #[inline]
     fn setitem<'py>(&self, index: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<()> {
         match self {
-            Self::Flavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
-            Self::Unflavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Tagged(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Untagged(array) => array.bind(index.py()).as_any().set_item(index, value),
         }
     }
 }
 
-impl FlavouredGeographicState {
+impl TaggedGeographicState {
     #[inline]
     pub fn direction(&self) -> HorizontalCoordinates {
         HorizontalCoordinates {
@@ -696,7 +696,7 @@ impl FlavouredGeographicState {
     }
 
     #[inline]
-    pub fn from_local(state: FlavouredLocalState, frame: &LocalFrame) -> Self {
+    pub fn from_local(state: TaggedLocalState, frame: &LocalFrame) -> Self {
         let (position, direction) = frame.to_geographic(&state.position, &state.direction);
         Self {
             pid: state.pid,
@@ -720,7 +720,7 @@ impl FlavouredGeographicState {
     }
 }
 
-impl UnflavouredGeographicState {
+impl UntaggedGeographicState {
     #[inline]
     fn direction(&self) -> HorizontalCoordinates {
         HorizontalCoordinates {
@@ -746,7 +746,7 @@ impl UnflavouredGeographicState {
     }
 
     #[inline]
-    fn from_local(state: UnflavouredLocalState, frame: &LocalFrame) -> Self {
+    fn from_local(state: UntaggedLocalState, frame: &LocalFrame) -> Self {
         let (position, direction) = frame.to_geographic(&state.position, &state.direction);
         Self {
             energy: state.energy,
@@ -779,13 +779,13 @@ macro_rules! new_array {
             let tagged = $tagged.unwrap_or(false);
             paste::paste! {
                 let array = if tagged {
-                    [<  $name StatesArray >] ::Flavoured (
-                        NewArray::< [< Flavoured $name State >] >::$func(py, shape)?
+                    [<  $name StatesArray >] ::Tagged (
+                        NewArray::< [< Tagged $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
                     )
                 } else {
-                    [< $name StatesArray >] ::Unflavoured (
-                        NewArray::< [< Unflavoured $name State >] >::$func(py, shape)?
+                    [< $name StatesArray >] ::Untagged (
+                        NewArray::< [< Untagged $name State >] >::$func(py, shape)?
                             .into_bound().unbind()
                     )
                 };
@@ -813,8 +813,8 @@ impl LocalStates {
 
     fn __len__(&self, py: Python) -> PyResult<usize> {
         let shape = match &self.array {
-            LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
-            LocalStatesArray::Unflavoured(array) => array.bind(py).shape(),
+            LocalStatesArray::Tagged(array) => array.bind(py).shape(),
+            LocalStatesArray::Untagged(array) => array.bind(py).shape(),
         };
         shape
             .get(0)
@@ -853,10 +853,10 @@ impl LocalStates {
         py: Python<'py>,
     ) -> PyResult<Bound<'py, PyAny>> {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => {
+            LocalStatesArray::Tagged(array) => {
                 array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
             },
-            LocalStatesArray::Unflavoured(array) => {
+            LocalStatesArray::Untagged(array) => {
                 array.bind(py).call_method1("__eq__", (other.array.clone_ref(py),))
             },
         }
@@ -868,10 +868,10 @@ impl LocalStates {
         py: Python<'py>,
     ) -> PyResult<Bound<'py, PyAny>> {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => {
+            LocalStatesArray::Tagged(array) => {
                 array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
             },
-            LocalStatesArray::Unflavoured(array) => {
+            LocalStatesArray::Untagged(array) => {
                 array.bind(py).call_method1("__ne__", (other.array.clone_ref(py),))
             },
         }
@@ -898,11 +898,11 @@ impl LocalStates {
 
     fn __repr__(&self) -> String {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => format!(
+            LocalStatesArray::Tagged(array) => format!(
                 "LocalStates({})",
                 array,
             ),
-            LocalStatesArray::Unflavoured(array) => format!(
+            LocalStatesArray::Untagged(array) => format!(
                 "LocalStates({})",
                 array,
             ),
@@ -913,8 +913,8 @@ impl LocalStates {
     #[getter]
     fn get_array(&self, py: Python) -> PyObject {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => array.clone_ref(py).into_any(),
-            LocalStatesArray::Unflavoured(array) => array.clone_ref(py).into_any(),
+            LocalStatesArray::Tagged(array) => array.clone_ref(py).into_any(),
+            LocalStatesArray::Untagged(array) => array.clone_ref(py).into_any(),
         }
     }
 
@@ -922,8 +922,8 @@ impl LocalStates {
     #[getter]
     fn get_ndim(&self, py: Python) -> usize {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => array.bind(py).ndim(),
-            LocalStatesArray::Unflavoured(array) => array.bind(py).ndim(),
+            LocalStatesArray::Tagged(array) => array.bind(py).ndim(),
+            LocalStatesArray::Untagged(array) => array.bind(py).ndim(),
         }
     }
 
@@ -931,8 +931,8 @@ impl LocalStates {
     #[getter]
     fn get_shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         let shape = match &self.array {
-            LocalStatesArray::Flavoured(array) => array.bind(py).shape(),
-            LocalStatesArray::Unflavoured(array) => array.bind(py).shape(),
+            LocalStatesArray::Tagged(array) => array.bind(py).shape(),
+            LocalStatesArray::Untagged(array) => array.bind(py).shape(),
         };
         PyTuple::new(py, shape)
     }
@@ -941,8 +941,8 @@ impl LocalStates {
     #[getter]
     fn get_size(&self, py: Python) -> usize {
         match &self.array {
-            LocalStatesArray::Flavoured(array) => array.bind(py).size(),
-            LocalStatesArray::Unflavoured(array) => array.bind(py).size(),
+            LocalStatesArray::Tagged(array) => array.bind(py).size(),
+            LocalStatesArray::Untagged(array) => array.bind(py).size(),
         }
     }
 
@@ -950,10 +950,10 @@ impl LocalStates {
     #[getter]
     fn get_pid<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
         let pid = match &self.array {
-            LocalStatesArray::Flavoured(array) => {
+            LocalStatesArray::Tagged(array) => {
                 array.bind(py).as_any().get_item("pid")?.unbind()
             },
-            LocalStatesArray::Unflavoured(_) => py.None(),
+            LocalStatesArray::Untagged(_) => py.None(),
         };
         Ok(pid)
     }
@@ -962,10 +962,10 @@ impl LocalStates {
     fn set_pid(&self, value: &Bound<PyAny>) -> PyResult<()> {
         let py = value.py();
         match &self.array {
-            LocalStatesArray::Flavoured(array) => {
+            LocalStatesArray::Tagged(array) => {
                 array.bind(py).as_any().set_item("pid", value)
             },
-            LocalStatesArray::Unflavoured(_) => {
+            LocalStatesArray::Untagged(_) => {
                 let err = Error::new(AttributeError)
                     .why("attribute 'pid' is not writable").to_err();
                 Err(err)
@@ -1027,9 +1027,9 @@ impl LocalStates {
         let py = cls.py();
         let tagged = tagged.unwrap_or(false);
         if tagged {
-            FlavouredLocalState::dtype(py)
+            TaggedLocalState::dtype(py)
         } else {
-            UnflavouredLocalState::dtype(py)
+            UntaggedLocalState::dtype(py)
         }
     }
 
@@ -1176,21 +1176,21 @@ impl LocalStates {
         states: Extractor<5>,
     ) -> PyResult<LocalStates> {
         let array = if states.contains(Name::Pid) {
-            let mut array = NewArray::<FlavouredLocalState>::empty(py, shape)?;
+            let mut array = NewArray::<TaggedLocalState>::empty(py, shape)?;
             let size = array.size();
             let data = array.as_slice_mut();
             for i in 0..size {
-                data[i] = FlavouredLocalState::from_extractor(&states, i)?;
+                data[i] = TaggedLocalState::from_extractor(&states, i)?;
             }
-            LocalStatesArray::Flavoured(array.into_bound().unbind())
+            LocalStatesArray::Tagged(array.into_bound().unbind())
         } else {
-            let mut array = NewArray::<UnflavouredLocalState>::empty(py, shape)?;
+            let mut array = NewArray::<UntaggedLocalState>::empty(py, shape)?;
             let size = array.size();
             let data = array.as_slice_mut();
             for i in 0..size {
-                data[i] = UnflavouredLocalState::from_extractor(&states, i)?;
+                data[i] = UntaggedLocalState::from_extractor(&states, i)?;
             }
-            LocalStatesArray::Unflavoured(array.into_bound().unbind())
+            LocalStatesArray::Untagged(array.into_bound().unbind())
         };
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
         Ok(Self { array, frame})
@@ -1203,11 +1203,11 @@ impl LocalStates {
     ) -> PyResult<Self> {
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
         let array = match &geographic.array {
-            GeographicStatesArray::Flavoured(geographic) => {
-                convert_geographic!(Flavoured, py, geographic, frame)
+            GeographicStatesArray::Tagged(geographic) => {
+                convert_geographic!(Tagged, py, geographic, frame)
             },
-            GeographicStatesArray::Unflavoured(geographic) => {
-                convert_geographic!(Unflavoured, py, geographic, frame)
+            GeographicStatesArray::Untagged(geographic) => {
+                convert_geographic!(Untagged, py, geographic, frame)
             },
         };
         Ok(Self { array, frame })
@@ -1218,24 +1218,24 @@ impl LocalStatesArray {
     #[inline]
     fn clone_ref(&self, py: Python) -> Self {
         match self {
-            Self::Flavoured(array) => Self::Flavoured(array.clone_ref(py)),
-            Self::Unflavoured(array) => Self::Unflavoured(array.clone_ref(py)),
+            Self::Tagged(array) => Self::Tagged(array.clone_ref(py)),
+            Self::Untagged(array) => Self::Untagged(array.clone_ref(py)),
         }
     }
 
     fn copy<'py>(self, py: Python<'py>) -> PyResult<Self> {
         let copy = match self {
-            Self::Flavoured(array) => {
-                let array = NewArray::<FlavouredLocalState>::from_array(
+            Self::Tagged(array) => {
+                let array = NewArray::<TaggedLocalState>::from_array(
                     py, array.bind(py).clone()
                 )?;
-                Self::Flavoured(array.into_bound().unbind())
+                Self::Tagged(array.into_bound().unbind())
             },
-            Self::Unflavoured(array) => {
-                let array = NewArray::<UnflavouredLocalState>::from_array(
+            Self::Untagged(array) => {
+                let array = NewArray::<UntaggedLocalState>::from_array(
                     py, array.bind(py).clone()
                 )?;
-                Self::Unflavoured(array.into_bound().unbind())
+                Self::Untagged(array.into_bound().unbind())
             },
         };
         Ok(copy)
@@ -1244,73 +1244,73 @@ impl LocalStatesArray {
     #[inline]
     fn dtype<'py>(&self, py: Python<'py>) -> PyResult<&Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(_) => FlavouredLocalState::dtype(py),
-            Self::Unflavoured(_) => UnflavouredLocalState::dtype(py),
+            Self::Tagged(_) => TaggedLocalState::dtype(py),
+            Self::Untagged(_) => UntaggedLocalState::dtype(py),
         }
     }
 
     #[inline]
     fn getattr<'py>(&self, py: Python<'py>, field: &'static str) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(py).as_any().get_item(field),
-            Self::Unflavoured(array) => array.bind(py).as_any().get_item(field),
+            Self::Tagged(array) => array.bind(py).as_any().get_item(field),
+            Self::Untagged(array) => array.bind(py).as_any().get_item(field),
         }
     }
 
     #[inline]
     fn setattr(&self, field: &'static str, value: &Bound<PyAny>) -> PyResult<()> {
         match self {
-            Self::Flavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
-            Self::Unflavoured(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Tagged(array) => array.bind(value.py()).as_any().set_item(field, value),
+            Self::Untagged(array) => array.bind(value.py()).as_any().set_item(field, value),
         }
     }
 
     #[inline]
     fn getitem<'py>(&self, arg: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         match self {
-            Self::Flavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
-            Self::Unflavoured(array) => array.bind(arg.py()).as_any().get_item(arg),
+            Self::Tagged(array) => array.bind(arg.py()).as_any().get_item(arg),
+            Self::Untagged(array) => array.bind(arg.py()).as_any().get_item(arg),
         }
     }
 
     #[inline]
     fn setitem<'py>(&self, index: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<()> {
         match self {
-            Self::Flavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
-            Self::Unflavoured(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Tagged(array) => array.bind(index.py()).as_any().set_item(index, value),
+            Self::Untagged(array) => array.bind(index.py()).as_any().set_item(index, value),
         }
     }
 
     fn transform<'py>(&self, py: Python<'py>, transformer: &LocalTransformer) -> PyResult<Self> {
         let new = match self {
-            Self::Flavoured(array) => {
+            Self::Tagged(array) => {
                 let array = array.bind(py);
-                let mut new = NewArray::<FlavouredLocalState>::empty(py, array.shape())?;
+                let mut new = NewArray::<TaggedLocalState>::empty(py, array.shape())?;
                 let data = new.as_slice_mut();
                 for i in 0..array.size() {
                     data[i] = array
                         .get_item(i)?
                         .transform(transformer);
                 }
-                Self::Flavoured(new.into_bound().unbind())
+                Self::Tagged(new.into_bound().unbind())
             },
-            Self::Unflavoured(array) => {
+            Self::Untagged(array) => {
                 let array = array.bind(py);
-                let mut new = NewArray::<UnflavouredLocalState>::empty(py, array.shape())?;
+                let mut new = NewArray::<UntaggedLocalState>::empty(py, array.shape())?;
                 let data = new.as_slice_mut();
                 for i in 0..array.size() {
                     data[i] = array
                         .get_item(i)?
                         .transform(transformer);
                 }
-                Self::Unflavoured(new.into_bound().unbind())
+                Self::Untagged(new.into_bound().unbind())
             },
         };
         Ok(new)
     }
 }
 
-impl FlavouredLocalState {
+impl TaggedLocalState {
     #[inline]
     fn from_extractor(states: &Extractor<5>, index: usize) -> PyResult<Self> {
         let state = Self {
@@ -1326,7 +1326,7 @@ impl FlavouredLocalState {
     }
 
     #[inline]
-    fn from_geographic(state: FlavouredGeographicState, frame: &LocalFrame) -> Self {
+    fn from_geographic(state: TaggedGeographicState, frame: &LocalFrame) -> Self {
         let (position, direction) = frame.from_geographic(state.position(), state.direction());
         Self {
             pid: state.pid,
@@ -1351,7 +1351,7 @@ impl FlavouredLocalState {
     }
 }
 
-impl UnflavouredLocalState {
+impl UntaggedLocalState {
     #[inline]
     fn from_extractor(states: &Extractor<5>, index: usize) -> PyResult<Self> {
         let state = Self {
@@ -1366,7 +1366,7 @@ impl UnflavouredLocalState {
     }
 
     #[inline]
-    fn from_geographic(state: UnflavouredGeographicState, frame: &LocalFrame) -> Self {
+    fn from_geographic(state: UntaggedGeographicState, frame: &LocalFrame) -> Self {
         let (position, direction) = frame.from_geographic(state.position(), state.direction());
         Self {
             energy: state.energy,
@@ -1397,23 +1397,23 @@ impl<'py> IntoPyObject<'py> for NewStates<'py> {
     #[inline]
     fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
         let any = match self {
-            Self::FlavouredGeographic { array } => {
-                let array = GeographicStatesArray::Flavoured(array.into_bound().unbind());
+            Self::TaggedGeographic { array } => {
+                let array = GeographicStatesArray::Tagged(array.into_bound().unbind());
                 let array = Bound::new(py, GeographicStates { array })?;
                 array.into_any()
             },
-            Self::UnflavouredGeographic { array } => {
-                let array = GeographicStatesArray::Unflavoured(array.into_bound().unbind());
+            Self::UntaggedGeographic { array } => {
+                let array = GeographicStatesArray::Untagged(array.into_bound().unbind());
                 let array = Bound::new(py, GeographicStates { array })?;
                 array.into_any()
             },
-            Self::FlavouredLocal { array, frame } => {
-                let array = LocalStatesArray::Flavoured(array.into_bound().unbind());
+            Self::TaggedLocal { array, frame } => {
+                let array = LocalStatesArray::Tagged(array.into_bound().unbind());
                 let array = Bound::new(py, LocalStates { array, frame })?;
                 array.into_any()
             },
-            Self::UnflavouredLocal { array, frame } => {
-                let array = LocalStatesArray::Unflavoured(array.into_bound().unbind());
+            Self::UntaggedLocal { array, frame } => {
+                let array = LocalStatesArray::Untagged(array.into_bound().unbind());
                 let array = Bound::new(py, LocalStates { array, frame })?;
                 array.into_any()
             },
@@ -1461,11 +1461,11 @@ impl<'py> StatesExtractor<'py> {
     pub fn extract<'a>(&'a self, index: usize) -> PyResult<ExtractedState<'a>> {
         let extracted = match self {
             Self::Geographic { extractor } => {
-                let state = FlavouredGeographicState::from_extractor(extractor, index)?;
+                let state = TaggedGeographicState::from_extractor(extractor, index)?;
                 ExtractedState::Geographic { state }
             },
             Self::Local { extractor, frame } => {
-                let state = FlavouredLocalState::from_extractor(extractor, index)?;
+                let state = TaggedLocalState::from_extractor(extractor, index)?;
                 ExtractedState::Local { state, frame }
             },
         };
@@ -1473,7 +1473,7 @@ impl<'py> StatesExtractor<'py> {
     }
 
     #[inline]
-    pub fn is_flavoured(&self) -> bool {
+    pub fn is_tagged(&self) -> bool {
         match self {
             Self::Geographic { extractor } => extractor.contains(Name::Pid),
             Self::Local { extractor, .. } => extractor.contains(Name::Pid),

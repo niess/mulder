@@ -20,6 +20,7 @@ def test_constructors():
             assert a.shape == tuple(shape)
             assert a.size == 1
             assert a.ndim == 0
+            assert a.pid == None
 
             shape = 3
             if meth == "full":
@@ -63,6 +64,13 @@ def test_constructors():
         assert a.shape == (3,)
         assert a.ndim == 1
         assert numpy.all(a["energy"] == energy)
+
+        a = States.zeros()
+        assert a.dtype() == a.array.dtype
+
+        a = States.zeros(tagged=True)
+        assert numpy.all(a["pid"] == 0)
+        assert a.dtype(tagged=True) == a.array.dtype
 
 
 def test_attributes():
