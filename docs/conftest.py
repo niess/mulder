@@ -1,13 +1,21 @@
 import mulder
 import numpy
+from pathlib import Path
 import pytest
+import shutil
 
 
 DOCTEST_INITIALISED = False
 
+PREFIX = Path(__file__).parent.parent
+
 def initialise_doctest():
     """Initialise the doctest environement."""
 
+    shutil.copyfile(
+        PREFIX / "tests/assets/dem.asc",
+        "./dem.asc"
+    )
     DOCTEST_INITIALISED = True
 
 

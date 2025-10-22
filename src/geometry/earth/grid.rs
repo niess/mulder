@@ -47,11 +47,11 @@ pub enum GridLike<'py> {
 #[pymethods]
 impl Grid {
     #[new]
-    #[pyo3(signature=(data, /, *, x=None, y=None, projection=None))]
+    #[pyo3(signature=(data, /, *, xlim=None, ylim=None, projection=None))]
     fn new(
         data: DataArg,
-        x: Option<[f64; 2]>,
-        y: Option<[f64; 2]>,
+        xlim: Option<[f64; 2]>,
+        ylim: Option<[f64; 2]>,
         projection: Option<&str>,
     ) -> PyResult<Self> {
         let (data, zlim) = match data {
@@ -67,16 +67,16 @@ impl Grid {
                 }
                 let ny = shape[0];
                 let nx = shape[1];
-                let x = x.unwrap_or_else(|| [0.0, 1.0]);
-                let y = y.unwrap_or_else(|| [0.0, 1.0]);
+                let xlim = xlim.unwrap_or_else(|| [0.0, 1.0]);
+                let ylim = ylim.unwrap_or_else(|| [0.0, 1.0]);
 
                 let converter = ArrayConverter { array: &array, nx };
-                let (map, zlim) = converter.convert(nx, ny, x, y, projection)?;
+                let (map, zlim) = converter.convert(nx, ny, xlim, ylim, projection)?;
                 (Data::Map(map), zlim)
             },
             DataArg::Path(string) => {
-                if x.is_some() || y.is_some() {
-                    let coord = if x.is_some() { "x" } else { "y" };
+                if xlim.is_some() || ylim.is_some() {
+                    let coord = if xlim.is_some() { "x" } else { "y" };
                     let why = format!("cannot redefine {}-limits", coord);
                     let err = Error::new(TypeError)
                         .what("grid")

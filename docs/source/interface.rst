@@ -14,17 +14,9 @@ Geometry interface
 
    This class represents a stratified section of the Earth. The strates (or
    :py:class:`~mulder.Layer`\ s) form distinct propagation media that are
-   assumed to be uniform in composition and density. They are delimited by
-   parametric surfaces, :math:`z = f(x, y)`, typically described by a
-   :py:class:`Grid` of elevation values, :math:`z_{ij} = f(x_j, y_i)`, forming a
+   assumed to be uniform in composition and density. They are delimited
+   vertically, typically by a :py:class:`Grid` of elevation values, forming a
    Digital Elevation Model (`DEM`_).
-
-   .. note::
-
-      :py:class:`~mulder.EarthGeometry` objects are immutable, i.e. their
-      structure cannot be modified. However, the
-      :py:attr:`~mulder.Layer.density` and :py:attr:`~mulder.Layer.material` of
-      :py:attr:`~mulder.EarthGeometry.layers` is mutable.
 
    .. method:: __new__(*layers)
 
@@ -33,16 +25,16 @@ Geometry interface
       The *layers* are provided in index order, i.e. the first layer has index
       :python:`0` and is thus the bottom strate. Each individual layer argument
       may be either an explicit :py:class:`~mulder.Layer` object, or data-like
-      objects coercing to the latter. For instance, the following syntaxes lead
-      to the same geometry.
+      objects coercing to the latter. For instance, the following two syntaxes
+      lead to the same geometry.
 
       >>> geometry = mulder.EarthGeometry(
-      ...     mulder.Layer("dem.tif", 0.0),
+      ...     mulder.Layer("dem.asc", 0.0),
       ...     mulder.Layer(-100.0)
       ... )
 
       >>> geometry = mulder.EarthGeometry(
-      ...     ("dem.tif", 0.0),
+      ...     ("dem.asc", 0.0),
       ...     -100.0
       ... )
 
@@ -63,6 +55,13 @@ Geometry interface
    .. rubric:: Attributes
      :heading-level: 4
 
+   .. note::
+
+      :py:class:`~mulder.EarthGeometry` objects are immutable, i.e. their
+      structure cannot be modified. However, the
+      :py:attr:`~mulder.Layer.density` and :py:attr:`~mulder.Layer.material` of
+      :py:attr:`~mulder.EarthGeometry.layers` is mutable.
+
    .. autoattribute:: layers
 
       The first layer (of index :python:`0`) is the bottom strate, while the
@@ -82,7 +81,38 @@ Geometry interface
 
 .. autoclass:: mulder.Grid
 
-   .. method:: __new__(data, /, *, x=None, y=None, projection=None)
+   This class represents a parametric surface, :math:`z = f(x, y)`, described by
+   a regularly spaced :py:class:`Grid` of elevation values, :math:`z_{ij} =
+   f(x_j, y_i)`, forming a Digital Elevation Model (`DEM`_).
+
+   .. method:: __new__(data, /, *, xlim=None, ylim=None, projection=None)
+
+      Creates a new grid.
+
+      The *data* argument may refer to a file containing the `DEM`_ (see
+      :numref:`tab-dem-formats` for supported file formats) or it might be a
+      2d-array containing the :math:`z_{ij}` values in row-major order. In the
+      latter case, the *xlim* and *ylim* arguments must specify the
+      corresponding limits along the :math:`x` and :math:`y`-axis.
+
+      .. _tab-dem-formats:
+
+      .. list-table:: Supported `DEM`_ formats.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Name
+           - Extension
+         * - `ASCII Grid`_
+           - :bash:`.asc`
+         * - `GeoTIFF`_
+           - :bash:`.tif`
+         * - `EGM96 Grid`_
+           - :bash:`.grd`
+         * - `HGT`_
+           - :bash:`.hgt`
+
    .. method:: __call__(xy, y=None, /, *, notify=None)
 
       Computes the altitude value at grid point(s).
@@ -632,8 +662,12 @@ Picture interface
 
 
 .. URL links.
+.. _ASCII Grid: https://en.wikipedia.org/wiki/Esri_grid
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
+.. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
+.. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
+.. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
