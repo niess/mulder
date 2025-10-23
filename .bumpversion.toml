@@ -1,0 +1,32 @@
+[tool.bumpversion]
+commit = true
+current_version = "0.2.2"
+message = 'Bump version: v{new_version}'
+
+[[tool.bumpversion.files]]
+filename = "Cargo.toml"
+search = '''
+[package]
+name = "mulder"
+version = "{current_version}"
+'''
+replace = '''
+[package]
+name = "mulder"
+version = "{new_version}"
+'''
+
+[[tool.bumpversion.files]]
+filename = 'pyproject.toml'
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = 'docs/source/conf.py'
+search = 'release = "{current_version}"'
+replace = 'release = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = 'docs/source/interface.rst'
+search = "'{current_version}'"
+replace = "'{new_version}'"

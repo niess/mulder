@@ -434,6 +434,8 @@ impl Grid {
         };
         Ok(gradient)
     }
+
+    // XXX export x, y, z as numpy arrays?
 }
 
 fn parse_xy(xy: &AnyArray<f64>) -> PyResult<Vec<usize>> {

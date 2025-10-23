@@ -108,10 +108,15 @@ Geometry interface
 
       Creates a new grid.
 
-      The *data* argument may refer to a file containing a `DEM`_ (see
-      :numref:`tab-dem-formats` for supported file formats) or it might be a
-      2D array containing the :math:`z_{ij}` values in row-major order. In the
-      latter case, the *xlim* and *ylim* arguments must specify the
+      The *data* argument may refer to:
+
+      * a file containing a `DEM`_ (see :numref:`tab-dem-formats` for supported
+        file formats).
+      * A folder containing the tiles of a Global Digital Elevation Model
+        (GDEM), such as e.g. `SRTMGL1.003`_.
+      * A 2D array containing the :math:`z_{ij}` values in row-major order.
+
+      In the latter case, the *xlim* and *ylim* arguments must specify the
       corresponding limits along the :math:`x` and :math:`y`-axes.
 
       Depending on the *data* argument, a Coordinate Reference System (`CRS`_)
@@ -196,8 +201,8 @@ Geometry interface
 
    .. autoattribute:: crs
 
-      The `EPSG`_ code of the data Coordinate Reference System (`CRS`_). For
-      instance,
+      The grid Coordinate Reference System (`CRS`_) is encoded according to the
+      `EPSG`_ standard. For example,
 
       >>> grid.crs
       32631
@@ -798,4 +803,5 @@ these data are immutable.
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
+.. _SRTMGL1.003: https://doi.org/10.5067/MEASURES/SRTM/SRTMGL1.003
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html
