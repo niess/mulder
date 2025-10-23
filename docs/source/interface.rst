@@ -85,24 +85,34 @@ Geometry interface
    a regularly spaced :py:class:`Grid` of elevation values, :math:`z_{ij} =
    f(x_j, y_i)`, forming a Digital Elevation Model (`DEM`_).
 
-   .. method:: __new__(data, /, *, xlim=None, ylim=None, projection=None)
+   .. method:: __new__(data, /, *, xlim=None, ylim=None, crs=None)
 
       Creates a new grid.
 
-      The *data* argument may refer to a file containing the `DEM`_ (see
+      The *data* argument may refer to a file containing a `DEM`_ (see
       :numref:`tab-dem-formats` for supported file formats) or it might be a
-      2d-array containing the :math:`z_{ij}` values in row-major order. In the
+      2D array containing the :math:`z_{ij}` values in row-major order. In the
       latter case, the *xlim* and *ylim* arguments must specify the
-      corresponding limits along the :math:`x` and :math:`y`-axis.
+      corresponding limits along the :math:`x` and :math:`y`-axes.
+
+      Depending on the *data* argument, a Coordinate Reference System (`CRS`_)
+      may be specified (by providing its `EPSG`_ code). See :numref:`tab-crs`
+      for a list of supported *crs* values. By default, the WGS84 / GPS system
+      is assumed.
+
+      For instance, the following loads elevation data stored in `ASCII Grid`_
+      format using UTM 31N coordinates, i.e. EPSG:32631.
+
+      >>> grid = mulder.Grid("dem.asc", crs=32631)
 
       .. _tab-dem-formats:
 
-      .. list-table:: Supported `DEM`_ formats.
+      .. list-table:: Supported file formats.
          :width: 75%
          :widths: auto
          :header-rows: 1
 
-         * - Name
+         * - Description
            - Extension
          * - `ASCII Grid`_
            - :bash:`.asc`
@@ -112,6 +122,30 @@ Geometry interface
            - :bash:`.grd`
          * - `HGT`_
            - :bash:`.hgt`
+
+      .. _tab-crs:
+
+      .. list-table:: Supported Coordinate Reference Systems.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Description
+           - EPSG code(s)
+         * - NTF / Lambert I-IV
+           - 27571-27574
+         * - RGF93 / Lambert 93
+           - 2154
+         * - WGS84 / GPS
+           - 4326
+         * - WGS84 / UTM 1-60 N
+           - 32601-32660
+         * - WGS84 / UTM 1-60 S
+           - 32701-32760
+
+
+   .. rubric:: Methods
+     :heading-level: 4
 
    .. method:: __call__(xy, y=None, /, *, notify=None)
 
@@ -124,7 +158,19 @@ Geometry interface
 
    .. automethod:: gradient
 
-   .. autoattribute:: projection
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`Grid` instances are :underline:`immutable`.
+
+   .. autoattribute:: crs
+
+      The `EPSG`_ code of the data Coordinate Reference System (`CRS`_). For
+      instance,
+
+      >>> grid.crs
+      32631
+
    .. autoattribute:: xlim
    .. autoattribute:: ylim
    .. autoattribute:: zlim
@@ -664,8 +710,10 @@ Picture interface
 .. URL links.
 .. _ASCII Grid: https://en.wikipedia.org/wiki/Esri_grid
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
+.. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
 .. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
+.. _EPSG: https://epsg.io/
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
 .. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x

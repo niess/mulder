@@ -1,21 +1,28 @@
 use crate::bindings::turtle;
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{IOError, NotImplementedError, TypeError};
+use crate::utils::error::ErrorKind::{IOError, NotImplementedError, TypeError, ValueError};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use crate::utils::notify::{Notifier, NotifyArg};
 use geotiff::GeoTiff;
 use geo_types::geometry::Coord;
 use pyo3::prelude::*;
-use ::std::ffi::{c_char, c_int, CStr, CString, OsStr};
+use ::std::ffi::{c_int, CString, OsStr};
 use ::std::fs::File;
 use ::std::path::Path;
 use ::std::ptr::{null, null_mut};
 use ::std::sync::Arc;
 
 
+const EPSG_WGS84: usize = 4326;
+
+
 #[pyclass(frozen, module="mulder")]
 pub struct Grid {
+    /// Coordinate Reference System.
+    #[pyo3(get)]
+    pub crs: usize,
+
     /// Grid limits along the z-coordinate.
     #[pyo3(get)]
     pub zlim: (f64, f64),
@@ -47,13 +54,21 @@ pub enum GridLike<'py> {
 #[pymethods]
 impl Grid {
     #[new]
-    #[pyo3(signature=(data, /, *, xlim=None, ylim=None, projection=None))]
+    #[pyo3(signature=(data, /, *, xlim=None, ylim=None, crs=None))]
     fn new(
         data: DataArg,
         xlim: Option<[f64; 2]>,
         ylim: Option<[f64; 2]>,
-        projection: Option<&str>,
+        mut crs: Option<usize>,
     ) -> PyResult<Self> {
+        let bad_crs = |extension: &str| -> PyErr {
+            let why = format!("cannot redefine crs of {} file", extension);
+            Error::new(ValueError)
+                .what("grid")
+                .why(&why)
+                .to_err()
+        };
+
         let (data, zlim) = match data {
             DataArg::Array(array) => {
                 let shape = array.shape();
@@ -71,7 +86,7 @@ impl Grid {
                 let ylim = ylim.unwrap_or_else(|| [0.0, 1.0]);
 
                 let converter = ArrayConverter { array: &array, nx };
-                let (map, zlim) = converter.convert(nx, ny, xlim, ylim, projection)?;
+                let (map, zlim) = converter.convert(nx, ny, xlim, ylim, crs)?;
                 (Data::Map(map), zlim)
             },
             DataArg::Path(string) => {
@@ -87,8 +102,27 @@ impl Grid {
 
                 let path = Path::new(string.as_str());
                 if path.is_file() {
-                    let (map, zlim) = match path.extension().and_then(OsStr::to_str) {
+                    let mut update_crs = false;
+                    let extension = path.extension().and_then(OsStr::to_str);
+                    let (map, zlim) = match extension {
                         Some("asc" | "grd" | "hgt") => {
+                            if let Some(crs) = crs {
+                                let extension = extension.unwrap();
+                                let result = match extension {
+                                    "grd" => if crs == EPSG_WGS84 {
+                                        Ok(())
+                                    } else {
+                                        Err(bad_crs("EGM96 Grid"))
+                                    },
+                                    "hgt" => if crs == EPSG_WGS84 {
+                                        Ok(())
+                                    } else {
+                                        Err(bad_crs("HGT"))
+                                    },
+                                    _ => Ok(())
+                                };
+                                result?;
+                            }
                             let mut map: *mut turtle::Map = null_mut();
                             let path = CString::new(string.0).unwrap();
                             let rc = unsafe {
@@ -98,41 +132,30 @@ impl Grid {
                                 )
                             };
                             error::to_result(rc, Some("grid"))?;
+                            update_crs = true;
                             (map, None)
                         },
                         Some("tif") => {
                             let geotiff = GeoTiff::read(File::open(path)?)
                                 .map_err(|err| Error::new(IOError)
-                                    .what("GeoTiff file")
+                                    .what("GeoTIFF file")
                                     .why(&err.to_string())
                                     .to_err()
                                 )?;
-                            let projection = match geotiff.geo_key_directory.projected_type {
-                                Some(crs) => if (crs >= 32601) && (crs <= 32660) {
-                                    Some(format!("UTM {}N", crs - 32600))
-                                } else if (crs >= 32701) && (crs <= 32760) {
-                                    Some(format!("UTM {}S", crs - 32700))
-                                } else {
-                                    match crs {
-                                        2154 => Some("Lambert 93".to_owned()),
-                                        4326 => None,
-                                        27571 => Some("Lambert I".to_owned()),
-                                        27572 => Some("Lambert II".to_owned()),
-                                        27573 => Some("Lambert III".to_owned()),
-                                        27574 => Some("Lambert IV".to_owned()),
-                                        _ => {
-                                            let why = format!("EPSG:{}", crs);
-                                            let err = Error::new(NotImplementedError)
-                                                .what("crs")
-                                                .why(&why)
-                                                .to_err();
-                                            return Err(err)
-                                        },
+                            match geotiff.geo_key_directory.projected_type {
+                                Some(value) => {
+                                    let value = value as usize;
+                                    if let Some(crs) = crs {
+                                        if crs != value {
+                                            return Err(bad_crs("GeoTIFF"))
+                                        }
                                     }
+                                    crs = Some(value);
                                 },
-                                None => None,
-                            };
-
+                                None => {
+                                    update_crs = true;
+                                },
+                            }
                             let nx = geotiff.raster_width;
                             let ny = geotiff.raster_height;
                             let (x, y) = {
@@ -144,9 +167,7 @@ impl Grid {
                                 (x, y)
                             };
                             let converter = GeotiffConverter::new(nx, ny, &x, &y, &geotiff);
-                            let (map, zlim) = converter.convert(
-                                nx, ny, x, y, projection.as_deref()
-                            )?;
+                            let (map, zlim) = converter.convert(nx, ny, x, y, crs)?;
                             (map, Some(zlim))
                         },
                         Some(ext) => {
@@ -171,22 +192,25 @@ impl Grid {
                             return Err(err.into())
                         },
                     };
-                    if let Some(name) = projection {
-                        let projection = unsafe { turtle::map_projection(map) };
-                        if projection != null() {
-                            let err = Error::new(TypeError)
-                                .what("grid")
-                                .why("cannot redefine projection");
-                            return Err(err.into())
+                    if update_crs {
+                        let projection = crs_to_projection(crs)?;
+                        if let Some(name) = projection {
+                            let projection = unsafe { turtle::map_projection(map) };
+                            if projection != null() {
+                                let err = Error::new(TypeError)
+                                    .what("grid")
+                                    .why("cannot redefine projection");
+                                return Err(err.into())
+                            }
+                            let name = CString::new(name).unwrap();
+                            let rc = unsafe {
+                                turtle::projection_configure(
+                                    &mut (*map).meta.projection,
+                                    name.as_c_str().as_ptr(),
+                                )
+                            };
+                            error::to_result(rc, Some("projection"))?;
                         }
-                        let name = CString::new(name).unwrap();
-                        let rc = unsafe {
-                            turtle::projection_configure(
-                                &mut (*map).meta.projection,
-                                name.as_c_str().as_ptr(),
-                            )
-                        };
-                        error::to_result(rc, Some("projection"))?;
                     }
                     let zlim = zlim.unwrap_or_else(|| unsafe { get_map_zlim(map) });
                     (Data::Map(map), zlim)
@@ -242,32 +266,8 @@ impl Grid {
                 }
             },
         };
-        Ok(Self { data: Arc::new(data), zlim: (zlim[0], zlim[1]), offset: 0.0 })
-    }
-
-    /// Grid coordinates projection.
-    #[getter]
-    fn get_projection(&self) -> Option<String> {
-        match *self.data {
-            Data::Map(map) => {
-                let mut projection: *const c_char = null_mut();
-                unsafe {
-                    turtle::map_meta(map, null_mut(), &mut projection);
-                }
-                if projection == null_mut() {
-                    None
-                } else {
-                    let projection = unsafe { CStr::from_ptr(projection) };
-                    Some(
-                        projection
-                            .to_str()
-                            .unwrap()
-                            .to_string()
-                    )
-                }
-            },
-            Data::Stack(_) => None,
-        }
+        let crs = crs.unwrap_or(EPSG_WGS84);
+        Ok(Self { data: Arc::new(data), crs, zlim: (zlim[0], zlim[1]), offset: 0.0 })
     }
 
     /// Grid limits along the x-coordinate.
@@ -316,7 +316,7 @@ impl Grid {
         let data = Arc::clone(&self.data);
         let zlim = (self.zlim.0 + offset, self.zlim.1 + offset);
         let offset = self.offset  + offset;
-        Self { zlim, data, offset }
+        Self { zlim, crs: self.crs, data, offset }
     }
 
     fn __radd__(&self, offset: f64) -> Self {
@@ -580,7 +580,7 @@ trait Convert {
         ny: usize,
         x: [f64; 2],
         y: [f64; 2],
-        projection: Option<&str>,
+        crs: Option<usize>,
     ) -> PyResult<(*mut turtle::Map, [f64; 2])> {
         let mut z = [ f64::INFINITY, -f64::INFINITY ];
         for iy in 0..ny {
@@ -599,6 +599,7 @@ trait Convert {
             encoding: null(),
         };
         let binding;
+        let projection = crs_to_projection(crs)?;
         let projection = match projection {
             Some(projection) => {
                 binding = CString::new(projection).unwrap();
@@ -666,4 +667,37 @@ impl<'a> Convert for GeotiffConverter<'a> {
             .unwrap_or_else(|| 0.0); // XXX Use NO_DATA value?
         Ok(z)
     }
+}
+
+fn crs_to_projection(crs: Option<usize>) -> PyResult<Option<String>> {
+    let crs = match crs {
+        Some(crs) => {
+            if crs == EPSG_WGS84 {
+                None
+            } else if (crs >= 32601) && (crs <= 32660) {
+                Some(format!("UTM {}N", crs - 32600))
+            } else if (crs >= 32701) && (crs <= 32760) {
+                Some(format!("UTM {}S", crs - 32700))
+            } else {
+                match crs {
+                    2154 => Some("Lambert 93".to_owned()),
+                    4326 => None,
+                    27571 => Some("Lambert I".to_owned()),
+                    27572 => Some("Lambert II".to_owned()),
+                    27573 => Some("Lambert III".to_owned()),
+                    27574 => Some("Lambert IV".to_owned()),
+                    _ => {
+                        let why = format!("EPSG:{}", crs);
+                        let err = Error::new(NotImplementedError)
+                            .what("crs")
+                            .why(&why)
+                            .to_err();
+                        return Err(err)
+                    },
+                }
+            }
+        },
+        None => None,
+    };
+    Ok(crs)
 }

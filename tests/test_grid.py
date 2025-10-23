@@ -15,4 +15,4 @@ def test_constructor():
     assert grid.xlim == (-1.5, 1.5)
     assert grid.ylim == (-1.0, 1.0)
     assert grid.zlim == (0.0, 11.0)
-    assert grid.projection == None
+    assert grid.crs == 4326
