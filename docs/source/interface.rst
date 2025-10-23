@@ -164,11 +164,28 @@ Geometry interface
    .. rubric:: Methods
      :heading-level: 4
 
-   .. method:: __call__(xy, y=None, /, *, notify=None)
-
-      Computes the altitude value at grid point(s).
-
    .. automethod:: gradient
+
+      This method returns the gradient w.r.t. the :math:`x` and :math:`y`
+      coordinates. The interface is the same as the :py:meth:`Grid.z` method.
+      Please refer to the latter for a description of the arguments.
+
+   .. automethod:: z
+
+      This method is vectorised. It accepts either a sequence of :math:`(x_k,
+      y_k)` values as the first argument, or two sequences of :math:`x_j` and
+      :math:`y_i` values as the first and second arguments. In the latter case,
+      the method returns the :math:`z_{ij}` values corresponding to the outer
+      product :math:`(x_j, y_i)`. For instance, the following returns a 2D array
+      of elevation values, *z*, with shape :python:`(41, 21)`.
+
+      >>> x, y = np.linspace(-1, 1, 21), np.linspace(-2, 2, 41)
+      >>> z = grid.z(x, y)
+
+   .. doctest:
+      :hide:
+
+      >>> assert z.shape == (41, 21)
 
    .. rubric:: Attributes
      :heading-level: 4

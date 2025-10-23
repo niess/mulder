@@ -327,18 +327,18 @@ impl Grid {
         self.__add__(-offset)
     }
 
-    /// Computes the altitude value(s) at grid point(s).
-    #[pyo3(signature=(xy, y=None, /, *, notify=None))]
-    fn __call__<'py>(
+    /// Computes the elevation value(s) at grid point(s).
+    #[pyo3(signature=(x_or_xy, y=None, /, *, notify=None))]
+    fn z<'py>(
         &self,
-        xy: AnyArray<'py, f64>,
+        x_or_xy: AnyArray<'py, f64>,
         y: Option<AnyArray<'py, f64>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let py = xy.py();
+        let py = x_or_xy.py();
         let z = match y {
             Some(y) => {
-                let x = xy;
+                let x = x_or_xy;
                 let (nx, ny, shape) = get_shape(&x, &y);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let z = array.as_slice_mut();
@@ -358,6 +358,7 @@ impl Grid {
                 array
             },
             None => {
+                let xy = x_or_xy;
                 let mut shape = parse_xy(&xy)?;
                 shape.pop();
                 let mut array = NewArray::<f64>::empty(py, shape)?;
@@ -378,18 +379,18 @@ impl Grid {
         Ok(z)
     }
 
-    /// Computes the altitude gradient at grid point(s).
-    #[pyo3(signature=(xy, y=None, /, *, notify=None))]
+    /// Computes the elevation gradient(s) at grid point(s).
+    #[pyo3(signature=(x_or_xy, y=None, /, *, notify=None))]
     fn gradient<'py>(
         &self,
-        xy: AnyArray<'py, f64>,
+        x_or_xy: AnyArray<'py, f64>,
         y: Option<AnyArray<'py, f64>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let py = xy.py();
+        let py = x_or_xy.py();
         let gradient = match y {
             Some(y) => {
-                let x = xy;
+                let x = x_or_xy;
                 let (nx, ny, shape) = get_shape(&x, &y);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
@@ -412,6 +413,7 @@ impl Grid {
                 array
             },
             None => {
+                let xy = x_or_xy;
                 let shape = parse_xy(&xy)?;
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
