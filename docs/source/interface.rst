@@ -85,6 +85,23 @@ Geometry interface
    a regularly spaced :py:class:`Grid` of elevation values, :math:`z_{ij} =
    f(x_j, y_i)`, forming a Digital Elevation Model (`DEM`_).
 
+   The elevation values, :math:`z_{ij}`, of a :py:class:`Grid` object may be
+   offset by a constant value using the :python:`+` and :python:`-` operators.
+   For example, the following will create a new grid offset by :python:`100.0`
+   metres w.r.t. the initial one.
+
+   .. doctest:
+      :hide:
+
+      >>> initial_grid = mulder.Grid("dem.asc")
+
+   >>> new_grid = initial_grid + 100.0
+
+   .. tip::
+
+      The offsetting of a grid creates a reference to the data of the initial
+      grid, i.e. data is not duplicated.
+
    .. method:: __new__(data, /, *, xlim=None, ylim=None, crs=None)
 
       Creates a new grid.
@@ -150,11 +167,6 @@ Geometry interface
    .. method:: __call__(xy, y=None, /, *, notify=None)
 
       Computes the altitude value at grid point(s).
-
-   .. method:: __add__(value, /)
-   .. method:: __radd__(value, /)
-   .. method:: __rsub__(value, /)
-   .. method:: __sub__(value, /)
 
    .. automethod:: gradient
 
