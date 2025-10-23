@@ -741,22 +741,31 @@ Picture interface
 Configuration data
 ~~~~~~~~~~~~~~~~~~
 
-.. data:: mulder.config.DEFAULT_CACHE
+Configuration data can be accessed via the :python:`mulder.config` singleton
+class. For instance, as
+
+>>> mulder.config.VERSION
+'0.2.2'
+
+The available configuration data are listed below. Apart from :py:data:`NOTIFY`,
+these data are immutable.
+
+.. data:: DEFAULT_CACHE
    :type: ~pathlib.Path
 
    Default cache path.
 
    Mulder uses a caching system to reduce the time taken for some
    time-consuming, yet repetitive tasks, such as the compilation of
-   :py:class:`~mulder.Physics` tables. This immutable data indicates the default
-   location of cached files.
+   :py:class:`~mulder.Physics` tables. This data indicates the default location
+   of cached files.
 
    .. note::
 
       To change the location of cached files set the :bash:`MULDER_CACHE`
       environment variable to the desired value.
 
-.. data:: mulder.config.NOTIFY
+.. data:: NOTIFY
    :type: bool
 
    Default status for notifications.
@@ -766,12 +775,12 @@ Configuration data
    :python:`False`, such reports will be disabled, unless individual function
    calls explicitly set their *notify* argument to :python:`True`.
 
-.. data:: mulder.config.PREFIX
+.. data:: PREFIX
    :type: ~pathlib.Path
 
    The package installation prefix.
 
-.. data:: mulder.config.VERSION
+.. data:: VERSION
    :type: str
 
    The package version.
