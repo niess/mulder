@@ -95,6 +95,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 #[allow(non_snake_case)]
 #[pymethods]
 impl Config {
+    /// Default cache path.
     #[getter]
     fn get_DEFAULT_CACHE(&self, py: Python) -> PyObject {
         utils::cache::default_path()
@@ -102,6 +103,7 @@ impl Config {
             .unwrap_or_else(|_| py.None())
     }
 
+    /// Default status for notifications.
     #[getter]
     fn get_NOTIFY(&self) -> bool {
         utils::notify::get()
@@ -112,11 +114,13 @@ impl Config {
         utils::notify::set(value)
     }
 
+    /// The package installation prefix.
     #[getter]
-    fn get_PREFIX(&self, py: Python) -> &String {
-        PREFIX.get(py).unwrap()
+    fn get_PREFIX(&self, py: Python) -> &Path {
+        Path::new(PREFIX.get(py).unwrap())
     }
 
+    /// The package version.
     #[getter]
     fn get_VERSION(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")

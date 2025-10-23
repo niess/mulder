@@ -5,6 +5,8 @@ This section describes the Python user interface of Mulder. The user interface
 is organised in five topics, `Geometry <Geometry interface_>`_, `Materials
 <Materials interface_>`_, `States <States interface_>`_, `Simulation <Simulation
 interface_>`_ and `Pictures <Picture interface_>`_, as described below.
+Moreover, Mulder exhibits some package-level data, as outlined in the
+`Configuration <Configuration data_>`_ section.
 
 
 Geometry interface
@@ -734,6 +736,45 @@ Picture interface
    .. autoattribute:: pixels
    .. autoattribute:: ratio
    .. autoattribute:: resolution
+
+
+Configuration data
+~~~~~~~~~~~~~~~~~~
+
+.. data:: mulder.config.DEFAULT_CACHE
+   :type: ~pathlib.Path
+
+   Default cache path.
+
+   Mulder uses a caching system to reduce the time taken for some
+   time-consuming, yet repetitive tasks, such as the compilation of
+   :py:class:`~mulder.Physics` tables. This immutable data indicates the default
+   location of cached files.
+
+   .. note::
+
+      To change the location of cached files set the :bash:`MULDER_CACHE`
+      environment variable to the desired value.
+
+.. data:: mulder.config.NOTIFY
+   :type: bool
+
+   Default status for notifications.
+
+   For operations that are potentially time-consuming, Mulder reports its
+   progress to the terminal using a progress bar. By setting this flag to
+   :python:`False`, such reports will be disabled, unless individual function
+   calls explicitly set their *notify* argument to :python:`True`.
+
+.. data:: mulder.config.PREFIX
+   :type: ~pathlib.Path
+
+   The package installation prefix.
+
+.. data:: mulder.config.VERSION
+   :type: str
+
+   The package version.
 
 
 .. URL links.
