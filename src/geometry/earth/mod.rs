@@ -80,14 +80,14 @@ impl EarthGeometry {
                     LayerLike::Layer(layer) => layer,
                     LayerLike::OneData(data) => {
                         let data = vec![data.into_data(py)?];
-                        let layer = Layer::new(py, data, None, None)?;
+                        let layer = Layer::new(py, data, None, None, None)?;
                         Py::new(py, layer)?
                     },
                     LayerLike::ManyData(data) => {
                         let data: PyResult<Vec<_>> = data.into_iter()
                             .map(|data| data.into_data(py))
                             .collect();
-                        let layer = Layer::new(py, data?, None, None)?;
+                        let layer = Layer::new(py, data?, None, None, None)?;
                         Py::new(py, layer)?
                     },
                 };

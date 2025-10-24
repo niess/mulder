@@ -216,14 +216,20 @@ Geometry interface
 .. autoclass:: mulder.Layer
 
    .. method:: __new__(*data, density=None, material=None)
-   .. method:: __getitem__(key, /)
+
+   .. rubric:: Methods
+     :heading-level: 4
 
    .. automethod:: altitude
+   .. automethod:: gradient
+
+   .. rubric:: Attributes
+     :heading-level: 4
 
    .. autoattribute:: data
    .. autoattribute:: density
+   .. autoattribute:: description
    .. autoattribute:: material
-   .. autoattribute:: zlim
 
 ----
 

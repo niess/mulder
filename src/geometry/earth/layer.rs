@@ -1,6 +1,6 @@
 use crate::bindings::turtle;
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{IndexError, TypeError, ValueError};
+use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
@@ -10,6 +10,7 @@ use std::ptr::{null, null_mut};
 use super::EarthGeometry;
 
 
+/// A layer (or strate) of an Earth geometry.
 #[pyclass(module="mulder")]
 pub struct Layer {
     /// The layer bulk density.
@@ -20,12 +21,11 @@ pub struct Layer {
     #[pyo3(get)]
     pub material: String,
 
-    /// The layer limits along the z-coordinate.
-    #[pyo3(get)]
+    /// An optional description.
+    #[pyo3(get, set)]
+    pub description: Option<String>,
+
     pub zlim: (f64, f64),
-
-    // XXX Add a description field, or derive from Medium?
-
     pub data: Vec<Data>,
     pub stepper: *mut turtle::Stepper,
     pub geometry: Option<Py<EarthGeometry>>,
@@ -53,11 +53,12 @@ pub enum DataRef<'a> {
 
 #[pymethods]
 impl Layer {
-    #[pyo3(signature=(*data, density=None, material=None))]
+    #[pyo3(signature=(*data, density=None, description=None, material=None))]
     #[new]
     pub fn py_new(
         data: &Bound<PyTuple>,
         density: Option<f64>,
+        description: Option<String>,
         material: Option<String>
     ) -> PyResult<Self> {
         let py = data.py();
@@ -71,7 +72,7 @@ impl Layer {
             }
             v
         };
-        Self::new(py, data, density, material)
+        Self::new(py, data, density, description, material)
     }
 
     /// The layer elevation data.
@@ -116,24 +117,7 @@ impl Layer {
         }
     }
 
-    fn __getitem__(&self, py: Python, index: usize) -> PyResult<Data> {
-        self.data
-            .get(index)
-            .map(|data| data.clone_ref(py))
-            .ok_or_else(|| {
-                let why = format!(
-                    "expected a value in [0, {}], found '{}'",
-                    self.data.len() - 1,
-                    index,
-                );
-                Error::new(IndexError)
-                    .what("data index")
-                    .why(&why)
-                    .to_err()
-            })
-    }
-
-    #[pyo3(signature=(/, *, latitude, longitude, notify=None))]
+    #[pyo3(signature=(/, *, latitude, longitude, notify=None))] // XXX Same API as Grid?.
     fn altitude<'py>(
         &mut self,
         latitude: AnyArray<'py, f64>,
@@ -206,6 +190,16 @@ impl Layer {
         }
         Ok(array)
     }
+
+    #[pyo3(signature=(/, *, latitude, longitude, notify=None))]
+    fn gradient<'py>(
+        &mut self,
+        latitude: AnyArray<'py, f64>,
+        longitude: AnyArray<'py, f64>,
+        notify: Option<NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        unimplemented!()
+    }
 }
 
 impl Layer {
@@ -261,6 +255,7 @@ impl Layer {
         py: Python,
         data: Vec<Data>,
         density: Option<f64>,
+        description: Option<String>,
         material: Option<String>
     ) -> PyResult<Self> {
         let zlim = {
@@ -275,7 +270,9 @@ impl Layer {
         let material = material.unwrap_or_else(|| Self::DEFAULT_MATERIAL.to_string());
         let stepper = null_mut();
         let geometry = None;
-        let mut layer = Self { density: None, material, zlim, data, stepper, geometry };
+        let mut layer = Self {
+            density: None, description, material, zlim, data, stepper, geometry
+        };
         if density.is_some() {
             layer.set_density(density)?;
         }
@@ -338,7 +335,12 @@ impl<'a> DataRef<'a> {
     ) -> [f64; 3] {
         let [glon, glat] = match self {
             Self::Flat(_) => [ 0.0; 2 ],
-            Self::Grid(g) => g.data.gradient(longitude, latitude),
+            Self::Grid(g) => match *g.data {
+                grid::Data::Map(_) => {
+                    unimplemented!() // XXX implement this case.
+                },
+                grid::Data::Stack(_) => g.data.gradient(longitude, latitude),
+            },
         };
         const DEG: f64 = std::f64::consts::PI / 180.0;
         const RT: f64 = 0.5 * (6378137.0 + 6356752.314245);  // WGS84 average.
