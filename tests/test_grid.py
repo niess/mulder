@@ -41,3 +41,37 @@ def test_constructor():
         for crs in CRSS:
             grid = mulder.Grid(data, crs=crs, **kwargs)
             assert grid.crs == crs
+
+
+def test_methods():
+    """Test grid methods."""
+
+    grid = mulder.Grid(PREFIX / "assets/dem.asc")
+    assert grid.z(0.0, 0.0) == 5.5
+    assert grid.z((0.0, 0.0)) == 5.5
+
+    x = numpy.linspace(-1.5, 1.5, 4)
+    y = numpy.linspace(-1.0, 1.0, 3)
+    X, Y = numpy.meshgrid(x, y)
+    xy = list(zip(X.flatten(), Y.flatten()))
+    z0 = grid.z(xy)
+    z1 = grid.z(x, y).flatten()
+    assert_allclose(z0, z1)
+    g0 = grid.gradient(xy)
+    g1 = grid.gradient(x, y)
+    assert g1.shape == (3, 4, 2)
+    assert_allclose(g0, g1.reshape(g0.shape))
+
+    x = numpy.linspace(-1.5, 1.5, 21)
+    y = numpy.linspace(-1.0, 1.0, 21)
+    xy = list(zip(x, y))
+    z = grid.z(xy)
+    assert z.shape == (21,)
+    for i, (x, y) in enumerate(xy):
+        zi = grid.z(x, y)
+        assert zi == grid.z((x, y))
+        assert zi == z[i]
+        assert_allclose(grid.gradient(x, y), grid.gradient((x, y)))
+
+    dz = grid.gradient(0.0, 0.0)
+    assert_allclose(dz, (1.0, 4.0), atol=1E-03)

@@ -386,7 +386,8 @@ impl Grid {
         let gradient = match y {
             Some(y) => {
                 let x = x_or_xy;
-                let (nx, ny, shape) = get_shape(&x, &y);
+                let (nx, ny, mut shape) = get_shape(&x, &y);
+                shape.push(2);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
                 let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
@@ -410,10 +411,11 @@ impl Grid {
             None => {
                 let xy = x_or_xy;
                 let shape = parse_xy(&xy)?;
+                let n = xy.size() / 2;
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
-                let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
-                for i in 0..xy.size() {
+                let notifier = Notifier::from_arg(notify, n, "computing gradient(s)");
+                for i in 0..n {
                     const WHY: &str = "while computing gradients(s)";
                     if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
