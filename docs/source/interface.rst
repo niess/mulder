@@ -273,6 +273,15 @@ Geometry interface
    .. autoattribute:: inclination
 
 
+----
+
+.. autoclass:: mulder.Medium
+
+   .. autoattribute:: density
+   .. autoattribute:: description
+   .. autoattribute:: material
+
+
 Materials interface
 ~~~~~~~~~~~~~~~~~~~
 

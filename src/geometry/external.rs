@@ -52,7 +52,7 @@ pub struct Medium {
     #[pyo3(get, set)]
     pub density: Option<f64>,
 
-    /// A brief description of this medium.
+    /// An optional description.
     #[pyo3(get, set)]
     pub description: Option<String>,
 
