@@ -110,14 +110,14 @@ Geometry interface
 
       The *data* argument may refer to:
 
-      * a file containing a `DEM`_ (see :numref:`tab-dem-formats` for supported
+      * A file containing a `DEM`_ (see :numref:`tab-dem-formats` for supported
         file formats).
       * A folder containing the tiles of a Global Digital Elevation Model
-        (GDEM), such as e.g. `SRTMGL1.003`_.
+        (GDEM), such as `SRTMGL1.003`_.
       * A 2D array containing the :math:`z_{ij}` values in row-major order.
 
-      In the latter case, the *xlim* and *ylim* arguments must specify the
-      corresponding limits along the :math:`x` and :math:`y`-axes.
+      In the latter case, the *xlim* and *ylim* arguments must specify the DEM
+      limits along the :math:`x` and :math:`y`-axes.
 
       Depending on the *data* argument, a Coordinate Reference System (`CRS`_)
       may be specified (by providing its `EPSG`_ code). See :numref:`tab-crs`

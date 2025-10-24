@@ -109,11 +109,6 @@ impl Grid {
                             if let Some(crs) = crs {
                                 let extension = extension.unwrap();
                                 let result = match extension {
-                                    "grd" => if crs == EPSG_WGS84 {
-                                        Ok(())
-                                    } else {
-                                        Err(bad_crs("EGM96 Grid"))
-                                    },
                                     "hgt" => if crs == EPSG_WGS84 {
                                         Ok(())
                                     } else {
@@ -434,8 +429,6 @@ impl Grid {
         };
         Ok(gradient)
     }
-
-    // XXX export x, y, z as numpy arrays?
 }
 
 fn parse_xy(xy: &AnyArray<f64>) -> PyResult<Vec<usize>> {
@@ -523,7 +516,6 @@ impl Data {
                 let mut gx = f64::NAN;
                 let mut gy = f64::NAN;
                 let mut inside: c_int = 0;
-                // XXX (latitude, longitude) or reverse?
                 unsafe { turtle::stack_gradient(*stack, y, x, &mut gy, &mut gx, &mut inside); }
                 [gx, gy]
             },
@@ -541,7 +533,6 @@ impl Data {
             Self::Stack(stack) => {
                 let mut z = f64::NAN;
                 let mut inside: c_int = 0;
-                // XXX (latitude, longitude) or reverse?
                 unsafe { turtle::stack_elevation(*stack, y, x, &mut z, &mut inside); }
                 z
             },
@@ -668,7 +659,7 @@ impl<'a> Convert for GeotiffConverter<'a> {
         let x = if ix == self.nx - 1 { self.x[1] } else { self.x[0] + ix as f64 * self.dx };
         let y = if iy == self.ny - 1 { self.y[1] } else { self.y[0] + iy as f64 * self.dy };
         let z = self.geotiff.get_value_at(&Coord { x, y }, 0)
-            .unwrap_or_else(|| 0.0); // XXX Use NO_DATA value?
+            .unwrap_or_else(|| 0.0);
         Ok(z)
     }
 }
