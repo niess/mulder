@@ -45,6 +45,8 @@ impl Registry {
                 let why = format!("'{}' already exists with a different definition", name);
                 let err = Error::new(ValueError).what("material").why(&why).to_err();
                 return Err(err)
+            } else if definition.is_composite() {
+                self.materials.insert(name, definition);
             },
             None => {
                 self.materials.insert(name, definition);

@@ -38,7 +38,7 @@ pub struct Physics {
     composites_version: HashMap<String, usize>,
 }
 
-#[pyclass(module="mulder", frozen)]
+#[pyclass(module="mulder.materials", frozen)]
 pub struct CompiledMaterial {
     /// The material identifier.
     #[pyo3(get)]
@@ -109,7 +109,7 @@ impl Physics {
     fn compile(
         &mut self,
         py: Python,
-        materials: Vec<String>, // XXX Add a 'cache' option.
+        materials: Vec<String>,
     ) -> PyResult<PyObject> {
         let materials = MaterialsSet::from(materials);
         self.update(py, &materials)?;

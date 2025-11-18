@@ -1,4 +1,5 @@
 import mulder
+import mulder.materials as materials
 import numpy
 from pathlib import Path
 import pytest
@@ -16,6 +17,10 @@ def initialise_doctest():
         PREFIX / "tests/assets/dem.asc",
         "./dem.asc"
     )
+    shutil.copyfile(
+        PREFIX / "tests/assets/materials.toml",
+        "./materials.toml"
+    )
     DOCTEST_INITIALISED = True
 
 
@@ -24,6 +29,7 @@ def _docdir(request, doctest_namespace):
 
     doctest_plugin = request.config.pluginmanager.getplugin("doctest")
     if isinstance(request.node, doctest_plugin.DoctestItem):
+        doctest_namespace["materials"] = materials
         doctest_namespace["mulder"] = mulder
         doctest_namespace["np"] = numpy
         tmpdir = request.getfixturevalue("tmpdir")

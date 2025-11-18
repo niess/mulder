@@ -1,7 +1,7 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyDict, PyTuple, PyType};
 use ordered_float::OrderedFloat;
 use regex::Regex;
 use std::borrow::Cow;
@@ -93,6 +93,21 @@ impl Element {
         format!("{{'Z': {}, 'A': {}, 'I': {:.10}}}", self.Z, self.A, self.I * 1E-09)
     }
 
+
+    /// Returns all currently defined elements.
+    #[classmethod]
+    fn all<'py>(
+        cls: &Bound<'py, PyType>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let py = cls.py();
+        let registry = &Registry::get(py)?.read().unwrap();
+        let elements = PyDict::new(py);
+        for (k, v) in registry.elements.iter() {
+            elements.set_item(k.clone(), v.clone())?;
+        }
+        Ok(elements)
+    }
+
     /// The element Mean Excitation Energy, in GeV.
     #[allow(non_snake_case)]
     #[getter]
@@ -132,6 +147,22 @@ impl Mixture {
         }
         attributes.push(format!("'composition': {{{}}}", composition));
         format!("{{{}}}", attributes.join(", "))
+    }
+
+    /// Returns all currently defined mixtures.
+    #[classmethod]
+    fn all<'py>(
+        cls: &Bound<'py, PyType>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let py = cls.py();
+        let registry = &Registry::get(py)?.read().unwrap();
+        let mixtures = PyDict::new(py);
+        for (k, v) in registry.materials.iter() {
+            if let Some(v) = v.as_mixture() {
+                mixtures.set_item(k.clone(), v.clone())?;
+            }
+        }
+        Ok(mixtures)
     }
 
     /// The mixture mass composition.
@@ -216,6 +247,22 @@ impl Composite {
             sum += *weight;
         }
         Ok(sum / inverse_density)
+    }
+
+    /// Returns all currently defined composites.
+    #[classmethod]
+    fn all<'py>(
+        cls: &Bound<'py, PyType>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let py = cls.py();
+        let registry = &Registry::get(py)?.read().unwrap();
+        let composites = PyDict::new(py);
+        for (k, v) in registry.materials.iter() {
+            if let Some(v) = v.as_composite() {
+                composites.set_item(k.clone(), v.clone())?;
+            }
+        }
+        Ok(composites)
     }
 }
 
@@ -427,6 +474,7 @@ impl Mixture {
 
     #[allow(non_snake_case)]
     fn new(density: f64, mass:f64, mut composition: Vec<Component>, I: Option<f64>) -> Self {
+        composition.retain(|c| c.weight > 0.0);
         composition.sort_by(|a,b| a.name.cmp(&b.name));
         Self { density, mass, composition, I }
     }
@@ -644,9 +692,7 @@ impl FromPyObject<'_> for Composition {
             CompositionArg::Dict(d) => {
                 let mut composition = Vec::<Component>::with_capacity(d.len());
                 for (name, weight) in d.into_iter() {
-                    if weight > 0.0 {
-                        composition.push(Component { name, weight })
-                    }
+                    composition.push(Component { name, weight })
                 }
                 composition
             },
@@ -721,6 +767,13 @@ impl Material {
         match self {
             Self::Mixture(mixture) => Some(mixture),
             _ => None,
+        }
+    }
+
+    pub fn is_composite(&self) -> bool {
+        match self {
+            Self::Composite(_) => true,
+            _ => false,
         }
     }
 }

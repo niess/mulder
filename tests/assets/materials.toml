@@ -1,0 +1,10 @@
+[Ice]
+composition = "H2O"
+density = 0.92E+03  # kg/m3
+
+[MoistAir]
+composition = { Air = 0.99, Water = 0.01 }  # mass fractions
+density = 1.2  # kg/m3
+
+[HumidRock]
+composition = [ "Rock", "Water" ]

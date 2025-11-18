@@ -358,21 +358,224 @@ Geometry interface
 Materials interface
 ~~~~~~~~~~~~~~~~~~~
 
+.. autoclass:: mulder.materials.CompiledMaterial
+
+----
+
 .. autoclass:: mulder.materials.Composite
 
+   This class represents a composite material which is defined as a macroscopic
+   blend of atomic :py:class:`Mixtures <Mixture>`. A :py:class:`Composite`
+   typically describes a rock that is composed of a variety of minerals.
+
+   .. note::
+
+      The stopping-power of a :py:class:`Composite` material differs from that
+      of an atomic :py:class:`Mixture` with the same composition, due to the
+      density effect in ionisation loss.
+
+   :py:class:`Composite` objects use the mapping protocol to expose their
+   components' mass fractions, which are mutable. For example
+
+   >>> composite["Water"] = 0.1  # doctest: +SKIP
+
+   It is not possible to add or remove a component once the composite has been
+   defined. However, a specific component may be disabled by setting its mass
+   fraction to zero.
+
    .. method:: __new__(name, /, **kwargs)
+
+      Gets or defines a composite material.
+
+      Without *kwargs*, this constructor simply returns the definition of the
+      composite matching *name*. If the composite does not exists, it can be
+      defined by specifying its composition as *kwargs*. For instance,
+
+      >>> humid_rock = materials.Composite(
+      ...     "HumidRock",
+      ...     composition=("Rock", "Water"),
+      ... )
+
+      The mass fractions may be specified when defining the composite, for
+      instance as
+
+      >>> humid_rock = materials.Composite(
+      ...     "HumidRock",
+      ...     composition={"Rock": 0.95, "Water": 0.05},
+      ... )
+
+   .. method:: all()
+
+      Returns all currently defined composites.
+
+      The composites are returned as a :py:class:`dict` object mapping names to
+      definitions.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`Composite` instances are :underline:`immutable` appart
+      from their components' mass fractions.
+
+   .. autoattribute:: composition
+
+      The composite content is returned as a :py:class:`tuple`. For example
+
+      >>> humid_rock.composition
+      ('Rock', 'Water')
+
+      The corresponding mass fractions may be accessed using the mapping
+      protocol, as
+
+      >>> humid_rock["Water"]
+      0.05
+
+   .. autoattribute:: density
+
+      .. note::
+
+         The composite density depends on the components' mass fractions.
 
 ----
 
 .. autoclass:: mulder.materials.Element
 
+   This class serves as a proxy for the definition of an atomic element, which
+   may represent a specific isotope or a mixture of isotopes.
+
+   .. tip::
+
+      Mulder predefines atomic elements from :python:`H`, :python:`D`
+      (:math:`Z=1`) to :python:`Og` (:math:`Z=118`) according to the `PDG`_.
+      Furthermore, Mulder defines a fictitious :python:`Rk` (:math:`Z=11, A=22`)
+      element to represent `standard rock`_.
+
    .. method:: __new__(symbol, /, **kwargs)
+
+      Gets or defines an atomic element.
+
+      Without *kwargs*, this constructor simply returns the definition of the
+      atomic element matching *symbol*. For instance,
+
+      >>> H = materials.Element("H")
+
+      If the element does not exists, it can be defined by specifying its
+      properties as *kwargs*. For instance,
+
+      >>> U_238 = materials.Element("U-238", Z=92, A=238.0508, I=890E-09)
+
+   .. method:: all()
+
+      Returns all currently defined elements.
+
+      The elements are returned as a :py:class:`dict` object mapping the atomic
+      elements symbols to their definitions.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`Element` instances are :underline:`immutable`.
+
+   .. autoattribute:: A
+   .. autoattribute:: I
+   .. autoattribute:: Z
+
 
 ----
 
 .. autoclass:: mulder.materials.Mixture
 
+   This class represents a material as an atomic mixture of :py:class:`Elements
+   <Element>`. A :py:class:`Mixture` material may in fact represent a molecule
+   (e.g., H2O) or a single element (e.g., C). In addition to the atomic
+   :py:attr:`composition`, the material structure is essentially summarised by
+   its :py:attr:`density` and its mean excitation energy (:py:attr:`I`).
+
+   .. tip::
+
+      Mulder predefines the :python:`Air`, :python:`Rock` and :python:`Water`
+      mixture materials.
+
    .. method:: __new__(name, /, **kwargs)
+
+      Gets or defines a mixture material.
+
+      Without *kwargs*, this constructor simply returns the definition of the
+      mixture matching *name*. For instance,
+
+      >>> rock = materials.Mixture("Rock")
+
+      If the mixture does not exists, it can be defined by specifying its
+      properties as *kwargs*. For instance,
+
+      >>> ice = materials.Mixture("Ice", composition="H2O", density=0.92E+03)
+
+      The *composition* argument may be a :py:class:`str`, specifying the
+      material chemical composition, or akin to a :py:class:`dict` mapping
+      atomic elements or other mixtures to mass fractions. For example, as
+
+      >>> moist_air = materials.Mixture(
+      ...     "MoistAir",
+      ...     composition={"Air": 0.99, "Water": 0.01},
+      ...     density=1.2
+      ... )
+
+   .. method:: all()
+
+      Returns all currently defined mixtures.
+
+      The mixtures are returned as a :py:class:`dict` object mapping names to
+      definitions.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. note:: :py:class:`Mixture` instances are :underline:`immutable`.
+
+   .. autoattribute:: composition
+
+      The atomic mass composition is returned as a :py:class:`tuple`. For
+      example
+
+      >>> moist_air.composition
+      (('Ar', 0.0126987...), ..., ('O', 0.2383443...))
+
+   .. autoattribute:: density
+
+   .. autoattribute:: I
+
+      If :python:`None` then the mean excitation energy is computed from the
+      mixture atomic content assuming Bragg additivity [BrKl05]_.
+
+----
+
+.. autofunction:: mulder.materials.dump
+
+   If the *materials* arguments are ommited, then the current material
+   definitions are dumped to a `TOML`_ file, for instance as
+
+   >>> materials.dump("materials.toml")
+
+   Alternatively, one may explicit the material definitions to dump, for example
+   as
+
+   >>> materials.dump("materials.toml", "Ice", "MoistAir", "HumidRock")
+
+----
+
+.. autofunction:: mulder.materials.load
+
+   The definition file must be in `TOML`_ format. For example, the following
+   :bash:`materials.toml` file defines two :py:class:`Mixture` materials
+   (:python:`Ice` and :python:`MoistAir`) and one :py:class:`Composite` material
+   (:python:`HumidRock`).
+
+   .. literalinclude:: include/materials.toml
+      :language: toml
+
+   The corresponding material definitions are loaded as
+
+   >>> materials.load("materials.toml")
 
 
 States interface
@@ -886,5 +1089,8 @@ these data are immutable.
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
+.. _PDG: https://pdg.lbl.gov/2025/AtomicNuclearProperties/index.html
 .. _SRTMGL1.003: https://doi.org/10.5067/MEASURES/SRTM/SRTMGL1.003
+.. _Standard Rock: https://pdg.lbl.gov/2025/AtomicNuclearProperties/standardrock.html
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html
+.. _TOML: https://toml.io
