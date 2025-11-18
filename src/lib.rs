@@ -13,6 +13,9 @@ mod simulation;
 mod utils;
 
 
+// XXX Patch Turtle for MSVC compat (and update install doc.
+
+
 static PREFIX: GILOnceCell<String> = GILOnceCell::new();
 
 fn set_prefix(py: Python) -> PyResult<()> {

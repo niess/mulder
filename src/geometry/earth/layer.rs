@@ -1,19 +1,20 @@
 use crate::bindings::turtle;
+use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::{self, Error};
-use crate::utils::error::ErrorKind::{TypeError, ValueError};
+use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use super::grid::{self, Grid, GridLike};
 use std::ptr::{null, null_mut};
-use super::EarthGeometry;
+use super::{EarthGeometry, grid::{get_shape, parse_xy}};
 
 
 /// A layer (or strate) of an Earth geometry.
 #[pyclass(module="mulder")]
 pub struct Layer {
-    /// The layer bulk density.
+    /// The layer bulk density, in kg/m3.
     #[pyo3(get)]
     pub density: Option<f64>,
 
@@ -66,7 +67,7 @@ impl Layer {
             vec![Data::Flat(0.0)]
         } else {
             let mut v = Vec::with_capacity(data.len());
-            for d in data.iter().rev() {
+            for d in data.iter() {
                 let d: DataLike = d.extract()?;
                 v.push(d.into_data(py)?);
             }
@@ -75,7 +76,7 @@ impl Layer {
         Self::new(py, data, density, description, material)
     }
 
-    /// The layer elevation data.
+    /// The layer top elevation data.
     #[getter]
     fn get_data<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         let elements = self.data
@@ -117,94 +118,190 @@ impl Layer {
         }
     }
 
-    #[pyo3(signature=(/, *, latitude, longitude, notify=None))] // XXX Same API as Grid?.
-    fn altitude<'py>(
+    /// Computes the layer top altitude(s) at coordinate(s).
+    #[pyo3(name="altitude", signature=(latitude_or_latlon, longitude=None, /, *, notify=None))]
+    fn py_altitude<'py>(
         &mut self,
-        latitude: AnyArray<'py, f64>,
-        longitude: AnyArray<'py, f64>,
+        latitude_or_latlon: AnyArray<'py, f64>,
+        longitude: Option<AnyArray<'py, f64>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let shape = if latitude.ndim() == 0 {
-            longitude.shape()
-        } else if longitude.ndim() == 0 {
-            latitude.shape()
-        } else {
-            if latitude.size() != longitude.size() {
-                let why = format!(
-                    "inconsistent latitude ({}) and longitude ({}) array sizes",
-                    latitude.size(),
-                    longitude.size(),
-                );
-                let err = Error::new(TypeError)
-                    .what("coordinates")
-                    .why(&why)
-                    .to_err();
-                return Err(err);
-            }
-            latitude.shape()
-        };
-
-        let py = latitude.py();
+        let py = latitude_or_latlon.py();
         self.ensure_stepper(py)?;
+        let z = match longitude {
+            Some(longitude) => {
+                let latitude = latitude_or_latlon;
+                let (nx, ny, shape) = get_shape(&longitude, &latitude);
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let z = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
+                for iy in 0..ny {
+                    let lat = latitude.get_item(iy)?;
+                    for ix in 0..nx {
+                        const WHY: &str = "while computing altitude(s)";
+                        let index = iy * nx + ix;
+                        if (index % 100) == 0 { error::check_ctrlc(WHY)? }
 
-        let mut array = NewArray::empty(py, shape)?;
-        let z = array.as_slice_mut();
-        let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
+                        let lon = longitude.get_item(ix)?;
+                        z[iy * nx + ix] = self.altitude(lat, lon)?.0;
+                        notifier.tic();
+                    }
+                }
+                array
+            },
+            None => {
+                let latlon = latitude_or_latlon;
+                let mut shape = parse_xy(&latlon)?;
+                shape.pop();
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let z = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
+                for i in 0..z.len() {
+                    const WHY: &str = "while computing altitudes(s)";
+                    if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-        for i in 0..z.len() {
-            const WHY: &str = "while computing altitude(s)";
-            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
-
-            unsafe {
-                turtle::stepper_reset(self.stepper);
-            }
-
-            let lat = latitude.get_item(i)?;
-            let lon = longitude.get_item(i)?;
-            let mut r = [ 0.0_f64; 3 ];
-            unsafe { turtle::ecef_from_geodetic(lat, lon, 0.0, r.as_mut_ptr()); }
-            let mut elevation = [f64::NAN; 2];
-            let mut index = [ -2; 2 ];
-            error::to_result(
-                unsafe {
-                    turtle::stepper_step(
-                        self.stepper,
-                        r.as_mut_ptr(),
-                        null(),
-                        null_mut(),
-                        null_mut(),
-                        null_mut(),
-                        elevation.as_mut_ptr(),
-                        null_mut(),
-                        index.as_mut_ptr(),
-                    )
-                },
-                None::<&str>,
-            )?;
-            z[i] = match index[0] {
-                0 => elevation[1],
-                1 => elevation[0],
-                _ => f64::NAN,
-            };
-            notifier.tic();
-        }
-        Ok(array)
+                    let lat = latlon.get_item(2 * i)?;
+                    let lon = latlon.get_item(2 * i + 1)?;
+                    z[i] = self.altitude(lat, lon)?.0;
+                    notifier.tic();
+                }
+                array
+            },
+        };
+        Ok(z)
     }
 
-    #[pyo3(signature=(/, *, latitude, longitude, notify=None))]
-    fn gradient<'py>(
+    /// Computes the layer top normal(s) at coordinate(s).
+    #[pyo3(name="normal", signature=(latitude_or_latlon, longitude=None, /, *, frame=None, notify=None))]
+    fn py_normal<'py>(
         &mut self,
-        latitude: AnyArray<'py, f64>,
-        longitude: AnyArray<'py, f64>,
+        latitude_or_latlon: AnyArray<'py, f64>,
+        longitude: Option<AnyArray<'py, f64>>,
+        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
-        unimplemented!()
+        let py = latitude_or_latlon.py();
+        self.ensure_stepper(py)?;
+        let data = self.get_data_ref(py);
+        let normal = match longitude {
+            Some(longitude) => {
+                let latitude = latitude_or_latlon;
+                let (nx, ny, mut shape) = get_shape(&longitude, &latitude);
+                shape.push(3);
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let n = array.as_slice_mut();
+                let notifier = Notifier::from_arg(notify, nx * ny, "computing normal(s)");
+                for iy in 0..ny {
+                    let lat = latitude.get_item(iy)?;
+                    for ix in 0..nx {
+                        const WHY: &str = "while computing normal(s)";
+                        let index = iy * nx + ix;
+                        if (index % 100) == 0 { error::check_ctrlc(WHY)? }
+
+                        let lon = longitude.get_item(ix)?;
+                        let nij = self.normal(lat, lon, &data, frame.as_ref())?;
+                        let index = iy * nx + ix;
+                        for k in 0..3 {
+                            n[3 * index + k] = nij[k];
+                        }
+                        notifier.tic();
+                    }
+                }
+                array
+            },
+            None => {
+                let latlon = latitude_or_latlon;
+                let mut shape = parse_xy(&latlon)?;
+                shape.pop();
+                shape.push(3);
+                let mut array = NewArray::<f64>::empty(py, shape)?;
+                let n = array.as_slice_mut();
+                let size = n.len() / 3;
+                let notifier = Notifier::from_arg(notify, size, "computing normal(s)");
+                for i in 0..size {
+                    const WHY: &str = "while computing normal(s)";
+                    if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+                    let lat = latlon.get_item(2 * i)?;
+                    let lon = latlon.get_item(2 * i + 1)?;
+                    let ni = self.normal(lat, lon, &data, frame.as_ref())?;
+                    for k in 0..3 {
+                        n[3 * i + k] = ni[k];
+                    }
+                    notifier.tic();
+                }
+                array
+            },
+        };
+        Ok(normal)
     }
 }
 
 impl Layer {
     const DEFAULT_MATERIAL: &str = "Rock";
     const WHAT: Option<&str> = Some("layer");
+
+    fn altitude(&self, lat: f64, lon: f64) -> PyResult<(f64, usize)> {
+        unsafe {
+            turtle::stepper_reset(self.stepper);
+        }
+
+        let mut r = [ 0.0_f64; 3 ];
+        unsafe { turtle::ecef_from_geodetic(lat, lon, 0.0, r.as_mut_ptr()); }
+        let mut elevation = [f64::NAN; 2];
+        let mut index = [ -2; 2 ];
+        error::to_result(
+            unsafe {
+                turtle::stepper_step(
+                    self.stepper,
+                    r.as_mut_ptr(),
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    elevation.as_mut_ptr(),
+                    null_mut(),
+                    index.as_mut_ptr(),
+                )
+            },
+            None::<&str>,
+        )?;
+        let z = match index[0] {
+            0 => elevation[1],
+            1 => elevation[0],
+            _ => f64::NAN,
+        };
+        Ok((z, index[1] as usize))
+    }
+
+    fn normal(
+        &self,
+        lat: f64,
+        lon: f64,
+        data: &[DataRef<'_>],
+        frame: Option<&LocalFrame>,
+    ) -> PyResult<[f64; 3]> {
+        let (z, index) = self.altitude(lat, lon)?;
+        let mut v = if index >= data.len() {
+            [0.0; 3]
+        } else {
+            data[index].gradient(lat, lon, z)
+        };
+        if let Some(frame) = frame {
+            v = frame.from_ecef_direction(&v);
+        }
+        let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+        let normal = if r2 > f64::EPSILON {
+            let r = r2.sqrt();
+            v[0] /= r;
+            v[1] /= r;
+            v[2] /= r;
+            v
+        } else {
+            [0.0; 3]
+        };
+        Ok(normal)
+    }
 
     fn ensure_stepper(&mut self, py: Python) -> PyResult<()> {
         if self.stepper == null_mut() {
@@ -225,7 +322,7 @@ impl Layer {
         if !self.data.is_empty() {
             error::to_result(turtle::stepper_add_layer(stepper), Self::WHAT)?;
         }
-        for data in &self.data {
+        for data in self.data.iter().rev() {
             match data {
                 Data::Flat(f) => error::to_result(
                     turtle::stepper_add_flat(stepper, *f),
@@ -336,8 +433,47 @@ impl<'a> DataRef<'a> {
         let [glon, glat] = match self {
             Self::Flat(_) => [ 0.0; 2 ],
             Self::Grid(g) => match *g.data {
-                grid::Data::Map(_) => {
-                    unimplemented!() // XXX implement this case.
+                grid::Data::Map(map) => {
+                    let projection = unsafe { turtle::map_projection(map) };
+                    if projection == null_mut() {
+                        g.data.gradient(longitude, latitude)
+                    } else {
+                        // Compute the gradient in map coordinates.
+                        let mut x0 = 0.0;
+                        let mut y0 = 0.0;
+                        unsafe {
+                            turtle::projection_project(
+                                projection, latitude, longitude, &mut x0, &mut y0
+                            );
+                        }
+                        let [gx, gy] = g.data.gradient(x0, y0);
+
+                        // Compute the Jacobian matrix of the map projection.
+                        const EPSILON: f64 = 1E-09;
+                        let mut x1 = 0.0;
+                        let mut y1 = 0.0;
+                        unsafe {
+                            turtle::projection_project(
+                                projection, latitude, longitude + EPSILON, &mut x1, &mut y1
+                            );
+                        }
+                        let mut x2 = 0.0;
+                        let mut y2 = 0.0;
+                        unsafe {
+                            turtle::projection_project(
+                                projection, latitude + EPSILON, longitude, &mut x2, &mut y2
+                            );
+                        }
+                        let jac = [
+                            [ (x1 - x0) / EPSILON, (y1 - y0) / EPSILON ],
+                            [ (x2 - x0) / EPSILON, (y2 - y0) / EPSILON ],
+                        ];
+
+                        // Transform the map gradient to geographic coordinates.
+                        let glon = gx * jac[0][0] + gy * jac[0][1];
+                        let glat = gx * jac[1][0] + gy * jac[1][1];
+                        [glon, glat]
+                    }
                 },
                 grid::Data::Stack(_) => g.data.gradient(longitude, latitude),
             },

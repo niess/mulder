@@ -215,21 +215,88 @@ Geometry interface
 
 .. autoclass:: mulder.Layer
 
-   .. method:: __new__(*data, density=None, material=None)
+   This class represents a layer (or strate) of an
+   :py:class:`~mulder.EarthGeometry`, considered to be uniform in composition
+   and density. A layer is delimited by a top surface, typically described by
+   one or more :py:class:`Grids <mulder.Grid>` of elevation values. The bottom
+   of a layer is determined by the top of its underlying layer within the
+   :py:class:`~mulder.EarthGeometry`.
+
+   .. method:: __new__(*data, density=None, description=None, material=None)
+
+      Creates a new layer.
+
+      The *data* argument determines the top of the layer. It must be akin to a
+      :py:class:`~mulder.Grid` object. Alternatively, a :py:class:`float` value
+      can be provided to specify a flat topography. Multiple *data* can be
+      provided to specify successive fallback models. For example, the following
+      creates a new layer whose top surface is defined by two data sets, as
+
+      >>> layer = mulder.Layer("dem.asc", 0.0)
+
+      The corresponding top surface matches the Digital Elevation Model (`DEM`_)
+      from the file :bash:`dem.asc` within its domain of definition, but falls
+      back to a constant elevation value of :python:`0` outside this domain.
+
+      See the layer attributes below for the meaning of the optional
+      :py:attr:`~mulder.Layer.density`, :py:attr:`~mulder.Layer.description` and
+      :py:attr:`~mulder.Layer.material` arguments.
+
 
    .. rubric:: Methods
      :heading-level: 4
 
    .. automethod:: altitude
-   .. automethod:: gradient
+
+      This method is vectorised. It accepts either a sequence of :math:`(\phi_k,
+      \lambda_k)` values as the first argument, where :math:`\phi` denotes the
+      latitude and :math:`\lambda` the longitude, or two sequences of
+      :math:`\phi_i` and :math:`\lambda_j` values as the first and second
+      arguments. In the latter case, the method returns the :math:`z_{ij}`
+      values corresponding to the outer product :math:`(\lambda_j, \phi_i)`. For
+      instance, the following returns a 2D array of altitude values with shape
+      :python:`(181, 361)`.
+
+      >>> lat, lon = np.linspace(-90, 90, 181), np.linspace(-180, 180, 361)
+      >>> altitudes = layer.altitude(lat, lon)
+
+   .. doctest:
+      :hide:
+
+      >>> assert altitudes.shape == (181, 361)
+
+   .. automethod:: normal
+
+      This method returns the normal to the top surface at the latitude
+      (:math:`\phi`) and longitude (:math:`\lambda`) coordinates. The interface
+      is the same as the :py:meth:`Layer.altitude` method. Please refer to the
+      latter for a description of the arguments.
+
+      The optional *frame* argument specifies the coordinates system (as a
+      :py:class:`~mulder.LocalFrame`) in which the normal should be expressed.
+      If this argument is omitted, geocentric (`ECEF`_) coordinates will be used
+      instead.
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: data
+
+      .. note:: This attribute is immutable.
+
    .. autoattribute:: density
+
+      The bulk density is expressed in :math:`\mathrm{kg}/\mathrm{m}^3`. If
+      :python:`None`, then the material default density is assumed.
+
    .. autoattribute:: description
+
    .. autoattribute:: material
+
+      This attribute is the name of the material. For instance, the following
+      changes the layer material to water.
+
+      >>> layer.material = "Water"
 
 ----
 
@@ -811,6 +878,7 @@ these data are immutable.
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
+.. _ECEF: https://en.wikipedia.org/wiki/Earth-centered,_Earth-fixed_coordinate_system
 .. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
 .. _EPSG: https://epsg.io/
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF

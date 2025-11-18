@@ -337,11 +337,11 @@ impl Grid {
                 let (nx, ny, shape) = get_shape(&x, &y);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let z = array.as_slice_mut();
-                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
+                let notifier = Notifier::from_arg(notify, z.len(), "computing z-value(s)");
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
-                        const WHY: &str = "while computing altitude(s)";
+                        const WHY: &str = "while computing z-value(s)";
                         let index = iy * nx + ix;
                         if (index % 100) == 0 { error::check_ctrlc(WHY)? }
 
@@ -358,9 +358,9 @@ impl Grid {
                 shape.pop();
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let z = array.as_slice_mut();
-                let notifier = Notifier::from_arg(notify, z.len(), "computing altitude(s)");
+                let notifier = Notifier::from_arg(notify, z.len(), "computing z-value(s)");
                 for i in 0..z.len() {
-                    const WHY: &str = "while computing altitude(s)";
+                    const WHY: &str = "while computing z-value(s)";
                     if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
                     let xi = xy.get_item(2 * i)?;
@@ -390,7 +390,7 @@ impl Grid {
                 shape.push(2);
                 let mut array = NewArray::<f64>::empty(py, shape)?;
                 let gradient = array.as_slice_mut();
-                let notifier = Notifier::from_arg(notify, gradient.len(), "computing gradient(s)");
+                let notifier = Notifier::from_arg(notify, nx * ny, "computing gradient(s)");
                 for iy in 0..ny {
                     let yi = y.get_item(iy)?;
                     for ix in 0..nx {
@@ -433,7 +433,7 @@ impl Grid {
     }
 }
 
-fn parse_xy(xy: &AnyArray<f64>) -> PyResult<Vec<usize>> {
+pub(super) fn parse_xy(xy: &AnyArray<f64>) -> PyResult<Vec<usize>> {
     let shape = xy.shape();
     if shape.len() == 1 {
         if shape[0] != 2 {
@@ -464,7 +464,7 @@ fn parse_xy(xy: &AnyArray<f64>) -> PyResult<Vec<usize>> {
     Ok(shape)
 }
 
-fn get_shape(x: &AnyArray<f64>, y: &AnyArray<f64>) -> (usize, usize, Vec<usize>) {
+pub(super) fn get_shape(x: &AnyArray<f64>, y: &AnyArray<f64>) -> (usize, usize, Vec<usize>) {
     let nx = x.size();
     let ny = y.size();
     let mut shape = Vec::new();

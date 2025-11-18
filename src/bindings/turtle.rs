@@ -216,6 +216,15 @@ extern "C" {
     #[link_name="turtle_projection_destroy"]
     pub fn projection_destroy(projection: *mut *mut Projection) -> c_uint;
 
+    #[link_name="turtle_projection_project"]
+    pub fn projection_project(
+        projection: *const Projection,
+        latitude: f64,
+        longitude: f64,
+        x: &mut f64,
+        y: &mut f64,
+    ) -> c_uint;
+
     #[link_name="turtle_stack_create"]
     pub fn stack_create(
         stack: *mut *mut Stack,
