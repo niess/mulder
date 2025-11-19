@@ -38,7 +38,7 @@ pub struct Physics {
     composites_version: HashMap<String, usize>,
 }
 
-#[pyclass(module="mulder.materials", frozen)]
+#[pyclass(module="mulder", frozen)]
 pub struct CompiledMaterial {
     /// The material identifier.
     #[pyo3(get)]

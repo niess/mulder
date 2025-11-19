@@ -2,11 +2,11 @@ Python interface
 ================
 
 This section describes the Python user interface of Mulder. The user interface
-is organised in five topics, `Geometry <Geometry interface_>`_, `Materials
-<Materials interface_>`_, `States <States interface_>`_, `Simulation <Simulation
-interface_>`_ and `Pictures <Picture interface_>`_, as described below.
-Moreover, Mulder exhibits some package-level data, as outlined in the
-`Configuration <Configuration data_>`_ section.
+is organised in sub-topics, `Geometry <Geometry interface_>`_, `Materials
+<Materials interface_>`_, `Physics <Physics interface_>`_, `States <States
+interface_>`_, `Simulation <Simulation interface_>`_ and `Pictures <Picture
+interface_>`_, as described below. Moreover, Mulder exhibits some package-level
+data, as outlined in the `Configuration <Configuration data_>`_ section.
 
 
 Geometry interface
@@ -15,7 +15,7 @@ Geometry interface
 .. autoclass:: mulder.EarthGeometry
 
    This class represents a stratified section of the Earth. The strates (or
-   :py:class:`~mulder.Layer`\ s) form distinct propagation media that are
+   :py:class:`Layers <mulder.Layer>`) form distinct propagation media that are
    assumed to be uniform in composition and density. They are delimited
    vertically, typically by a :py:class:`Grid` of elevation values, forming a
    Digital Elevation Model (`DEM`_).
@@ -378,9 +378,6 @@ rock composed of various minerals.
    uniquely identified by their name (atomic symbol). It is not possible to
    modify or remove a material (atomic element) within a given Python instance.
 
-.. autoclass:: mulder.materials.CompiledMaterial
-
-----
 
 .. autoclass:: mulder.materials.Composite
 
@@ -589,6 +586,24 @@ rock composed of various minerals.
    The corresponding material definitions are loaded as
 
    >>> materials.load("materials.toml")
+
+
+Physics interface
+~~~~~~~~~~~~~~~~~
+
+.. autoclass:: mulder.CompiledMaterial
+
+----
+
+.. autoclass:: mulder.Physics
+
+   .. method:: __new__(*args, **kwargs)
+
+   .. automethod:: compile
+
+   .. autoattribute:: bremsstrahlung
+   .. autoattribute:: pair_production
+   .. autoattribute:: photonuclear
 
 
 States interface
@@ -982,18 +997,6 @@ Simulation interface
    .. autoattribute:: physics
    .. autoattribute:: random
    .. autoattribute:: reference
-
-----
-
-.. autoclass:: mulder.Physics
-
-   .. method:: __new__(*args, **kwargs)
-
-   .. automethod:: compile
-
-   .. autoattribute:: bremsstrahlung
-   .. autoattribute:: pair_production
-   .. autoattribute:: photonuclear
 
 ----
 

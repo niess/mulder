@@ -62,6 +62,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<simulation::geomagnet::EarthMagnet>()?;
     module.add_class::<simulation::coordinates::LocalFrame>()?;
     module.add_class::<simulation::states::LocalStates>()?;
+    module.add_class::<simulation::physics::CompiledMaterial>()?;
     module.add_class::<simulation::physics::Physics>()?;
     module.add_class::<simulation::random::Random>()?;
     module.add_class::<simulation::reference::Reference>()?;
@@ -72,7 +73,6 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Set the materials submodule.
     let materials = PyModule::new(py, "materials")?;
-    materials.add_class::<simulation::physics::CompiledMaterial>()?;
     materials.add_class::<materials::Composite>()?;
     materials.add_class::<materials::Element>()?;
     materials.add_class::<materials::Mixture>()?;
