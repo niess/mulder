@@ -38,13 +38,13 @@ pub enum Material {
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
-#[pyclass(module="mulder.materials", frozen)]
+#[pyclass(module="mulder.materials", name="Material", frozen)]
 pub struct Mixture {
-    /// The mixture density, in kg/m3.
+    /// The material density, in kg/m3.
     #[pyo3(get)]
     pub density: f64,
 
-    /// The mixture Mean Excitation Energy, in GeV.
+    /// The material Mean Excitation Energy, in GeV.
     #[pyo3(get)]
     pub I: Option<f64>,
 
@@ -149,7 +149,7 @@ impl Mixture {
         format!("{{{}}}", attributes.join(", "))
     }
 
-    /// Returns all currently defined mixtures.
+    /// Returns all currently defined materials.
     #[classmethod]
     fn all<'py>(
         cls: &Bound<'py, PyType>,
@@ -165,7 +165,7 @@ impl Mixture {
         Ok(mixtures)
     }
 
-    /// The mixture mass composition.
+    /// The material mass composition.
     #[getter]
     fn get_composition<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         let composition = self.composition.iter().map(|c| (c.name.clone(), c.weight));
@@ -380,7 +380,7 @@ impl Mixture {
                         },
                         None => {
                             let why = format!(
-                                "unknown element, molecule or mixture '{}'",
+                                "unknown element, molecule or material '{}'",
                                 name.as_str(),
                             );
                             return Err((KeyError, why))
@@ -614,7 +614,7 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Mixture {
         let (name, data, registry) = value;
         let py = data.py();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
-            let what = format!("'{}' mixture", name);
+            let what = format!("'{}' material", name);
             Error::new(kind)
                 .what(&what)
                 .why(why)

@@ -358,30 +358,41 @@ Geometry interface
 Materials interface
 ~~~~~~~~~~~~~~~~~~~
 
+Mulder makes a distinction between base :py:class:`Materials
+<mulder.materials.Material>` and :py:class:`~mulder.materials.Composite`
+materials. A base :py:class:`~mulder.materials.Material` is a microscopic
+mixture of atomic :py:class:`Elements <mulder.materials.Element>`. A
+:py:class:`~mulder.materials.Composite` material, by contrast, is a macroscopic
+mixture of base :py:class:`Materials <mulder.materials.Material>`, typically a
+rock composed of various minerals.
+
+.. note::
+
+   The stopping-power of a :py:class:`~mulder.materials.Composite` material
+   differs from that of a base :py:class:`~mulder.materials.Material` with the
+   same composition, due to the density effect in ionisation loss.
+
+.. important::
+
+   Materials (atomic elements) are defined at the global scope. They are
+   uniquely identified by their name (atomic symbol). It is not possible to
+   modify or remove a material (atomic element) within a given Python instance.
+
 .. autoclass:: mulder.materials.CompiledMaterial
 
 ----
 
 .. autoclass:: mulder.materials.Composite
 
-   This class represents a composite material which is defined as a macroscopic
-   blend of atomic :py:class:`Mixtures <Mixture>`. A :py:class:`Composite`
-   typically describes a rock that is composed of a variety of minerals.
-
-   .. note::
-
-      The stopping-power of a :py:class:`Composite` material differs from that
-      of an atomic :py:class:`Mixture` with the same composition, due to the
-      density effect in ionisation loss.
-
-   :py:class:`Composite` objects use the mapping protocol to expose their
-   components' mass fractions, which are mutable. For example
+   This class represents a macroscopic mixture of :py:class:`Materials
+   <Material>`. :py:class:`Composite` objects use the mapping protocol to expose
+   their components' mass fractions, which are mutable. For example
 
    >>> composite["Water"] = 0.1  # doctest: +SKIP
 
-   It is not possible to add or remove a component once the composite has been
-   defined. However, a specific component may be disabled by setting its mass
-   fraction to zero.
+   It is not possible to add or remove a constitutive material once the
+   composite has been defined. However, a specific material may be disabled by
+   setting its mass fraction to zero.
 
    .. method:: __new__(name, /, **kwargs)
 
@@ -434,7 +445,8 @@ Materials interface
 
       .. note::
 
-         The composite density depends on the components' mass fractions.
+         The composite density depends on the mass fractions of its constitutive
+         materials.
 
 ----
 
@@ -483,38 +495,39 @@ Materials interface
 
 ----
 
-.. autoclass:: mulder.materials.Mixture
+.. autoclass:: mulder.materials.Material
 
-   This class represents a material as an atomic mixture of :py:class:`Elements
-   <Element>`. A :py:class:`Mixture` material may in fact represent a molecule
-   (e.g., H2O) or a single element (e.g., C). In addition to the atomic
-   :py:attr:`composition`, the material structure is essentially summarised by
-   its :py:attr:`density` and its mean excitation energy (:py:attr:`I`).
+   This class represents a homogeneous material, at the microscopic scale. A
+   :py:class:`Material` object may be composed of a single atomic
+   :py:class:`Element` (e.g., C), a molecule (e.g., H2O) or be a mixture (e.g.,
+   air). In addition to the atomic :py:attr:`composition`, the material
+   structure is essentially summarised by its :py:attr:`density` and its mean
+   excitation energy (:py:attr:`I`).
 
    .. tip::
 
       Mulder predefines the :python:`Air`, :python:`Rock` and :python:`Water`
-      mixture materials.
+      materials.
 
    .. method:: __new__(name, /, **kwargs)
 
-      Gets or defines a mixture material.
+      Gets or defines a material.
 
       Without *kwargs*, this constructor simply returns the definition of the
-      mixture matching *name*. For instance,
+      material matching *name*. For instance,
 
-      >>> rock = materials.Mixture("Rock")
+      >>> rock = materials.Material("Rock")
 
-      If the mixture does not exists, it can be defined by specifying its
+      If the material does not exists, it can be defined by specifying its
       properties as *kwargs*. For instance,
 
-      >>> ice = materials.Mixture("Ice", composition="H2O", density=0.92E+03)
+      >>> ice = materials.Material("Ice", composition="H2O", density=0.92E+03)
 
       The *composition* argument may be a :py:class:`str`, specifying the
       material chemical composition, or akin to a :py:class:`dict` mapping
-      atomic elements or other mixtures to mass fractions. For example, as
+      atomic elements or other materials to mass fractions. For example, as
 
-      >>> moist_air = materials.Mixture(
+      >>> moist_air = materials.Material(
       ...     "MoistAir",
       ...     composition={"Air": 0.99, "Water": 0.01},
       ...     density=1.2
@@ -522,15 +535,15 @@ Materials interface
 
    .. method:: all()
 
-      Returns all currently defined mixtures.
+      Returns all currently defined materials.
 
-      The mixtures are returned as a :py:class:`dict` object mapping names to
+      The materials are returned as a :py:class:`dict` object mapping names to
       definitions.
 
    .. rubric:: Attributes
      :heading-level: 4
 
-   .. note:: :py:class:`Mixture` instances are :underline:`immutable`.
+   .. note:: :py:class:`Material` instances are :underline:`immutable`.
 
    .. autoattribute:: composition
 
@@ -545,7 +558,7 @@ Materials interface
    .. autoattribute:: I
 
       If :python:`None` then the mean excitation energy is computed from the
-      mixture atomic content assuming Bragg additivity [BrKl05]_.
+      material's atomic content assuming Bragg additivity [BrKl05]_.
 
 ----
 
@@ -566,8 +579,8 @@ Materials interface
 .. autofunction:: mulder.materials.load
 
    The definition file must be in `TOML`_ format. For example, the following
-   :bash:`materials.toml` file defines two :py:class:`Mixture` materials
-   (:python:`Ice` and :python:`MoistAir`) and one :py:class:`Composite` material
+   :bash:`materials.toml` file defines two :py:class:`Materials <Material>`
+   (:python:`Ice` and :python:`MoistAir`) and one :py:class:`Composite`
    (:python:`HumidRock`).
 
    .. literalinclude:: include/materials.toml

@@ -45,15 +45,15 @@ def test_element():
     assert "U-238" in elements
 
 
-def test_mixture():
-    """Test the mixture interface."""
+def test_base():
+    """Test the base interface."""
 
-    rock = materials.Mixture("Rock")
+    rock = materials.Material("Rock")
     assert rock.composition == (("Rk", 1.0),)
     assert rock.density == 2.65E+03
     assert rock.I == None
 
-    water = materials.Mixture("Water")
+    water = materials.Material("Water")
     assert water.composition[0][0] == "H"
     assert water.composition[1][0] == "O"
     assert_allclose(
@@ -64,12 +64,12 @@ def test_mixture():
     assert water.density == 1.02E+03
     assert water.I == None
 
-    air = materials.Mixture("Air")
+    air = materials.Material("Air")
     assert [c[0] for c in air.composition] == ["Ar", "C", "N", "O"]
     assert air.density == 1.205
     assert air.I == None
 
-    mixture = materials.Mixture(
+    base = materials.Material(
         "TestRock",
         composition = {
             "Rock": 0.95,
@@ -78,16 +78,16 @@ def test_mixture():
         density = 2.0E+03,
         I = 120E-09
     )
-    assert mixture.composition[0][0] == "Ar"
-    assert mixture.composition[1][0] == "Rk"
+    assert base.composition[0][0] == "Ar"
+    assert base.composition[1][0] == "Rk"
     assert_allclose(
-        [c[1] for c in mixture.composition],
+        [c[1] for c in base.composition],
         [0.05, 0.95]
     )
-    assert mixture.density == 2E+03
-    assert mixture.I == 120E-09
+    assert base.density == 2E+03
+    assert base.I == 120E-09
 
-    mixture2 = materials.Mixture(
+    base2 = materials.Material(
         "TestRock2",
         composition = (
             ("Rock", 0.95),
@@ -96,13 +96,13 @@ def test_mixture():
         density = 2.0E+03,
         I = 120E-09
     )
-    assert mixture.composition == mixture2.composition
+    assert base.composition == base2.composition
 
-    H2O = materials.Mixture("PureWater", composition="H2O", density=1E+03)
+    H2O = materials.Material("PureWater", composition="H2O", density=1E+03)
     assert H2O.composition == water.composition
 
-    mixtures = materials.Mixture.all()
-    assert "PureWater" in mixtures
+    bases = materials.Material.all()
+    assert "PureWater" in bases
 
 
 def test_dump():
@@ -121,9 +121,9 @@ def test_load():
 
     materials.load(PREFIX / "assets/materials.toml")
 
-    mixture = materials.Mixture("MoistAir")
-    assert [c[0] for c in mixture.composition] == ["Ar", "C", "H", "N", "O"]
-    assert mixture.density == 1.2
+    base = materials.Material("MoistAir")
+    assert [c[0] for c in base.composition] == ["Ar", "C", "H", "N", "O"]
+    assert base.density == 1.2
 
     composite = materials.Composite("HumidRock")
     assert composite.composition == ("Rock", "Water")
