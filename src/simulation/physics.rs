@@ -109,16 +109,23 @@ impl Physics {
     fn compile(
         &mut self,
         py: Python,
-        materials: Vec<String>,
+        mut materials: Vec<String>,
     ) -> PyResult<PyObject> {
-        let materials = MaterialsSet::from(materials);
-        self.update(py, &materials)?;
+        if materials.is_empty() {
+            let registry = &Registry::get(py)?.read().unwrap();
+            for material in registry.materials.keys() {
+                materials.push(material.clone());
+            }
+        }
+        let set = MaterialsSet::from(materials.clone());
+        self.update(py, &set)?;
 
         let mut compiled_materials = Vec::new();
-        for (material, index) in self.materials_indices.iter() {
+        for material in materials {
+            let index = self.materials_indices[&material];
             let material = CompiledMaterial {
                 name: material.to_string(),
-                index: *index,
+                index: index,
                 physics: Arc::clone(self.physics.as_ref().unwrap()),
             };
             compiled_materials.push(material);
@@ -458,12 +465,13 @@ impl CompiledMaterial {
     }
 
     #[getter]
-    fn get_definition(&self, py: Python) -> PyResult<Material> { // XXX mixture as well.
+    fn get_definition(&self, py: Python) -> PyResult<Material> {
         let registry = &Registry::get(py)?.read().unwrap();
         let definition = registry.get_material(self.name.as_str())?;
         Ok(definition.clone())
     }
 
+    #[pyo3(signature=(energy, /, *, mode=None))]
     fn stopping_power<'py>( // XXX Notifier?
         &self,
         energy: AnyArray<'py, f64>,
