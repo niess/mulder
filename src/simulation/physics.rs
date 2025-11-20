@@ -6,7 +6,7 @@ use crate::utils::convert::{Bremsstrahlung, PairProduction, Photonuclear, Transp
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::notify;
-use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, OwnedPtr};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
@@ -31,6 +31,8 @@ pub struct Physics {
     #[pyo3(get)]
     photonuclear: Photonuclear,
 
+    // XXX expose cutoff and elastic ratio?
+
     pub physics: Option<Arc<OwnedPtr<pumas::Physics>>>,
     pub context: Option<OwnedPtr<pumas::Context>>,
     materials_version: Option<usize>,
@@ -46,6 +48,13 @@ pub struct CompiledMaterial {
 
     physics: Arc<OwnedPtr<pumas::Physics>>,
     index: c_int,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct ElasticProperties {
+    pub angle: f64,
+    pub path: f64,
 }
 
 #[pymethods]
@@ -105,7 +114,7 @@ impl Physics {
         }
     }
 
-    #[pyo3(signature=(*materials))]
+    #[pyo3(signature=(*materials))]  // add a notify arg?
     fn compile(
         &mut self,
         py: Python,
@@ -454,6 +463,72 @@ fn update_composite(
 //
 // ===============================================================================================
 
+macro_rules! compute_property {
+    ($func:ident, $msg:literal, $slf:ident, $nrg:ident, $ntf:ident) => {
+        {
+            let py = $nrg.py();
+
+            let physics = $slf.physics.as_ref().0.as_ptr();
+            let registry = &Registry::get(py)?.read().unwrap();
+            if let Some(composite) = registry.get_material($slf.name.as_str())?.as_composite() {
+                update_composite(&composite.read(), physics, $slf.index)?;
+            }
+
+            let mut array = NewArray::empty(py, $nrg.shape())?;
+            let n = array.size();
+            let values = array.as_slice_mut();
+            let notifier = notify::Notifier::from_arg($ntf, n, $msg);
+            for i in 0..n {
+                let ei = $nrg.get_item(i)?;
+                let mut ci = 0.0;
+                unsafe {
+                    pumas::$func(
+                        physics, $slf.index, ei, &mut ci,
+                    );
+                }
+                values[i] = ci;
+                notifier.tic();
+            }
+
+            Ok(array)
+        }
+    };
+
+    ($func:ident, $msg:literal, $slf:ident, $mode:ident, $nrg:ident, $ntf:ident) => {
+        {
+            let py = $nrg.py();
+
+            let mode = match $mode {
+                Some(mode) => mode.to_pumas_mode(),
+                None => pumas::MODE_CSDA,
+            };
+            let physics = $slf.physics.as_ref().0.as_ptr();
+            let registry = &Registry::get(py)?.read().unwrap();
+            if let Some(composite) = registry.get_material($slf.name.as_str())?.as_composite() {
+                update_composite(&composite.read(), physics, $slf.index)?;
+            }
+
+            let mut array = NewArray::empty(py, $nrg.shape())?;
+            let n = array.size();
+            let values = array.as_slice_mut();
+            let notifier = notify::Notifier::from_arg($ntf, n, $msg);
+            for i in 0..n {
+                let ei = $nrg.get_item(i)?;
+                let mut ci = 0.0;
+                unsafe {
+                    pumas::$func(
+                        physics, mode, $slf.index, ei, &mut ci,
+                    );
+                }
+                values[i] = ci;
+                notifier.tic();
+            }
+
+            Ok(array)
+        }
+    }
+}
+
 #[pymethods]
 impl CompiledMaterial {
     fn __repr__(&self) -> String {
@@ -472,20 +547,31 @@ impl CompiledMaterial {
         Ok(definition.clone())
     }
 
-    /// Computes the material stopping-power.
-    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
-    fn stopping_power<'py>(
+    /// Returns the material cross-section.
+    #[pyo3(signature=(energy, /, *, notify=None))] // XXX use meters, etc.
+    fn cross_section<'py>(
         &self,
         energy: AnyArray<'py, f64>,
-        mode: Option<TransportMode>,
         notify: Option<notify::NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_cross_section,
+            "computing cross-section(s)",
+            self,
+            energy,
+            notify
+        )
+    }
+
+    /// Returns the muon elastic scattering properties.
+    #[pyo3(signature=(energy, /, *, notify=None))]
+    fn elastic_scattering<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, ElasticProperties>> {
         let py = energy.py();
 
-        let mode = match mode {
-            Some(mode) => mode.to_pumas_mode(),
-            None => pumas::MODE_CSDA,
-        };
         let physics = self.physics.as_ref().0.as_ptr();
         let registry = &Registry::get(py)?.read().unwrap();
         if let Some(composite) = registry.get_material(self.name.as_str())?.as_composite() {
@@ -494,25 +580,91 @@ impl CompiledMaterial {
 
         let mut array = NewArray::empty(py, energy.shape())?;
         let n = array.size();
-        let stopping_powers = array.as_slice_mut();
-        let notifier = notify::Notifier::from_arg(notify, n, "computing stopping-power(s)");
+        let values = array.as_slice_mut();
+        let notifier = notify::Notifier::from_arg(notify, n, "computing elastic scattering(s)");
         for i in 0..n {
             let ei = energy.get_item(i)?;
-            let mut si = 0.0;
+            let mut angle = 0.0;
             unsafe {
-                pumas::physics_property_stopping_power(
-                    physics, mode, self.index, ei, &mut si,
+                pumas::physics_property_elastic_cutoff_angle(
+                    physics, self.index, ei, &mut angle,
                 );
             }
-            stopping_powers[i] = si;
+            let mut path = 0.0;
+            unsafe {
+                pumas::physics_property_elastic_path(
+                    physics, self.index, ei, &mut path,
+                );
+            }
+            values[i] = ElasticProperties { angle, path };
             notifier.tic();
         }
 
         Ok(array)
     }
 
-    // XXX Implement other properties.
+    /// Returns the muon CSDA range.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn range<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_range,
+            "computing range(s)",
+            self,
+            mode,
+            energy,
+            notify
+        )
+    }
+
+    /// Returns the material stopping-power.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn stopping_power<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_stopping_power,
+            "computing stopping-power(s)",
+            self,
+            mode,
+            energy,
+            notify
+        )
+    }
+
+    /// Returns the transport mean free path.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn transport_path<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_transport_path,
+            "computing transport path(s)",
+            self,
+            mode,
+            energy,
+            notify
+        )
+    }
 }
+
+impl_dtype!(
+    ElasticProperties,
+    [
+        ("angle", "f8"),
+        ("path",  "f8"),
+    ]
+);
 
 // ===============================================================================================
 //

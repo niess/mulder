@@ -17,6 +17,11 @@ References
 .. [BrKl05] W. H. Bragg and R. Kleeman, Philos. Mag. 10, 318
    (1905).
 
+.. [FMBS93] J.M. Fernández-Varea, R. Mayol, J. Baró, F. Salvat, Nucl. Instrum.
+   Methods Phys. Res., Sect. B, 73 (1993) 447
+   `doi.org/10.1016/0168-583X(93)95827-R
+   <https://doi.org/10.1016/0168-583X(93)95827-R>`_.
+
 .. [NBCL18] V. Niess, A. Barnoud, C. Cârloganu, E. Le Menedeu, Comput.
    Phys. Commun. 229, 54 (2018), `doi:10.1016/j.cpc.2018.04.001
    <https://doi.org/10.1016/j.cpc.2018.04.001>`_ [`arXiv:1705.05636

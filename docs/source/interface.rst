@@ -596,7 +596,75 @@ Physics interface
    .. rubric:: Methods
      :heading-level: 4
 
+   .. automethod:: cross_section
+
+      The returned cross-section is restricted to hard collisions with a
+      fractionnal energy loss larger than the physics *cutoff*. Collisions with
+      a smaller energy loss are included in the continuous energy loss given by
+      the :py:meth:`stopping_power` method.
+
+      .. note::
+
+         The hard elastic collisions are not included in the cross-section but
+         in the elastic mean free path given by the :py:meth:`elastic_path`
+         method.
+
+      The macroscopic cross-section is returned in unit
+      :math:`\mathrm{m}^2/\mathrm{kg}`. Multiply by the material density in
+      order to get the inverse of the interaction length in unit of distance.
+
+   .. automethod:: elastic_scattering
+
+      This method returns the mean free path, in
+      :math:`\mathrm{kg}/\mathrm{m}^2`, restricted to hard elastic collisions
+      and the corresponding cutoff angle (in the center of mass frame of the
+      collision). The cutoff angle is expressed in radians. It is set according
+      to the physics :py:attr:`~Physics.elastic_ratio` following Fernandez-Varea
+      et al. [FMBS93]_.
+
+      .. note::
+
+         Soft elastic collisions are taken into account in the multiple
+         scattering (see the :py:meth:`transport_path` method).
+
+   .. automethod:: range
+
+      The CSDA range is expressed in :math:`\mathrm{kg}/\mathrm{m}^2`. Divide by
+      the material density in order to get the range in unit of length.
+
+      .. note::
+
+         In :python:`mixed` or :python:`discrete` modes, the range does not
+         include hard collisions.
+
+      See the :py:meth:`stopping_power` method for the corresponding continuous
+      energy loss.
+
    .. automethod:: stopping_power
+
+      The material stopping-power is expressed in
+      :math:`\mathrm{GeV}\mathrm{m}^2/\mathrm{kg}`. Multiply by the target
+      density in order to get the stopping power per unit length.
+
+      .. note::
+
+         In :python:`mixed` or :python:`discrete` modes, the stopping power does
+         not include hard collisions.
+
+      See the :py:meth:`range` method for the corresponding CSDA range.
+
+   .. automethod:: transport_path
+
+      The transport mean free path is restricted to soft collisions, including
+      both elastic and inelastic processes. It is expressed in
+      :math:`\mathrm{kg}/\mathrm{m}^2`. Divide by the material density in order
+      to get the range in unit of length.
+
+      .. note::
+
+         The transport m.f.p., :math:`\lambda`, is related to the standard
+         deviation of the multiple scattering angle as :math:`\sigma_\theta^2 =
+         X / (2 \lambda)`, where :math:`X` is the column depth.
 
    .. rubric:: Attributes
      :heading-level: 4

@@ -277,12 +277,54 @@ extern "C" {
         mass: *mut c_double
     ) -> c_uint;
 
+    #[link_name="pumas_physics_property_cross_section"]
+    pub fn physics_property_cross_section(
+        physics: *const Physics,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_elastic_cutoff_angle"]
+    pub fn physics_property_elastic_cutoff_angle(
+        physics: *const Physics,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_elastic_path"]
+    pub fn physics_property_elastic_path(
+        physics: *const Physics,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_range"]
+    pub fn physics_property_range(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
     #[link_name="pumas_physics_property_stopping_power"]
     pub fn physics_property_stopping_power(
         physics: *const Physics,
         mode: c_int,
         material: c_int,
         energy: c_double,
-        dedx: *mut c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_transport_path"]
+    pub fn physics_property_transport_path(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
     ) -> c_uint;
 }
