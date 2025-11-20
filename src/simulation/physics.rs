@@ -40,7 +40,7 @@ pub struct Physics {
 
 #[pyclass(module="mulder", frozen)]
 pub struct CompiledMaterial {
-    /// The material identifier.
+    /// The material name.
     #[pyo3(get)]
     name: String,
 
@@ -464,6 +464,7 @@ impl CompiledMaterial {
         )
     }
 
+    /// The material definition.
     #[getter]
     fn get_definition(&self, py: Python) -> PyResult<Material> {
         let registry = &Registry::get(py)?.read().unwrap();
@@ -471,11 +472,13 @@ impl CompiledMaterial {
         Ok(definition.clone())
     }
 
-    #[pyo3(signature=(energy, /, *, mode=None))]
-    fn stopping_power<'py>( // XXX Notifier?
+    /// Computes the material stopping-power.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn stopping_power<'py>(
         &self,
         energy: AnyArray<'py, f64>,
         mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
         let py = energy.py();
 
@@ -492,6 +495,7 @@ impl CompiledMaterial {
         let mut array = NewArray::empty(py, energy.shape())?;
         let n = array.size();
         let stopping_powers = array.as_slice_mut();
+        let notifier = notify::Notifier::from_arg(notify, n, "computing stopping-power(s)");
         for i in 0..n {
             let ei = energy.get_item(i)?;
             let mut si = 0.0;
@@ -501,6 +505,7 @@ impl CompiledMaterial {
                 );
             }
             stopping_powers[i] = si;
+            notifier.tic();
         }
 
         Ok(array)

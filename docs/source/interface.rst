@@ -593,13 +593,35 @@ Physics interface
 
 .. autoclass:: mulder.CompiledMaterial
 
+   .. rubric:: Methods
+     :heading-level: 4
+
+   .. automethod:: stopping_power
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: definition
+
+      This attribute is an instance of :py:class:`~mulder.materials.Composite`
+      or :py:class:`~mulder.materials.Material`, depending on the type of
+      material.
+
+   .. autoattribute:: name
+
 ----
 
 .. autoclass:: mulder.Physics
 
    .. method:: __new__(*args, **kwargs)
 
+   .. rubric:: Methods
+     :heading-level: 4
+
    .. automethod:: compile
+
+   .. rubric:: Attributes
+     :heading-level: 4
 
    .. autoattribute:: bremsstrahlung
    .. autoattribute:: pair_production
