@@ -285,16 +285,27 @@ impl PartialEq for Composite {
     }
 }
 
+const EPSILON: f64 = 1E-09;  // Prevent rounding errors.
+
 impl PartialEq for Mixture {
     fn eq(&self, other: &Self) -> bool {
-        if self.density != other.density {
-            return false;
+        if (self.density - other.density).abs() > EPSILON {
+            return false
         }
-        if (self.mass - other.mass).abs() > 1E-09 { // Prevent rounding errors.
-            return false;
+        if (self.mass - other.mass).abs() > EPSILON {
+            return false
         }
-        if self.I != other.I {
-            return false;
+        match self.I {
+            Some(i) => match other.I {
+                Some(j) => if (i - j).abs() > EPSILON {
+                    return false
+                }
+                None => return false,
+            },
+            None => match other.I {
+                Some(_) => return false,
+                None => (),
+            },
         }
         self.composition.eq(&other.composition)
     }
@@ -303,7 +314,7 @@ impl PartialEq for Mixture {
 impl PartialEq for Component {
     fn eq(&self, other: &Self) -> bool {
         if self.name.eq(&other.name) {
-            (self.weight - other.weight).abs() <= 1E-09 // Prevent rounding errors.
+            (self.weight - other.weight).abs() <= EPSILON
         } else {
             false
         }
@@ -709,10 +720,8 @@ impl Hash for Element {
     {
         let Self { Z, A, I } = self;  // ensure that no attribute is ommitted.
         Z.hash(state);
-        let A: &OrderedFloat<f64> = unsafe { std::mem::transmute(A) };
-        A.hash(state);
-        let I: &OrderedFloat<f64> = unsafe { std::mem::transmute(I) };
-        I.hash(state);
+        toeps(A).hash(state);
+        toeps(I).hash(state);
     }
 }
 
@@ -732,14 +741,11 @@ impl Hash for Mixture {
        where H: Hasher
     {
         let Self { density, I, mass, composition } = self;  // ensure that no attribute is ommitted.
-        let density: &OrderedFloat<f64> = unsafe { std::mem::transmute(density) };
-        density.hash(state);
+        toeps(density).hash(state);
         if let Some(I) = I.as_ref() {
-            let I: &OrderedFloat<f64> = unsafe { std::mem::transmute(I) };
-            I.hash(state);
+            toeps(I).hash(state);
         }
-        let mass: &OrderedFloat<f64> = unsafe { std::mem::transmute(mass) };
-        mass.hash(state);
+        toeps(mass).hash(state);
         composition.hash(state);
     }
 }
@@ -750,9 +756,13 @@ impl Hash for Component {
     {
         let Self { name, weight } = self;  // ensure that no attribute is ommitted.
         name.hash(state);
-        let weight: &OrderedFloat<f64> = unsafe { std::mem::transmute(weight) };
-        weight.hash(state);
+        toeps(weight).hash(state);
     }
+}
+
+fn toeps(x: &f64) -> OrderedFloat<f64> {
+    let x = (x / EPSILON).round() * EPSILON;
+    OrderedFloat(x)
 }
 
 impl Material {

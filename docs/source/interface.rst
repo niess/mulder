@@ -369,8 +369,8 @@ rock composed of various minerals.
 .. note::
 
    The stopping-power of a :py:class:`~mulder.materials.Composite` material
-   differs from that of a base :py:class:`~mulder.materials.Material` with the
-   same composition, due to the density effect in ionisation loss.
+   slightly differs from that of a base :py:class:`~mulder.materials.Material`
+   with the same composition, due to the density effect in ionisation loss.
 
 .. important::
 
