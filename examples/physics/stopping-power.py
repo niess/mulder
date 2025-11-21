@@ -27,13 +27,13 @@ plt.figure()
 for f in np.linspace(0.0, 1.0, 101):
     composite["Rock"] = 1.0 - f
     composite["Water"] = f
-    stopping_power = compiled["HumidRock"].stopping_power(energy) * 1E+04
+    stopping_power = compiled["HumidRock"].stopping_power(energy)
     color = (1.0 - f, 0.0, f)
     label = "Rock" if f == 0.0 else "Water" if f == 1.0 else None
     plt.plot(energy, stopping_power, "-", color=color, label=label)
 plt.xscale("log")
 plt.xlabel("kinetic energy (GeV)")
-plt.ylabel("stopping-power (MeV cm$^2$ g$^{-1}$)")
+plt.ylabel("stopping-power (GeV / m)")
 plt.legend()
 
 # Plot the differences in stopping power between the atomic and macroscopic

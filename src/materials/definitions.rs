@@ -235,7 +235,7 @@ impl Composite {
 
     /// The composite density, in kg/m3.
     #[getter]
-    fn get_density<'py>(&self, py: Python<'py>) -> PyResult<f64> {
+    pub(crate) fn get_density<'py>(&self, py: Python<'py>) -> PyResult<f64> {
         let registry = Registry::get(py)?.read().unwrap();
         let mut inverse_density = 0.0;
         let mut sum = 0.0;

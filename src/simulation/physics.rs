@@ -463,16 +463,29 @@ fn update_composite(
 //
 // ===============================================================================================
 
+enum Operation {
+    Divide,
+    Multiply,
+}
+
 macro_rules! compute_property {
-    ($func:ident, $msg:literal, $slf:ident, $nrg:ident, $ntf:ident) => {
+    ($func:ident, $msg:literal, $op:expr, $slf:ident, $nrg:ident, $ntf:ident) => {
         {
             let py = $nrg.py();
 
             let physics = $slf.physics.as_ref().0.as_ptr();
             let registry = &Registry::get(py)?.read().unwrap();
-            if let Some(composite) = registry.get_material($slf.name.as_str())?.as_composite() {
-                update_composite(&composite.read(), physics, $slf.index)?;
-            }
+            let density = match registry.get_material($slf.name.as_str())? {
+                Material::Composite(composite) => {
+                    update_composite(&composite.read(), physics, $slf.index)?;
+                    composite.get_density(py)?
+                }
+                Material::Mixture(mixture) => mixture.density,
+            };
+            let factor = match $op {
+                Operation::Divide => 1.0 / density,
+                Operation::Multiply => density,
+            };
 
             let mut array = NewArray::empty(py, $nrg.shape())?;
             let n = array.size();
@@ -480,13 +493,13 @@ macro_rules! compute_property {
             let notifier = notify::Notifier::from_arg($ntf, n, $msg);
             for i in 0..n {
                 let ei = $nrg.get_item(i)?;
-                let mut ci = 0.0;
+                let mut vi = 0.0;
                 unsafe {
                     pumas::$func(
-                        physics, $slf.index, ei, &mut ci,
+                        physics, $slf.index, ei, &mut vi,
                     );
                 }
-                values[i] = ci;
+                values[i] = vi * factor;
                 notifier.tic();
             }
 
@@ -494,7 +507,7 @@ macro_rules! compute_property {
         }
     };
 
-    ($func:ident, $msg:literal, $slf:ident, $mode:ident, $nrg:ident, $ntf:ident) => {
+    ($func:ident, $msg:literal, $op:expr, $slf:ident, $mode:ident, $nrg:ident, $ntf:ident) => {
         {
             let py = $nrg.py();
 
@@ -504,9 +517,17 @@ macro_rules! compute_property {
             };
             let physics = $slf.physics.as_ref().0.as_ptr();
             let registry = &Registry::get(py)?.read().unwrap();
-            if let Some(composite) = registry.get_material($slf.name.as_str())?.as_composite() {
-                update_composite(&composite.read(), physics, $slf.index)?;
-            }
+            let density = match registry.get_material($slf.name.as_str())? {
+                Material::Composite(composite) => {
+                    update_composite(&composite.read(), physics, $slf.index)?;
+                    composite.get_density(py)?
+                }
+                Material::Mixture(mixture) => mixture.density,
+            };
+            let factor = match $op {
+                Operation::Divide => 1.0 / density,
+                Operation::Multiply => density,
+            };
 
             let mut array = NewArray::empty(py, $nrg.shape())?;
             let n = array.size();
@@ -514,13 +535,13 @@ macro_rules! compute_property {
             let notifier = notify::Notifier::from_arg($ntf, n, $msg);
             for i in 0..n {
                 let ei = $nrg.get_item(i)?;
-                let mut ci = 0.0;
+                let mut vi = 0.0;
                 unsafe {
                     pumas::$func(
-                        physics, mode, $slf.index, ei, &mut ci,
+                        physics, mode, $slf.index, ei, &mut vi,
                     );
                 }
-                values[i] = ci;
+                values[i] = vi * factor;
                 notifier.tic();
             }
 
@@ -547,8 +568,8 @@ impl CompiledMaterial {
         Ok(definition.clone())
     }
 
-    /// Returns the material cross-section.
-    #[pyo3(signature=(energy, /, *, notify=None))] // XXX use meters, etc.
+    /// Returns the macroscopic cross-section.
+    #[pyo3(signature=(energy, /, *, notify=None))]
     fn cross_section<'py>(
         &self,
         energy: AnyArray<'py, f64>,
@@ -557,6 +578,7 @@ impl CompiledMaterial {
         compute_property!(
             physics_property_cross_section,
             "computing cross-section(s)",
+            Operation::Multiply,
             self,
             energy,
             notify
@@ -574,9 +596,13 @@ impl CompiledMaterial {
 
         let physics = self.physics.as_ref().0.as_ptr();
         let registry = &Registry::get(py)?.read().unwrap();
-        if let Some(composite) = registry.get_material(self.name.as_str())?.as_composite() {
-            update_composite(&composite.read(), physics, self.index)?;
-        }
+        let density = match registry.get_material(self.name.as_str())? {
+            Material::Composite(composite) => {
+                update_composite(&composite.read(), physics, self.index)?;
+                composite.get_density(py)?
+            }
+            Material::Mixture(mixture) => mixture.density,
+        };
 
         let mut array = NewArray::empty(py, energy.shape())?;
         let n = array.size();
@@ -590,12 +616,14 @@ impl CompiledMaterial {
                     physics, self.index, ei, &mut angle,
                 );
             }
+            angle *= 180.0 / std::f64::consts::PI;
             let mut path = 0.0;
             unsafe {
                 pumas::physics_property_elastic_path(
                     physics, self.index, ei, &mut path,
                 );
             }
+            path /= density;
             values[i] = ElasticProperties { angle, path };
             notifier.tic();
         }
@@ -614,6 +642,7 @@ impl CompiledMaterial {
         compute_property!(
             physics_property_range,
             "computing range(s)",
+            Operation::Divide,
             self,
             mode,
             energy,
@@ -632,6 +661,7 @@ impl CompiledMaterial {
         compute_property!(
             physics_property_stopping_power,
             "computing stopping-power(s)",
+            Operation::Multiply,
             self,
             mode,
             energy,
@@ -650,6 +680,7 @@ impl CompiledMaterial {
         compute_property!(
             physics_property_transport_path,
             "computing transport path(s)",
+            Operation::Divide,
             self,
             mode,
             energy,
