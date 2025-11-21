@@ -2,9 +2,10 @@ use crate::utils::convert::Convert;
 use enum_variants_strings::EnumVariantsStrings;
 use pyo3::prelude::*;
 use ::std::ffi::CString;
+use ::std::hash::Hash;
 
 
-#[derive(Clone, Copy, Default, EnumVariantsStrings, PartialEq)]
+#[derive(Clone, Copy, Default, EnumVariantsStrings, Hash, PartialEq)]
 #[enum_variants_strings_transform(transform="none")]
 pub enum PairProduction {
     KKP68,

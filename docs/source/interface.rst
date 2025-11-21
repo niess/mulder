@@ -591,7 +591,47 @@ rock composed of various minerals.
 Physics interface
 ~~~~~~~~~~~~~~~~~
 
+Mulder builds over the `Pumas`_ transport engine, the physics implementation of
+which is described in detail in [Nie22]_. In order to improve performance, some
+key physical properties are pre-computed and later interpolated at runtime, e.g.
+cross-sections, stopping-powers, etc. This process can be triggered manually
+using the :py:meth:`~mulder.Physics.compile` method of a
+:py:class:`~mulder.Physics` instance, which translates a set of
+:py:class:`~mulder.materials.Material` and
+:py:class:`~mulder.materials.Composite` definitions into
+:py:class:`CompiledMaterials <mulder.CompiledMaterial>`, providing access to the
+tabulated physical properties.
+
+.. note::
+
+   Since their computation can be time consuming, material tables related to a
+   specific set of materials and :py:class:`~mulder.Physics` settings are
+   cached. See the :py:data:`DEFAULT_CACHE` entry for information on controlling
+   the cache location.
+
+.. tip::
+
+   :py:class:`Fluxmeters <mulder.Fluxmeter>` seamlessly manage the generation of
+   material tables, negating the need for any explicit compilation.
+
 .. autoclass:: mulder.CompiledMaterial
+
+   This class acts as a proxy for the material tables relating to a specific
+   material. The physical properties can be accessed via vectorised class
+   methods. For example as,
+
+   .. doctest::
+      :hide:
+
+       >>> compiled_material = mulder.Physics().compile("Rock")
+
+   >>> energy = np.geomspace(1E-02, 1E+03, 101)
+   >>> stopping_power = compiled_material.stopping_power(energy)
+
+   .. note::
+
+      The :py:class:`CompiledMaterial` class cannot be instantiated directly; it
+      must be generated using the :py:meth:`Physics.compile` method instead.
 
    .. rubric:: Methods
      :heading-level: 4
@@ -671,19 +711,129 @@ Physics interface
 
 .. autoclass:: mulder.Physics
 
-   .. method:: __new__(*args, **kwargs)
+   This class provides access to configurable `Pumas`_ settings relevant to muon
+   transport physics, as mutable attributes. For further details, please refer
+   to [Nie22]_. In addition, the :py:class:`Physics` class provides an interface
+   for generating material tables from material definitions, using the
+   :py:meth:`compile` method.
+
+   .. method:: __new__(**kwargs)
+
+      Creates a Physics context.
+
+      Configuration settings can be provided as keyword arguments (*kwargs*).
+      See the class attributes below for a list of possible parameters. For
+      example,
+
+      >>> physics = mulder.Physics(cutoff=5E-02)
 
    .. rubric:: Methods
      :heading-level: 4
 
    .. automethod:: compile
 
+      If the *materials* arguments are ommited, then all currently defined
+      materials are compiled. The returned :py:class:`CompiledMaterials
+      <mulder.CompiledMaterial>` can be extracted to a :py:class:`dict`, for
+      instance as
+
+      >>> compiled = { m.name: m for m in physics.compile() } # doctest: +IGNORE
+
+      Alternatively, one may explicit the materials to compile, for example as
+
+      >>> ice, rock = physics.compile("Ice", "Rock") # doctest: +IGNORE
+
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: bremsstrahlung
+
+      The possible values for bremsstralung models are summarised in
+      :numref:`tab-bremsstrahlung` below, the default setting is
+      :python:`"SSR19"`.
+
+      .. _tab-bremsstrahlung:
+
+      .. list-table:: Available bremsstrahlung models.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Model
+           - Reference
+         * - :python:`"ABB94"`
+           - Andreev, Bezrukov and Bugaev, Physics of Atomic Nuclei 57 (1994)
+             2066.
+         * - :python:`"KKP95"`
+           - Kelner, Kokoulin and Petrukhin, Moscow Engineering Physics Inst.,
+             Moscow, 1995.
+         * - :python:`"SSR19"`
+           - `PROPOSAL`_\ 's implementation of [SSR19]_.
+
+   .. autoattribute:: cutoff
+
+      Relative cutoff between soft and hard energy losses. Setting a null or
+      negative value results in the default cutoff value to be used i.e. 5%
+      which is a good compromise between speed and accuracy for transporting a
+      continuous muon spectrumm, see e.g. Sokalski et al. [SBK01]_.
+
+      .. warning::
+
+         Cutoff values lower than 1% are not supported.
+
+   .. autoattribute:: elastic_ratio
+
+      Ratio of the mean free path for hard elastic events to the smallest of the
+      transport mean free path or CSDA range. The lower the ratio the more
+      detailed the simulation of elastic scattering, see e.g. Fernandez-Varea et
+      al. [FMBS93]_. Setting a null or negative value results in the default
+      ratio to be used i.e. 5%.
+
    .. autoattribute:: pair_production
+
+      The possible values for pair-production models are summarised in
+      :numref:`tab-pair-production` below, the default setting is
+      :python:`"SSR19"`.
+
+      .. _tab-pair-production:
+
+      .. list-table:: Available pair-production models.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Model
+           - Reference
+         * - :python:`"KKP68"`
+           - Kelner, Kokoulin and Petrukhin, Soviet Journal of Nuclear Physics 7
+             (1968) 237.
+         * - :python:`"SSR19"`
+           - `PROPOSAL`_\ 's implementation of [SSR19]_.
+
    .. autoattribute:: photonuclear
+
+      The possible values for photonuclear interaction models are summarised in
+      :numref:`tab-photonuclear` below, the default setting is
+      :python:`"DRSS01"`.
+
+      .. _tab-photonuclear:
+
+      .. list-table:: Available photonuclear interaction models.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Model
+           - Reference
+         * - :python:`"BBKS03"`
+           - Bezrukov, Bugaev, Sov. J. Nucl. Phys. 33 (1981), 635, with improved
+             photon-nucleon cross-section according to `Kokoulin`_ and hard
+             component from `Bugaev and Shlepin`_.
+         * - :python:`"BM02"`
+           - Butkevich and Mikheyev, Soviet Journal of Experimental and
+             Theoretical Physics 95 (2002) 11.
+         * - :python:`"DRSS01"`
+           - Dutta, Reno, Sarcevic and Seckel, Phys.Rev. D63 (2001) 094020.
 
 
 States interface
@@ -1174,6 +1324,7 @@ these data are immutable.
 
 .. URL links.
 .. _ASCII Grid: https://en.wikipedia.org/wiki/Esri_grid
+.. _Bugaev and Shlepin: https://doi.org/10.1103/PhysRevD.67.034027
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
@@ -1183,9 +1334,12 @@ these data are immutable.
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
 .. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
+.. _Kokoulin: https://doi.org/10.1016/S0920-5632(98)00475-7
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
 .. _PDG: https://pdg.lbl.gov/2025/AtomicNuclearProperties/index.html
+.. _Pumas: https://github.com/niess/pumas
+.. _PROPOSAL: https://github.com/tudo-astroparticlephysics/PROPOSAL
 .. _SRTMGL1.003: https://doi.org/10.5067/MEASURES/SRTM/SRTMGL1.003
 .. _Standard Rock: https://pdg.lbl.gov/2025/AtomicNuclearProperties/standardrock.html
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html

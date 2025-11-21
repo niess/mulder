@@ -245,6 +245,9 @@ extern "C" {
         notifier: *mut PhysicsNotifier,
     ) -> c_uint;
 
+    #[link_name="pumas_physics_cutoff"]
+    pub fn physics_cutoff(physics: *const Physics) -> f64;
+
     #[link_name="pumas_physics_dcs"]
     pub fn physics_dcs(
         physics: *const Physics,
@@ -258,6 +261,9 @@ extern "C" {
 
     #[link_name="pumas_physics_dump"]
     pub fn physics_dump(physics: *const Physics, stream: *mut libc::FILE) -> c_uint;
+
+    #[link_name="pumas_physics_elastic_ratio"]
+    pub fn physics_elastic_ratio(physics: *const Physics) -> f64;
 
     #[link_name="pumas_physics_load"]
     pub fn physics_load(physics: *mut *mut Physics, stream: *mut libc::FILE) -> c_uint;

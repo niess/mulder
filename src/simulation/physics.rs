@@ -8,6 +8,7 @@ use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::notify;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, OwnedPtr};
+use ordered_float::OrderedFloat;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use temp_dir::TempDir;
@@ -15,29 +16,27 @@ use ::std::borrow::Cow;
 use ::std::collections::HashMap;
 use ::std::ffi::{c_char, c_int, CStr, CString, c_uint};
 use ::std::fs::File;
+use ::std::hash::{DefaultHasher, Hash, Hasher};
 use ::std::ptr::{NonNull, null, null_mut};
 use ::std::sync::Arc;
 
 
 #[pyclass(module="mulder")]
 pub struct Physics {
-    /// The Bremsstrahlung model for muon energy losses.
-    #[pyo3(get)]
-    bremsstrahlung: Bremsstrahlung,
-    /// The e+e- pair-production model for muon energy losses.
-    #[pyo3(get)]
-    pair_production: PairProduction,
-    /// The photonuclear model for muon energy losses.
-    #[pyo3(get)]
-    photonuclear: Photonuclear,
-
-    // XXX expose cutoff and elastic ratio?
-
     pub physics: Option<Arc<OwnedPtr<pumas::Physics>>>,
     pub context: Option<OwnedPtr<pumas::Context>>,
+    settings: Settings,
     materials_version: Option<usize>,
     materials_indices: HashMap<String, c_int>,
     composites_version: HashMap<String, usize>,
+}
+
+struct Settings {
+    cutoff: f64,
+    elastic_ratio: f64,
+    bremsstrahlung: Bremsstrahlung,
+    pair_production: PairProduction,
+    photonuclear: Photonuclear,
 }
 
 #[pyclass(module="mulder", frozen)]
@@ -65,18 +64,15 @@ impl Physics {
         py: Python<'py>,
         kwargs: Option<&Bound<'py, PyDict>>,
     ) -> PyResult<Py<Self>> {
-        let bremsstrahlung = Bremsstrahlung::default();
-        let pair_production = PairProduction::default();
-        let photonuclear = Photonuclear::default();
         let physics = None;
         let context = None;
+        let settings = Settings::default();
         let materials_version = None;
         let materials_indices = HashMap::new();
         let composites_version = HashMap::new();
 
         let physics = Self {
-            bremsstrahlung, pair_production, photonuclear, physics, context,
-            materials_version, materials_indices, composites_version,
+            physics, context, settings, materials_version, materials_indices, composites_version,
         };
         let physics = Bound::new(py, physics)?;
 
@@ -90,31 +86,78 @@ impl Physics {
         Ok(physics.unbind())
     }
 
+    /// The Bremsstrahlung model for muon energy losses.
+    #[getter]
+    fn get_bremsstrahlung(&self) -> Bremsstrahlung {
+        self.settings.bremsstrahlung
+    }
+
     #[setter]
     fn set_bremsstrahlung(&mut self, value: Bremsstrahlung) {
-        if value != self.bremsstrahlung {
-            self.bremsstrahlung = value;
+        if value != self.settings.bremsstrahlung {
+            self.settings.bremsstrahlung = value;
             self.destroy_physics();
         }
+    }
+
+    /// The cutoff between hard and soft energy losses.
+    #[getter]
+    fn get_cutoff(&self) -> f64 {
+        self.settings.cutoff
+    }
+
+    #[setter]
+    fn set_cutoff(&mut self, value: f64) {
+        if value != self.settings.cutoff {
+            self.settings.cutoff = value;
+            self.destroy_physics();
+        }
+    }
+
+    /// The hard to soft ratio for elastic collisions.
+    #[getter]
+    fn get_elastic_ratio(&self) -> f64 {
+        self.settings.elastic_ratio
+    }
+
+    #[setter]
+    fn set_elastic_ratio(&mut self, value: f64) {
+        if value != self.settings.elastic_ratio {
+            self.settings.elastic_ratio = value;
+            self.destroy_physics();
+        }
+    }
+
+    /// The e+e- pair-production model for muon energy losses.
+    #[getter]
+    fn get_pair_production(&self) -> PairProduction {
+        self.settings.pair_production
     }
 
     #[setter]
     fn set_pair_production(&mut self, value: PairProduction) {
-        if value != self.pair_production {
-            self.pair_production = value;
+        if value != self.settings.pair_production {
+            self.settings.pair_production = value;
             self.destroy_physics();
         }
+    }
+
+    /// The photonuclear model for muon energy losses.
+    #[getter]
+    fn get_photonuclear(&self) -> Photonuclear {
+        self.settings.photonuclear
     }
 
     #[setter]
     fn set_photonuclear(&mut self, value: Photonuclear) {
-        if value != self.photonuclear {
-            self.photonuclear = value;
+        if value != self.settings.photonuclear {
+            self.settings.photonuclear = value;
             self.destroy_physics();
         }
     }
 
-    #[pyo3(signature=(*materials))]  // add a notify arg?
+    /// Compiles material definitions to physics tables.
+    #[pyo3(signature=(*materials))]  // XXX add a notify arg?
     fn compile(
         &mut self,
         py: Python,
@@ -244,7 +287,7 @@ impl Physics {
         let tag = self.pumas_physics_tag();
         let dump_path = materials
             .cache_path(py, "pumas")?
-            .with_tag(tag)
+            .with_tag(tag.clone())
             .with_makedirs()
             .into_path()?;
         let dedx_path = TempDir::new()?;
@@ -252,12 +295,12 @@ impl Physics {
         Mdf::new(py, &materials)?
             .dump(&mdf_path)?;
 
-        let c_bremsstrahlung: CString = self.bremsstrahlung.into();
-        let c_pair_production: CString = self.pair_production.into();
-        let c_photonuclear: CString = self.photonuclear.into();
+        let c_bremsstrahlung: CString = self.settings.bremsstrahlung.into();
+        let c_pair_production: CString = self.settings.pair_production.into();
+        let c_photonuclear: CString = self.settings.photonuclear.into();
         let mut settings = pumas::PhysicsSettings {
-            cutoff: 0.0,
-            elastic_ratio: 0.0,
+            cutoff: self.settings.cutoff,
+            elastic_ratio: self.settings.elastic_ratio,
             bremsstrahlung: c_bremsstrahlung.as_c_str().as_ptr(),
             pair_production: c_pair_production.as_c_str().as_ptr(),
             photonuclear: c_photonuclear.as_c_str().as_ptr(),
@@ -271,7 +314,7 @@ impl Physics {
             let mut physics: *mut pumas::Physics = null_mut();
             let mdf_path = CString::new(mdf_path.to_string_lossy().as_ref())?;
             let dedx_path = CString::new(dedx_path.path().to_string_lossy().as_ref())?;
-            let mut notifier = Notifier::new(materials.hash(py)?);
+            let mut notifier = Notifier::new(materials.hash(py)?, tag.as_str());
             error::clear();
             let locale = libc::setlocale(libc::LC_NUMERIC, null());
             libc::setlocale(libc::LC_NUMERIC, CString::new("C")?.as_ptr());
@@ -365,6 +408,20 @@ impl Physics {
             (rc == pumas::SUCCESS) && (particle == pumas::MUON)
         };
 
+        let check_cutoff = |expected: f64| -> bool {
+            let cutoff = unsafe {
+                pumas::physics_cutoff(physics)
+            };
+            cutoff == expected
+        };
+
+        let check_elastic_ratio = |expected: f64| -> bool {
+            let ratio = unsafe {
+                pumas::physics_elastic_ratio(physics)
+            };
+            ratio == expected
+        };
+
         let check_process = |process: c_uint, expected: &str| -> bool {
             unsafe {
                 let mut name: *const c_char = null();
@@ -386,9 +443,11 @@ impl Physics {
             }
         };
         if  check_particle() &&
-            check_process(pumas::BREMSSTRAHLUNG, self.bremsstrahlung.as_pumas()) &&
-            check_process(pumas::PAIR_PRODUCTION, self.pair_production.as_pumas()) &&
-            check_process(pumas::PHOTONUCLEAR, self.photonuclear.as_pumas()) {
+            check_cutoff(self.settings.cutoff) &&
+            check_elastic_ratio(self.settings.elastic_ratio) &&
+            check_process(pumas::BREMSSTRAHLUNG, self.settings.bremsstrahlung.as_pumas()) &&
+            check_process(pumas::PAIR_PRODUCTION, self.settings.pair_production.as_pumas()) &&
+            check_process(pumas::PHOTONUCLEAR, self.settings.photonuclear.as_pumas()) {
             Some(physics)
         } else {
             error::clear();
@@ -398,15 +457,37 @@ impl Physics {
     }
 
     fn pumas_physics_tag(&self)-> String {
-        let bremsstrahlung: &str = self.bremsstrahlung.into();
-        let pair_production: &str = self.pair_production.into();
-        let photonuclear: &str = self.photonuclear.into();
-        format!(
-            "{}-{}-{}",
-            bremsstrahlung,
-            pair_production,
-            photonuclear,
-        )
+        let mut state = DefaultHasher::new();
+        self.settings.hash(&mut state);
+        format!("{:016x}", state.finish())
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            cutoff: 5E-02,
+            elastic_ratio: 5E-02,
+            bremsstrahlung: Bremsstrahlung::default(),
+            pair_production: PairProduction::default(),
+            photonuclear: Photonuclear::default(),
+        }
+    }
+}
+
+impl Hash for Settings {
+    fn hash<H>(&self, state: &mut H)
+       where H: Hasher
+    {
+        // ensure that no attribute is ommitted.
+        let Self { bremsstrahlung, cutoff, elastic_ratio, pair_production, photonuclear } = self;
+        bremsstrahlung.hash(state);
+        let cutoff: &OrderedFloat<f64> = unsafe { std::mem::transmute(cutoff) };
+        cutoff.hash(state);
+        let elastic_ratio: &OrderedFloat<f64> = unsafe { std::mem::transmute(elastic_ratio) };
+        elastic_ratio.hash(state);
+        pair_production.hash(state);
+        photonuclear.hash(state);
     }
 }
 
@@ -714,13 +795,15 @@ struct Notifier {
 impl Notifier {
     const SECTIONS: usize = 4;
 
-    fn new(hash: u64) -> Self {
+    fn new(hash: u64, tag: &str) -> Self {
         let interface = pumas::PhysicsNotifier {
             configure: Some(pumas_physics_notifier_configure),
             notify: Some(pumas_physics_notifier_notify),
         };
         let hash = format!("{:016x}", hash);
-        let hash = hash.chars().into_iter().take(7).collect();
+        let hash: String = hash.chars().into_iter().take(7).collect();
+        let tag: String = tag.chars().take(7).collect();
+        let hash = format!("{}-{}", hash, tag);
         Self { interface, bar: None, hash, section: 0 }
     }
 

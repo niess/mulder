@@ -35,3 +35,11 @@ References
 .. [Nie22] V. Niess, Comput. Phys. Commun. 279 (2022) 108438,
    `doi:10.1016/j.cpc.2022.108438 <https://doi.org/10.1016/j.cpc.2022.108438>`_
    [`arXiv:2206.01457 <https://arxiv.org/abs/2206.01457>`_].
+
+.. [SBK01] I. A. Sokalski, E. V. Bugaev, S. I. Klimushin, Phys. Rev. D 64 (2001)
+   074015, `doi:10.1103/PhysRevD.64.074015
+   <https://doi.org/10.1103/PhysRevD.64.074015>`_ [`arXiv:hep-ph/0010322
+   <https://arxiv.org/abs/hep-ph/0010322>`_].
+
+.. [SSR19] J. Soedingrekso, A. Sandrock, W. Rhode, arXiv:1910.07050 (2019),
+   `doi:10.48550/arXiv.1910.07050 <https://doi.org/10.48550/arXiv.1910.07050>`_.
