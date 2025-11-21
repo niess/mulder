@@ -1137,7 +1137,7 @@ impl<'a> Agent<'a> {
         reference: &'a reference::Reference,
     ) -> PyResult<Self> {
         // Configure physics and geometry.
-        physics.update(py, &fluxmeter.materials)?;
+        physics.update(py, &fluxmeter.materials, None)?;
         fluxmeter.create_or_update_geometry(py, atmosphere, geometry, &physics)?;
         let geometry = match geometry {
             GeometryRef::Earth(geometry) => GeometryAgent::Earth {

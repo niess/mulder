@@ -157,11 +157,12 @@ impl Physics {
     }
 
     /// Compiles material definitions to physics tables.
-    #[pyo3(signature=(*materials))]  // XXX add a notify arg?
+    #[pyo3(signature=(*materials, notify=None))]
     fn compile(
         &mut self,
         py: Python,
         mut materials: Vec<String>,
+        notify: Option<bool>,
     ) -> PyResult<PyObject> {
         if materials.is_empty() {
             let registry = &Registry::get(py)?.read().unwrap();
@@ -170,7 +171,7 @@ impl Physics {
             }
         }
         let set = MaterialsSet::from(materials.clone());
-        self.update(py, &set)?;
+        self.update(py, &set, notify)?;
 
         let mut compiled_materials = Vec::new();
         for material in materials {
@@ -207,7 +208,12 @@ impl Physics {
         self.physics.as_ref().unwrap().0.as_ptr() as *const pumas::Physics
     }
 
-    pub fn update<'py>(&mut self, py: Python, materials: &MaterialsSet) -> PyResult<()> {
+    pub fn update<'py>(
+        &mut self,
+        py: Python,
+        materials: &MaterialsSet,
+        notify: Option<bool>,
+    ) -> PyResult<()> {
         match self.materials_version {
             Some(version) => if version != materials.version() { self.destroy_physics() },
             None => self.destroy_physics(),
@@ -220,7 +226,7 @@ impl Physics {
                 None
             };
             let physics = match physics {
-                None => self.create_pumas(py, materials)?,
+                None => self.create_pumas(py, materials, notify)?,
                 Some(physics) => physics,
             };
             self.physics = Some(Arc::new(OwnedPtr::new(physics)?));
@@ -283,7 +289,9 @@ impl Physics {
         &self,
         py: Python,
         materials: &MaterialsSet,
+        notify: Option<bool>,
     ) -> PyResult<*mut pumas::Physics> {
+        let notify = notify.unwrap_or_else(|| notify::get());
         let tag = self.pumas_physics_tag();
         let dump_path = materials
             .cache_path(py, "pumas")?
@@ -324,7 +332,11 @@ impl Physics {
                 mdf_path.as_ptr(),
                 dedx_path.as_ptr(),
                 &mut settings,
-                &mut notifier as *mut Notifier as *mut pumas::PhysicsNotifier,
+                if notify {
+                    &mut notifier as *mut Notifier as *mut pumas::PhysicsNotifier
+                } else {
+                    null_mut()
+                },
             );
             libc::setlocale(libc::LC_NUMERIC, locale);
             if rc == pumas::INTERRUPT {

@@ -129,7 +129,7 @@ pub struct PhysicsSettings {
 
 #[repr(C)]
 pub struct Recorder {
-    // XXX Not implemented.
+    // XXX Implement recording?
     length: c_int,
 }
 
