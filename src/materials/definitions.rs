@@ -90,7 +90,7 @@ impl Element {
     }
 
     fn __repr__(&self) -> String {
-        format!("{{'Z': {}, 'A': {}, 'I': {:.10}}}", self.Z, self.A, self.I * 1E-09)
+        format!("{{'Z': {}, 'A': {}, 'I': {}}}", self.Z, self.A, self.I * 1E+09)
     }
 
 

@@ -1,5 +1,6 @@
 // Geant4 interface.
 #include "G4Navigator.hh"
+#include "G4NistManager.hh"
 #include "G4Material.hh"
 #include "G4VPhysicalVolume.hh"
 // Mulder C interface.
@@ -21,48 +22,53 @@
 //
 // ============================================================================
 
-namespace G4Mulder{
-    struct GeometryDefinition: public mulder_geometry_definition {
-        GeometryDefinition(const G4VPhysicalVolume * world);
-        ~GeometryDefinition() {};
+namespace G4Mulder {
+    struct Component: public mulder_component {
+        Component(const G4Element * element, double weight);
+        ~Component() {};
 
-        size_t GetMediumIndex(const G4VPhysicalVolume * volume) const;
-        const G4VPhysicalVolume * GetWorld() const;
-
-        std::vector<const G4Material *> materials;
-        std::vector<const G4VPhysicalVolume *> volumes;
-        std::unordered_map<const G4VPhysicalVolume *, size_t> mediaIndices;
-    };
-
-    struct MaterialDefinition: public mulder_material_definition {
-        MaterialDefinition(const G4Material * material);
-        ~MaterialDefinition() {};
-
-        const G4Material * g4Material;
-    };
-
-    struct GeometryMedium: public mulder_geometry_medium {
-        GeometryMedium(const G4VPhysicalVolume * volume);
-        ~GeometryMedium() {};
-
-        const G4VPhysicalVolume * g4Volume;
-    };
-
-    struct WeightedElement: public mulder_weighted_element {
-        WeightedElement(const G4Element * element, double weight);
-        ~WeightedElement() {};
-
-        const G4Element * g4Element;
         std::string name;
         double molarWeight;
     };
 
-    struct GeometryTracer: public mulder_geometry_tracer {
-        GeometryTracer(const GeometryDefinition * definition);
-        ~GeometryTracer();
+    struct Element: public mulder_element {
+        Element(const G4Element * element);
+        ~Element() {};
+
+        const G4Element * g4Element;
+    };
+
+    struct Geometry: public mulder_geometry {
+        Geometry(const G4VPhysicalVolume * world);
+        ~Geometry() {};
+
+        size_t GetMediumIndex(const G4VPhysicalVolume * volume) const;
+        const G4VPhysicalVolume * GetWorld() const;
+
+        std::vector<const G4VPhysicalVolume *> volumes;
+        std::unordered_map<const G4VPhysicalVolume *, size_t> mediaIndices;
+    };
+
+    struct Material: public mulder_material {
+        Material(const G4Material * material);
+        ~Material() {};
+
+        const G4Material * g4Material;
+    };
+
+    struct Medium: public mulder_medium {
+        Medium(const G4VPhysicalVolume * volume);
+        ~Medium() {};
+
+        const G4VPhysicalVolume * g4Volume;
+    };
+
+    struct Tracer: public mulder_tracer {
+        Tracer(const Geometry * definition);
+        ~Tracer();
 
         // Geometry data.
-        const GeometryDefinition * definition;
+        const Geometry * definition;
 
         // State data.
         G4ThreeVector currentDirection;
@@ -78,74 +84,89 @@ namespace G4Mulder{
 
 // ============================================================================
 //
-// Implementation of Mulder C interface.
+// Implementation of Mulder C module.
 //
 // ============================================================================
 
-static struct mulder_geometry_definition * interface_definition(void) {
+static struct mulder_element * module_element(const char * symbol) {
+    auto element = G4Element::GetElement(symbol, false);
+    if (element == nullptr) {
+        std::string name = symbol;
+        if (name.rfind("G4_", 0) == 0) {
+            element = G4Element::GetElement(symbol + 3, false);
+            if (element == nullptr) {
+                auto nist = G4NistManager::Instance();
+                element = nist->FindOrBuildElement(symbol + 3);
+            }
+        }
+    }
+    if (element == nullptr) {
+        return nullptr;
+    } else {
+        return new G4Mulder::Element(element);
+    }
+}
+
+static struct mulder_geometry * module_geometry(void) {
     auto && topVolume = G4Mulder::NewGeometry();
-    return new G4Mulder::GeometryDefinition(topVolume);
+    return new G4Mulder::Geometry(topVolume);
 }
 
-static struct mulder_geometry_tracer * interface_tracer(
-    const struct mulder_geometry_definition * definition_) {
-    auto definition = (G4Mulder::GeometryDefinition *)definition_;
-    return new G4Mulder::GeometryTracer(definition);
+static struct mulder_material * module_material(const char * name) {
+    auto material = G4Material::GetMaterial(name, false);
+    if (material == nullptr) {
+        material = G4NistManager::Instance()->FindOrBuildMaterial(name);
+    }
+    if (material == nullptr) {
+        return nullptr;
+    } else {
+        return new G4Mulder::Material(material);
+    }
 }
 
-extern "C" struct mulder_interface G4MULDER_INITIALISE (void) {
-    struct mulder_interface interface;
-    interface.definition = &interface_definition;
-    interface.tracer = &interface_tracer;
-    return interface;
+extern "C" struct mulder_module G4MULDER_INITIALISE (void) {
+    struct mulder_module mod;
+    mod.element = &module_element;
+    mod.geometry = &module_geometry;
+    mod.material = &module_material;
+    return mod;
 }
 
 // ============================================================================
 //
-// Implementation of geometry definition.
+// Implementation of geometry object.
 //
 // ============================================================================
 
-static void geometry_destroy(struct mulder_geometry_definition * self) {
-    auto geometry = (G4Mulder::GeometryDefinition *)self;
+static void geometry_destroy(struct mulder_geometry * self) {
+    auto geometry = (G4Mulder::Geometry *)self;
     G4Mulder::DropGeometry(geometry->GetWorld());
     delete geometry;
 }
 
-static struct mulder_material_definition * geometry_get_material(
-    const struct mulder_geometry_definition * self,
+static struct mulder_medium * geometry_get_medium(
+    const struct mulder_geometry * self,
     size_t index
 ){
-    auto geometry = (G4Mulder::GeometryDefinition *)self;
-    return new G4Mulder::MaterialDefinition(geometry->materials.at(index));
-}
-
-static struct mulder_geometry_medium * geometry_get_medium(
-    const struct mulder_geometry_definition * self,
-    size_t index
-){
-    auto geometry = (G4Mulder::GeometryDefinition *)self;
-    return new G4Mulder::GeometryMedium(geometry->volumes.at(index));
-}
-
-static size_t geometry_materials_len(
-    const struct mulder_geometry_definition * self
-){
-    auto geometry = (G4Mulder::GeometryDefinition *)self;
-    return geometry->materials.size();
+    auto geometry = (G4Mulder::Geometry *)self;
+    return new G4Mulder::Medium(geometry->volumes.at(index));
 }
 
 static size_t geometry_media_len(
-const struct mulder_geometry_definition * self)
+const struct mulder_geometry * self)
 {
-    auto geometry = (G4Mulder::GeometryDefinition *)self;
+    auto geometry = (G4Mulder::Geometry *)self;
     return geometry->volumes.size();
 }
 
+static struct mulder_tracer * geometry_tracer(
+    const struct mulder_geometry * self) {
+    auto geometry = (G4Mulder::Geometry *)self;
+    return new G4Mulder::Tracer(geometry);
+}
+
 static void append(
-    std::vector<const G4Material *> &materials,
     std::vector<const G4VPhysicalVolume *> &volumes,
-    std::unordered_map<const G4Material *, size_t> &materialsIndices,
     std::unordered_map<const G4VPhysicalVolume *, size_t> &mediaIndices,
     const G4VPhysicalVolume * current
 ){
@@ -153,45 +174,33 @@ static void append(
         size_t n = volumes.size();
         mediaIndices.insert({current, n});
         volumes.push_back(current);
-
-        auto && material = current->GetLogicalVolume()->GetMaterial();
-        if (materialsIndices.count(material) == 0) {
-            size_t m = materials.size();
-            materialsIndices.insert({material, m});
-            materials.push_back(material);
-        }
     }
     auto && logical = current->GetLogicalVolume();
     G4int n = logical->GetNoDaughters();
     for (G4int i = 0; i < n; i++) {
         auto && volume = logical->GetDaughter(i);
-        append(materials, volumes, materialsIndices, mediaIndices, volume);
+        append(volumes, mediaIndices, volume);
     }
 }
 
-G4Mulder::GeometryDefinition::GeometryDefinition(
+G4Mulder::Geometry::Geometry(
     const G4VPhysicalVolume * world)
 {
     // Set interface.
     this->destroy = &geometry_destroy;
-    this->material = &geometry_get_material;
-    this->materials_len = &geometry_materials_len;
     this->medium = &geometry_get_medium;
     this->media_len = &geometry_media_len;
-
+    this->tracer = &geometry_tracer;
 
     // Scan volumes hierarchy.
-    std::unordered_map<const G4Material *, size_t> materialsIndices;
     append(
-        this->materials,
         this->volumes,
-        materialsIndices,
         this->mediaIndices,
         world
     );
 }
 
-size_t G4Mulder::GeometryDefinition::GetMediumIndex(
+size_t G4Mulder::Geometry::GetMediumIndex(
     const G4VPhysicalVolume * volume) const
 {
     try {
@@ -201,7 +210,7 @@ size_t G4Mulder::GeometryDefinition::GetMediumIndex(
     }
 }
 
-const G4VPhysicalVolume * G4Mulder::GeometryDefinition::GetWorld() const {
+const G4VPhysicalVolume * G4Mulder::Geometry::GetWorld() const {
     return (this->volumes.size() > 0) ?
         this->volumes[0] :
         nullptr;
@@ -209,164 +218,180 @@ const G4VPhysicalVolume * G4Mulder::GeometryDefinition::GetWorld() const {
 
 // ============================================================================
 //
-// Implementation of material definition.
+// Implementation of material object.
 //
 // ============================================================================
 
-static void material_destroy(struct mulder_material_definition * self) {
-    auto material = (G4Mulder::MaterialDefinition *)self;
+static void material_destroy(struct mulder_material * self) {
+    auto material = (G4Mulder::Material *)self;
     delete material;
 }
 
 static double material_density(
-    const struct mulder_material_definition * self
+    const struct mulder_material * self
 ){
-    auto material = (G4Mulder::MaterialDefinition *)self;
+    auto material = (G4Mulder::Material *)self;
     return material->g4Material->GetDensity() * (CLHEP::m3 / CLHEP::kg);
 }
 
-static struct mulder_weighted_element * material_get_element(
-    const struct mulder_material_definition * self,
+static struct mulder_component * material_get_element(
+    const struct mulder_material * self,
     size_t index
 ){
-    auto material = ((G4Mulder::MaterialDefinition *)self)->g4Material;
+    auto material = ((G4Mulder::Material *)self)->g4Material;
     auto element = material->GetElement(index);
     double weight = double (
         material->GetVecNbOfAtomsPerVolume()[index] /
         material->GetTotNbOfAtomsPerVolume()
     );
-    return new G4Mulder::WeightedElement(element, weight);
+    return new G4Mulder::Component(element, weight);
 }
 
 static size_t material_elements_len(
-    const struct mulder_material_definition * self
+    const struct mulder_material * self
 ){
-    auto material = (G4Mulder::MaterialDefinition *)self;
+    auto material = (G4Mulder::Material *)self;
     return material->g4Material->GetNumberOfElements();
 }
 
 static double material_I(
-    const struct mulder_material_definition * self
+    const struct mulder_material * self
 ){
-    auto material = (G4Mulder::MaterialDefinition *)self;
+    auto material = (G4Mulder::Material *)self;
     return material->g4Material->GetIonisation()->GetMeanExcitationEnergy() /
         CLHEP::GeV;
 }
 
-static const char * material_name(
-    const struct mulder_material_definition * self
-){
-    auto material = (G4Mulder::MaterialDefinition *)self;
-    return material->g4Material->GetName().c_str();
-}
-
-G4Mulder::MaterialDefinition::MaterialDefinition(
+G4Mulder::Material::Material(
     const G4Material * material
 ):
     g4Material(material)
 {
     // Set interface.
     this->destroy = &material_destroy;
+    this->component = &material_get_element;
+    this->components_len = &material_elements_len;
     this->density = &material_density;
-    this->elements_len = &material_elements_len;
-    this->element = &material_get_element;
     this->I = (material->GetIonisation() == nullptr) ?
         nullptr : &material_I;
-    this->name = &material_name;
 }
 
 // ============================================================================
 //
-// Implementation of weighted element.
+// Implementation of component object.
 //
 // ============================================================================
 
-static void element_destroy(struct mulder_weighted_element * self) {
-    auto element = (G4Mulder::WeightedElement *)self;
+static void component_destroy(struct mulder_component * self) {
+    auto component = (G4Mulder::Component *)self;
+    delete component;
+}
+
+static const char * component_symbol(const struct mulder_component * self) {
+    auto component = (G4Mulder::Component *)self;
+    return component->name.c_str();
+}
+
+static double component_weight(const struct mulder_component * self) {
+    auto component = (G4Mulder::Component *)self;
+    return component->molarWeight;
+}
+
+static bool is_nist(const G4Element * element) {
+    auto nist = G4NistManager::Instance();
+    auto Z = nist->GetZ(element->GetName());
+    const double EPSILON = FLT_EPSILON;
+    if (Z > 0) {
+        auto dZ = element->GetZ() - Z;
+        if (fabs(dZ) > EPSILON) return false;
+        auto dA = element->GetAtomicMassAmu() - nist->GetAtomicMassAmu(Z);
+        if (fabs(dA) > EPSILON) return false;
+        auto dI = element->GetIonisation()->GetMeanExcitationEnergy() -
+            nist->GetMeanIonisationEnergy(Z);
+        return (fabs(dI) / CLHEP::eV <= EPSILON);
+     } else {
+         return false;
+     }
+}
+
+G4Mulder::Component::Component(const G4Element * element, double weight_):
+    molarWeight(weight_)
+{
+    this->name = element->GetName();
+    if (is_nist(element)) {
+        this->name = "G4_" + this->name;
+    }
+
+    // Set interface.
+    this->destroy = &component_destroy;
+    this->symbol = &component_symbol;
+    this->weight = &component_weight;
+}
+
+// ============================================================================
+//
+// Implementation of element object.
+//
+// ============================================================================
+
+static void element_destroy(struct mulder_element * self) {
+    auto element = (G4Mulder::Element *)self;
     delete element;
 }
 
 static int element_Z(
-    const struct mulder_weighted_element * self
-){
-    auto element = (G4Mulder::WeightedElement *)self;
+    const struct mulder_element * self) {
+    auto element = (G4Mulder::Element *)self;
     return int(element->g4Element->GetZ());
 }
 
-static double element_A(
-    const struct mulder_weighted_element * self
-){
-    auto element = (G4Mulder::WeightedElement *)self;
+static double element_A(const struct mulder_element * self) {
+    auto element = (G4Mulder::Element *)self;
     return element->g4Element->GetA() * (CLHEP::mole / CLHEP::g);
 }
 
-static double element_I(
-    const struct mulder_weighted_element * self
-){
-    auto element = (G4Mulder::WeightedElement *)self;
+static double element_I(const struct mulder_element * self) {
+    auto element = (G4Mulder::Element *)self;
     return element->g4Element->GetIonisation()->GetMeanExcitationEnergy() /
         CLHEP::GeV;
 }
 
-static const char * element_symbol(
-    const struct mulder_weighted_element * self
-){
-    auto element = (G4Mulder::WeightedElement *)self;
-    return element->name.c_str();
-}
-
-static double element_weight(
-    const struct mulder_weighted_element * self
-){
-    auto element = (G4Mulder::WeightedElement *)self;
-    return element->molarWeight;
-}
-
-G4Mulder::WeightedElement::WeightedElement(
-    const G4Element * element, double weight_
-):
-    g4Element(element), molarWeight(weight_)
+G4Mulder::Element::Element(const G4Element * element):
+    g4Element(element)
 {
-    this->name = element->GetSymbol();
-    if (this->name.rfind("G4_", 0) != 0) {
-        this->name = "G4_" + this->name;
-    }
-
     // Set interface.
     this->destroy = &element_destroy;
     this->Z = &element_Z;
     this->A = &element_A;
     this->I = &element_I;
-    this->symbol = &element_symbol;
-    this->weight = &element_weight;
 }
 
 // ============================================================================
 //
-// Implementation of geometry medium.
+// Implementation of medium object.
 //
 // ============================================================================
 
-static void medium_destroy(struct mulder_geometry_medium * self) {
-    auto medium = (G4Mulder::GeometryMedium *)self;
+static void medium_destroy(struct mulder_medium * self) {
+    auto medium = (G4Mulder::Medium *)self;
     delete medium;
 }
 
 static const char * medium_material(
-    const struct mulder_geometry_medium * self
+    const struct mulder_medium * self
 ){
-    auto medium = (G4Mulder::GeometryMedium *)self;
+    auto medium = (G4Mulder::Medium *)self;
     return medium->g4Volume->GetLogicalVolume()->GetMaterial()->GetName().c_str();
 }
 
 static const char * medium_description(
-    const struct mulder_geometry_medium * self
+    const struct mulder_medium * self
 ){
-    auto medium = (G4Mulder::GeometryMedium *)self;
+    auto medium = (G4Mulder::Medium *)self;
     return medium->g4Volume->GetName().c_str();
 }
 
-G4Mulder::GeometryMedium::GeometryMedium(const G4VPhysicalVolume * volume):
+G4Mulder::Medium::Medium(const G4VPhysicalVolume * volume):
     g4Volume(volume)
 {
     // Set interface.
@@ -378,20 +403,20 @@ G4Mulder::GeometryMedium::GeometryMedium(const G4VPhysicalVolume * volume):
 
 // ============================================================================
 //
-// Implementation of geometry tracer.
+// Implementation of tracer object.
 //
 // ============================================================================
 
-static void tracer_destroy(struct mulder_geometry_tracer * self) {
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+static void tracer_destroy(struct mulder_tracer * self) {
+    auto tracer = (G4Mulder::Tracer *)self;
     delete tracer;
 }
 
 static size_t tracer_locate(
-    struct mulder_geometry_tracer * self,
+    struct mulder_tracer * self,
     struct mulder_vec3 position_
 ){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto tracer = (G4Mulder::Tracer *)self;
 
     auto position = G4ThreeVector(
         position_.x * CLHEP::m,
@@ -404,11 +429,11 @@ static size_t tracer_locate(
 }
 
 static void tracer_reset(
-    struct mulder_geometry_tracer * self,
+    struct mulder_tracer * self,
     struct mulder_vec3 position,
     struct mulder_vec3 direction
 ){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto tracer = (G4Mulder::Tracer *)self;
 
     // Reset Geant4 navigation.
     tracer->currentPosition = G4ThreeVector(
@@ -440,10 +465,10 @@ static void tracer_reset(
 }
 
 static double tracer_trace(
-    struct mulder_geometry_tracer * self,
+    struct mulder_tracer * self,
     double max_length
 ){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto tracer = (G4Mulder::Tracer *)self;
 
     G4double safety = 0.0;
     G4double s = tracer->navigator.ComputeStep(
@@ -460,10 +485,10 @@ static double tracer_trace(
 }
 
 static void tracer_move(
-    struct mulder_geometry_tracer * self,
+    struct mulder_tracer * self,
     double length
 ){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto tracer = (G4Mulder::Tracer *)self;
 
     tracer->currentPosition += (length * CLHEP::m) * tracer->currentDirection;
 
@@ -480,7 +505,7 @@ static void tracer_move(
             tracer->currentDirection,
             tracer->history
         );
-        auto geometry = (const G4Mulder::GeometryDefinition *)tracer->definition;
+        auto geometry = (const G4Mulder::Geometry *)tracer->definition;
         tracer->currentIndex = geometry->GetMediumIndex(
             tracer->history->GetVolume()
         );
@@ -491,10 +516,10 @@ static void tracer_move(
 }
 
 static void tracer_turn(
-    struct mulder_geometry_tracer * self,
+    struct mulder_tracer * self,
     struct mulder_vec3 direction
 ){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+    auto tracer = (G4Mulder::Tracer *)self;
     tracer->currentDirection = G4ThreeVector(
         direction.x,
         direction.y,
@@ -502,15 +527,13 @@ static void tracer_turn(
     );
 }
 
-static size_t tracer_medium(struct mulder_geometry_tracer * self){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+static size_t tracer_medium(struct mulder_tracer * self) {
+    auto tracer = (G4Mulder::Tracer *)self;
     return tracer->currentIndex;
 }
 
-static struct mulder_vec3 tracer_position(
-    struct mulder_geometry_tracer * self
-){
-    auto tracer = (G4Mulder::GeometryTracer *)self;
+static struct mulder_vec3 tracer_position(struct mulder_tracer * self) {
+    auto tracer = (G4Mulder::Tracer *)self;
     auto && r = tracer->currentPosition;
     return {
         r[0] / CLHEP::m,
@@ -519,9 +542,8 @@ static struct mulder_vec3 tracer_position(
     };
 }
 
-G4Mulder::GeometryTracer::GeometryTracer(
-    const G4Mulder::GeometryDefinition * definition_
-): definition(definition_) {
+G4Mulder::Tracer::Tracer(const G4Mulder::Geometry * definition_):
+    definition(definition_) {
     // Initialise Geant4 navigator.
     this->navigator.SetWorldVolume(
         (G4VPhysicalVolume *) definition_->GetWorld());
@@ -545,6 +567,6 @@ G4Mulder::GeometryTracer::GeometryTracer(
     this->position = &tracer_position;
 }
 
-G4Mulder::GeometryTracer::~GeometryTracer() {
+G4Mulder::Tracer::~Tracer() {
     delete this->history;
 }

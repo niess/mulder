@@ -258,7 +258,7 @@ impl Registry {
         self.materials.get(name)
             .and_then(|m| m.as_mixture())
             .ok_or_else(|| {
-                let why = format!("undefined mixture '{}'", name);
+                let why = format!("undefined material '{}'", name);
                 Error::new(ValueError).why(&why).to_err()
             })
     }

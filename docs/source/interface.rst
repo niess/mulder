@@ -3,10 +3,11 @@ Python interface
 
 This section describes the Python user interface of Mulder. The user interface
 is organised in sub-topics, `Geometry <Geometry interface_>`_, `Materials
-<Materials interface_>`_, `Physics <Physics interface_>`_, `States <States
-interface_>`_, `Simulation <Simulation interface_>`_ and `Pictures <Picture
-interface_>`_, as described below. Moreover, Mulder exhibits some package-level
-data, as outlined in the `Configuration <Configuration data_>`_ section.
+<Materials interface_>`_, `Modules <Module interface_>`_, `Physics <Physics
+interface_>`_, `States <States interface_>`_, `Simulation <Simulation
+interface_>`_ and `Pictures <Picture interface_>`_, as described below.
+Moreover, Mulder exhibits some package-level data, as outlined in the
+`Configuration <Configuration data_>`_ section.
 
 
 Geometry interface
@@ -40,7 +41,7 @@ Geometry interface
       ...     -100.0
       ... )
 
-   .. rubric:: Methods
+   .. rubric:: Geometry methods
      :heading-level: 4
 
    .. automethod:: locate
@@ -78,6 +79,19 @@ Geometry interface
 .. autoclass:: mulder.ExternalGeometry
 
    .. method:: __new__(*args, **kwargs)
+
+   .. rubric:: Geometry methods
+     :heading-level: 4
+
+   .. automethod:: locate
+   .. automethod:: scan
+   .. automethod:: trace
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: frame
+   .. autoattribute:: media
 
 ----
 
@@ -586,6 +600,33 @@ rock composed of various minerals.
    The corresponding material definitions are loaded as
 
    >>> materials.load("materials.toml")
+
+Module interface
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: mulder.Module
+
+   .. method:: __new__(path, /)
+
+      Loads a Module.
+
+      >>> module = mulder.Module("module.so")  # doctest: +IGNORE
+
+   .. rubric:: Methods
+     :heading-level: 4
+
+   .. automethod:: element
+
+      >>> H = module.element("G4_H")  # doctest: +IGNORE
+
+   .. automethod:: geometry
+   .. automethod:: material
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: path
+   .. autoattribute:: ptr
 
 
 Physics interface

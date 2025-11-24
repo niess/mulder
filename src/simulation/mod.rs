@@ -1254,6 +1254,7 @@ impl<'a> Agent<'a> {
     }
 
     fn transport(&mut self) -> PyResult<()> {
+        // XXX Check local case (returned coordinates, etc).
         if self.geomagnet.is_some() {
             self.use_geomagnet = true;
             self.geomagnet_position = [0.0; 3];

@@ -1,34 +1,25 @@
 #![allow(non_snake_case)]
 
-use crate::materials::{
-    Component, Element, Material, MaterialsSet, MaterialsSubscriber, Mixture, Registry,
-};
+use crate::materials::{MaterialsSet, MaterialsSubscriber, Registry};
+use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3};
 use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::extract::Size;
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
-use crate::utils::ptr::{Destroy, null_pointer_err, OwnedPtr};
-use libloading::Library;
-use paste::paste;
+use crate::utils::ptr::OwnedPtr;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::ffi::{c_char, c_double, c_int, CStr};
-use std::ptr::NonNull;
+use std::collections::HashSet;
 
-
-// XXX Manage composites, and mixtures of mixtures.
 
 // ===============================================================================================
 // External geometry, dynamicaly loaded.
 // ===============================================================================================
 
 #[pyclass(module="mulder")]
-pub struct ExternalGeometry {
-    #[allow(dead_code)]
-    lib: Library, // for keeping the library alive.
-    interface: CInterface,
+pub struct ExternalGeometry { // XXX Rename to LocalGeometry?
     geometry: OwnedPtr<CGeometry>,
     subscribers: Vec<MaterialsSubscriber>,
 
@@ -66,130 +57,6 @@ pub struct ExternalTracer<'a> {
 }
 
 #[repr(C)]
-struct CInterface {
-    definition: Option<
-        extern "C" fn() -> *mut CGeometry
-    >,
-    tracer: Option<
-        extern "C" fn(*const CGeometry) -> *mut CTracer
-    >,
-}
-
-#[repr(C)]
-struct CGeometry {
-    destroy: Option<
-        extern "C" fn(*mut CGeometry)
-    >,
-    material: Option<
-        extern "C" fn(*const CGeometry, index: usize) -> *mut CMixture
-    >,
-    materials_len: Option<
-        extern "C" fn(*const CGeometry) -> usize
-    >,
-    medium: Option<
-        extern "C" fn(*const CGeometry, index: usize) -> *mut CMedium
-    >,
-    media_len: Option<
-        extern "C" fn(*const CGeometry) -> usize
-    >,
-}
-
-#[repr(C)]
-struct CMedium {
-    destroy: Option<
-        extern "C" fn(*mut CMedium)
-    >,
-    material: Option<extern "C" fn(
-        *const CMedium) -> *const c_char
-    >,
-    density: Option<extern "C" fn(
-        *const CMedium) -> c_double
-    >,
-    description: Option<extern "C" fn(
-        *const CMedium) -> *const c_char
-    >,
-}
-
-#[repr(C)]
-struct CMixture {
-    destroy: Option<
-        extern "C" fn(*mut CMixture)
-    >,
-    name: Option<extern "C" fn(
-        *const CMixture) -> *const c_char
-    >,
-    density: Option<extern "C" fn(
-        *const CMixture) -> c_double
-    >,
-    element: Option<
-        extern "C" fn(*const CMixture, usize) -> *mut CElement
-    >,
-    elements_len: Option<
-        extern "C" fn(*const CMixture) -> usize
-    >,
-    I: Option<extern "C" fn(
-        *const CMixture) -> c_double
-    >,
-}
-
-#[repr(C)]
-struct CElement {
-    destroy: Option<
-        extern "C" fn(*mut CElement)
-    >,
-    symbol: Option<extern "C" fn(
-        *const CElement) -> *const c_char
-    >,
-    weight: Option<extern "C" fn(
-        *const CElement) -> c_double
-    >,
-    A: Option<extern "C" fn(
-        *const CElement) -> c_double
-    >,
-    I: Option<extern "C" fn(
-        *const CElement) -> c_double
-    >,
-    Z: Option<extern "C" fn(
-        *const CElement) -> c_int
-    >,
-}
-
-#[repr(C)]
-struct CTracer {
-    destroy: Option<
-        extern "C" fn(*mut CTracer)
-    >,
-    locate: Option<
-        extern "C" fn(*mut CTracer, position: CVec3) -> usize
-    >,
-    reset: Option<
-        extern "C" fn(*mut CTracer, position: CVec3, direction: CVec3)
-    >,
-    trace: Option<
-        extern "C" fn(*mut CTracer, max_length: c_double) -> c_double
-    >,
-    move_: Option<
-        extern "C" fn(*mut CTracer, length: c_double)
-    >,
-    turn: Option<
-        extern "C" fn(*mut CTracer, direction: CVec3)
-    >,
-    medium: Option<
-        extern "C" fn(*mut CTracer) -> usize
-    >,
-    position: Option<
-        extern "C" fn(*mut CTracer) -> CVec3
-    >,
-}
-
-#[repr(C)]
-struct CVec3 {
-    x: c_double,
-    y: c_double,
-    z: c_double,
-}
-
-#[repr(C)]
 #[derive(Debug)]
 struct Intersection {
     pub before: i32,
@@ -219,63 +86,13 @@ fn type_error(what: &str, why: &str) -> PyErr {
 impl ExternalGeometry {
     #[new]
     #[pyo3(signature=(path, /, *, frame=None))]
+    #[allow(unused)] // XXX remove.
     pub unsafe fn new(
         py: Python,
         path: PathString,
         frame: Option<LocalFrame>,
     ) -> PyResult<Py<Self>> {
-        // Fetch geometry description from entry point.
-        type Initialise = unsafe fn() -> CInterface;
-        const INITIALISE: &[u8] = b"mulder_initialise\0";
-
-        let library = Library::new(path.as_str())
-            .map_err(|err| type_error(
-                "geometry",
-                &format!("{}: {}", path.as_str(), err)
-            ))?;
-        let initialise = library.get::<Initialise>(INITIALISE)
-            .map_err(|err| type_error(
-                "geometry",
-                &format!("{}: {}", path.as_str(), err)
-            ))?;
-        let interface = unsafe { initialise() };
-        let geometry = interface.definition()?;
-
-        // Register any materials.
-        let size = geometry.materials_len()?;
-        let mut registry = Registry::get(py)?.write().unwrap();
-        for i in 0..size {
-            geometry.material(i)?.register(&mut registry)?;
-        }
-        drop(registry);
-
-        // Build geometry media.
-        let size = geometry.media_len()?;
-        let mut media = Vec::with_capacity(size);
-        for i in 0..size {
-            let medium = Medium::try_from(geometry.medium(i)?)?;
-            media.push(medium);
-        }
-        let media = PyTuple::new(py, media)?.unbind();
-
-        // Bundle the geometry definition.
-        let subscribers = Vec::new();
-        let frame = frame.unwrap_or_else(|| LocalFrame::default());
-        let external_geometry = Self {
-            lib: library,
-            interface,
-            subscribers,
-            geometry,
-            media,
-            frame,
-        };
-        let external_geometry = Py::new(py, external_geometry)?;
-        for medium in external_geometry.bind(py).borrow().media.bind(py).iter() {
-            let medium: &Bound<Medium> = medium.downcast().unwrap();
-            medium.borrow_mut().geometry = Some(external_geometry.clone_ref(py));
-        }
-
-        Ok(external_geometry)
+        unimplemented!() // XXX impl from calzone.
     }
 
     #[pyo3(name="locate", signature=(*, position))]
@@ -361,6 +178,48 @@ impl ExternalGeometry {
 }
 
 impl ExternalGeometry {
+    pub fn from_module(
+        py: Python<'_>,
+        module: &CModule,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<Py<Self>> {
+        let geometry = module.geometry()?;
+        let registry = &mut Registry::get(py)?.write().unwrap();
+
+        // Build geometry media.
+        let size = geometry.media_len()?;
+        let mut media = Vec::with_capacity(size);
+        let mut materials = HashSet::new();
+        for i in 0..size {
+            let medium = Medium::try_from(geometry.medium(i)?)?;
+            materials.insert(medium.material.clone());
+            media.push(medium);
+        }
+        for name in materials {
+            if let Some(material) = module.material(&name, registry)? {
+                registry.add_material(name, material)?;
+            }
+        }
+        let media = PyTuple::new(py, media)?.unbind();
+
+        // Bundle the geometry definition.
+        let subscribers = Vec::new();
+        let frame = frame.unwrap_or_else(|| LocalFrame::default());
+        let external_geometry = Self {
+            subscribers,
+            geometry,
+            media,
+            frame,
+        };
+        let external_geometry = Py::new(py, external_geometry)?;
+        for medium in external_geometry.bind(py).borrow().media.bind(py).iter() {
+            let medium: &Bound<Medium> = medium.downcast().unwrap();
+            medium.borrow_mut().geometry = Some(external_geometry.clone_ref(py));
+        }
+
+        Ok(external_geometry)
+    }
+
     pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
         for medium in self.media.bind(py).iter() {
             set.add(medium.downcast::<Medium>().unwrap().borrow().material.as_str());
@@ -377,7 +236,7 @@ impl ExternalGeometry {
     }
 
     pub fn tracer<'a>(&'a self) -> PyResult<ExternalTracer<'a>> {
-        let tracer = self.interface.tracer(&self.geometry)?;
+        let tracer = self.geometry.tracer()?;
         if tracer.is_none_locate() {
             return Err(null_pointer_fmt!("ExternalTracer::locate"))
         }
@@ -497,56 +356,6 @@ impl Medium {
     }
 }
 
-impl OwnedPtr<CMixture> {
-    fn register(
-        self,
-        registry: &mut Registry,
-    ) -> PyResult<()> {
-        let name = self.name()?;
-        if self.is_none_density() &&
-            self.is_none_element() &&
-            self.is_none_elements_len() &&
-            self.is_none_I()
-        {
-            return Ok(())
-        }
-
-        let n = self.elements_len()
-            .ok_or_else(|| null_pointer_fmt!("elements_len for {} material", name))?;
-
-        let mut composition = Vec::with_capacity(n);
-        for i in 0..n {
-            let element = self.element(i)?
-                .ok_or_else(|| null_pointer_fmt!("element#{} for {} material", i, name))?;
-            let symbol = element.symbol()?;
-            if element.is_some_Z() || element.is_some_A() || element.is_some_I() {
-                let Z = element.Z()
-                    .ok_or_else(|| null_pointer_fmt!("Z for {} element", symbol))? as u32;
-                let A = element.A()
-                    .ok_or_else(|| null_pointer_fmt!("A for {} element", symbol))?;
-                let mut I = element.I()
-                    .ok_or_else(|| null_pointer_fmt!("I for {} element", symbol))?;
-                I *= 1E+09; // to eV.
-                let element = Element { Z, A, I };
-                registry.add_element(symbol.clone(), element)?;
-            }
-            let weight = element.weight()?;
-            composition.push(Component { name: symbol, weight });
-
-        }
-        let density = self.density()
-            .ok_or_else(|| null_pointer_fmt!("density for {} material", name))?;
-        let I = self.I();
-        let mixture = Mixture::from_elements(density, &composition, I, registry)
-            .map_err(|(kind, why)| {
-                let what = format!("{} material", name);
-                Error::new(kind).what(&what).why(&why).to_err()
-            })?;
-        registry.add_material(name, Material::Mixture(mixture))?;
-        Ok(())
-    }
-}
-
 impl TryFrom<OwnedPtr<CMedium>> for Medium {
     type Error = PyErr;
 
@@ -557,178 +366,4 @@ impl TryFrom<OwnedPtr<CMedium>> for Medium {
         let geometry = None;
         Ok(Self { material, density, description, geometry })
     }
-}
-
-// ===============================================================================================
-// C structs wrappers.
-// ===============================================================================================
-
-macro_rules! impl_destroy {
-    ($($type:ty),+) => {
-        $(
-            impl Destroy for NonNull<$type> {
-                fn destroy(mut self) {
-                    if let Some(destroy) = unsafe { self.as_mut().destroy } {
-                        destroy(self.as_ptr());
-                    }
-                }
-            }
-        )+
-    }
-}
-
-impl_destroy! { CGeometry, CElement, CMixture, CMedium, CTracer }
-
-impl CInterface {
-    fn definition(&self) -> PyResult<OwnedPtr<CGeometry>> {
-        match self.definition {
-            Some(func) => OwnedPtr::new(func()),
-            None => Err(null_pointer_fmt!("CInterface::definition")),
-        }
-    }
-
-    fn tracer(&self, definition: &OwnedPtr::<CGeometry>) -> PyResult<OwnedPtr<CTracer>> {
-        match self.tracer {
-            Some(func) => OwnedPtr::new(func(definition.0.as_ptr())),
-            None => Err(null_pointer_fmt!("CInterface::tracer")),
-        }
-    }
-}
-
-macro_rules! impl_get_attr {
-    ($name:tt, $output:ty) => {
-        fn $name(&self) -> PyResult<$output> {
-            match unsafe { self.0.as_ref().$name } {
-                Some(func) => Ok(func(self.0.as_ptr())),
-                None => Err(null_pointer_err()),
-            }
-        }
-    }
-}
-
-macro_rules! impl_get_str_attr {
-    ($name:tt) => {
-        fn $name(&self) -> PyResult<String> {
-            match unsafe { self.0.as_ref().$name } {
-                Some(func) => {
-                    let cstr = unsafe { CStr::from_ptr(func(self.0.as_ptr())) };
-                    Ok(cstr.to_str()?.to_owned())
-                },
-                None => Err(null_pointer_err()),
-            }
-        }
-    }
-}
-
-macro_rules! impl_get_item {
-    ($name:tt, $output:ty) => {
-        fn $name(&self, index: usize) -> PyResult<OwnedPtr<$output>> {
-            match unsafe { self.0.as_ref().$name } {
-                Some(func) => OwnedPtr::new(func(self.0.as_ptr(), index)),
-                None => Err(null_pointer_err()),
-            }
-        }
-    }
-}
-
-macro_rules! impl_is_some {
-    ($name:tt) => {
-        paste! {
-            fn [< is_some_ $name >] (&self) -> bool {
-                unsafe { self.0.as_ref().$name }
-                    .is_some()
-            }
-        }
-    }
-}
-
-macro_rules! impl_is_none {
-    ($name:tt) => {
-        paste! {
-            fn [< is_none_ $name >](&self) -> bool {
-                unsafe { self.0.as_ref().$name }
-                    .is_none()
-            }
-        }
-    }
-}
-
-macro_rules! impl_get_opt_attr {
-    ($name:tt, $output:ty) => {
-        fn $name(&self) -> Option<$output> {
-            unsafe { self.0.as_ref().$name }
-                .map(|func| func(self.0.as_ptr()))
-        }
-    }
-}
-
-macro_rules! impl_get_opt_str {
-    ($name:tt) => {
-        fn $name(&self) -> PyResult<Option<String>> {
-            unsafe { self.0.as_ref().$name }
-                .map(|func| {
-                    let cstr = unsafe { CStr::from_ptr(func(self.0.as_ptr())) };
-                    Ok(cstr.to_str()?.to_owned())
-                })
-                .transpose()
-        }
-    }
-}
-
-macro_rules! impl_get_opt_item {
-    ($name:tt, $output:ty) => {
-        fn $name(&self, index: usize) -> PyResult<Option<OwnedPtr<$output>>> {
-            unsafe { self.0.as_ref().$name }
-                .map(|func| OwnedPtr::new(func(self.0.as_ptr(), index)))
-                .transpose()
-        }
-    }
-}
-
-impl OwnedPtr<CGeometry> {
-    impl_get_attr!(materials_len, usize);
-    impl_get_attr!(media_len, usize);
-    impl_get_item!(material, CMixture);
-    impl_get_item!(medium, CMedium);
-}
-
-impl OwnedPtr<CMixture> {
-    impl_get_str_attr!(name);
-    impl_get_opt_attr!(density, c_double);
-    impl_get_opt_item!(element, CElement);
-    impl_get_opt_attr!(elements_len, usize);
-    impl_get_opt_attr!(I, c_double);
-
-    impl_is_none!(density);
-    impl_is_none!(element);
-    impl_is_none!(elements_len);
-    impl_is_none!(I);
-}
-
-impl OwnedPtr<CElement> {
-    impl_get_str_attr!(symbol);
-    impl_get_attr!(weight, c_double);
-    impl_get_opt_attr!(Z, c_int);
-    impl_get_opt_attr!(A, c_double);
-    impl_get_opt_attr!(I, c_double);
-
-    impl_is_some!(Z);
-    impl_is_some!(A);
-    impl_is_some!(I);
-}
-
-impl OwnedPtr<CMedium> {
-    impl_get_str_attr!(material);
-    impl_get_opt_attr!(density, c_double);
-    impl_get_opt_str!(description);
-}
-
-impl OwnedPtr<CTracer> {
-    impl_is_none!(locate);
-    impl_is_none!(reset);
-    impl_is_none!(trace);
-    impl_is_none!(move_);
-    impl_is_none!(turn);
-    impl_is_none!(medium);
-    impl_is_none!(position);
 }

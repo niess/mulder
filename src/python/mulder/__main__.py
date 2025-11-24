@@ -31,7 +31,7 @@ def main():
     if args.cache:
         result.append(str(mulder.config.DEFAULT_CACHE))
     if args.prefix:
-        result.append(mulder.config.PREFIX)
+        result.append(str(mulder.config.PREFIX))
     if args.version:
         result.append(mulder.config.VERSION)
 

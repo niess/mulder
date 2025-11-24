@@ -9,6 +9,7 @@ mod bindings;
 mod camera;
 mod geometry;
 mod materials;
+mod module;
 mod simulation;
 mod utils;
 
@@ -57,6 +58,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<geometry::earth::Layer>()?;
     module.add_class::<geometry::external::ExternalGeometry>()?;
     module.add_class::<geometry::external::Medium>()?;
+    module.add_class::<module::Module>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::atmosphere::Atmosphere>()?;
     module.add_class::<simulation::geomagnet::EarthMagnet>()?;
@@ -102,6 +104,7 @@ impl Config {
     /// Default cache path.
     #[getter]
     fn get_DEFAULT_CACHE(&self, py: Python) -> PyObject {
+        // XXX Return the actual cache path instead of the default one.
         utils::cache::default_path()
             .and_then(|cache| cache.into_pyobject(py).map(|cache| cache.unbind()))
             .unwrap_or_else(|_| py.None())

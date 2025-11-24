@@ -5,8 +5,8 @@ use pyo3::prelude::*;
 pub mod earth;
 pub mod external;
 
-use earth::EarthGeometry;
-use external::ExternalGeometry;
+pub use earth::EarthGeometry;
+pub use external::ExternalGeometry;
 
 
 #[derive(FromPyObject, IntoPyObject)]
