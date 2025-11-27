@@ -1,3 +1,4 @@
+use crate::module::{calzone, modules};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
 use pyo3::prelude::*;
@@ -108,10 +109,31 @@ impl Element {
         Ok(elements)
     }
 
+    /// Fetches an atomic element.
+    #[classmethod]
+    #[pyo3(signature=(symbol, /))]
+    fn fetch<'py>(
+        cls: &Bound<'py, PyType>,
+        symbol: &str,
+    ) -> PyResult<Self> {
+        let py = cls.py();
+        if let Some(element) = Registry::get(py)?.read().unwrap().elements.get(symbol) {
+            return Ok(element.clone())
+        }
+        let _ = calzone(py)?;
+        for module in modules(py)?.read().unwrap().values() {
+            if let Some(element) = module.bind(py).borrow().element(py, symbol)? {
+                return Ok(element)
+            }
+        }
+        let why = format!("undefined element '{}'", symbol);
+        Err(Error::new(ValueError).why(&why).to_err())
+    }
+
     /// The element Mean Excitation Energy, in GeV.
     #[allow(non_snake_case)]
     #[getter]
-    fn get_I(&self) -> f64 {
+    fn get_I(&self) -> f64 { // XXX Is this correct?
         self.I * 1E-09
     }
 }
@@ -163,6 +185,32 @@ impl Mixture {
             }
         }
         Ok(mixtures)
+    }
+
+    /// Fetches a material.
+    #[classmethod]
+    #[pyo3(signature=(name, /))]
+    fn fetch<'py>(
+        cls: &Bound<'py, PyType>,
+        name: &str,
+    ) -> PyResult<Self> {
+        let py = cls.py();
+        if let Some(material) = Registry::get(py)?.read().unwrap().materials.get(name) {
+            if let Some(mixture) = material.as_mixture() {
+                return Ok(mixture.clone())
+            }
+        }
+        let _ = calzone(py)?;
+        for module in modules(py)?.read().unwrap().values() {
+            if let Some(material) = module.bind(py).borrow().material(py, name)? {
+                match material {
+                    Material::Mixture(mixture) => return Ok(mixture),
+                    _ => unreachable!()
+                }
+            }
+        }
+        let why = format!("undefined material '{}'", name);
+        Err(Error::new(ValueError).why(&why).to_err())
     }
 
     /// The material mass composition.

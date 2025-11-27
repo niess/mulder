@@ -27,7 +27,7 @@ pub struct Module {
     interface: CModule,
 }
 
-type Modules = HashMap<String, Py<Module>>;
+pub type Modules = HashMap<String, Py<Module>>;
 
 #[inline]
 fn type_error(what: &str, why: &str) -> PyErr {
@@ -36,8 +36,26 @@ fn type_error(what: &str, why: &str) -> PyErr {
 
 static MODULES: GILOnceCell<RwLock<Modules>> = GILOnceCell::new();
 
-fn modules(py: Python) -> PyResult<&'static RwLock<Modules>> {
+pub fn modules(py: Python) -> PyResult<&'static RwLock<Modules>> {
     MODULES.get_or_try_init(py, || Ok::<_, PyErr>(RwLock::new(Modules::new())))
+}
+
+static CALZONE_MODULE: GILOnceCell<Option<Py<Module>>> = GILOnceCell::new();
+
+pub fn calzone(py: Python) -> PyResult<Option<&'static Py<Module>>> {
+    let module = CALZONE_MODULE.get_or_try_init(py, || {
+        match py.import("calzone") {
+            Ok(calzone) => {
+                let dll: String = calzone
+                    .getattr("_DLL")?
+                    .extract()?;
+                let module = unsafe { Module::new(py, PathString(dll))? };
+                Ok::<_, PyErr>(Some(module))
+            },
+            Err(_) => Ok(None),
+        }
+    })?;
+    Ok(module.as_ref())
 }
 
 #[pymethods]
@@ -100,7 +118,7 @@ impl Module {
 
     /// Fetches a module atomic element.
     #[pyo3(signature=(symbol, /))]
-    fn element(&self, py: Python<'_>, symbol: &str) -> PyResult<Option<Element>> {
+    pub fn element(&self, py: Python<'_>, symbol: &str) -> PyResult<Option<Element>> {
         self.interface
             .element(symbol)?
             .map(|element| {
@@ -123,7 +141,7 @@ impl Module {
 
     /// Feches a module material.
     #[pyo3(signature=(name, /))]
-    fn material(&self, py: Python<'_>, name: &str) -> PyResult<Option<Material>> {
+    pub fn material(&self, py: Python<'_>, name: &str) -> PyResult<Option<Material>> {
         let registry = &mut Registry::get(py)?.write().unwrap();
         self.interface
             .material(name, registry)?
