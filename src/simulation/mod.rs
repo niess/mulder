@@ -1,7 +1,7 @@
 use crate::bindings::pumas;
 use crate::geometry::{Geometry, GeometryArg, GeometryRef};
 use crate::geometry::earth::{EarthGeometry, EarthGeometryStepper, Layer};
-use crate::geometry::external;
+use crate::geometry::local;
 use crate::materials::set::MaterialsSet;
 use crate::utils::convert::TransportMode;
 use crate::utils::error::{self, Error};
@@ -114,8 +114,8 @@ enum GeometryAgent<'a> {
         stepper: EarthGeometryStepper,
         zmax: f64,
     },
-    External {
-        tracer: external::ExternalTracer<'a>,
+    Local {
+        tracer: local::LocalTracer<'a>,
         frame: &'a LocalFrame,
         direction: [f64; 3],
         step: f64,
@@ -313,7 +313,7 @@ impl Fluxmeter {
     fn get_geometry(&mut self, py: Python) -> PyObject {
         match &self.geometry {
             Geometry::Earth(geometry) => geometry.clone_ref(py).into_any(),
-            Geometry::External(geometry) => geometry.clone_ref(py).into_any(),
+            Geometry::Local(geometry) => geometry.clone_ref(py).into_any(),
         }
     }
 
@@ -665,10 +665,10 @@ impl Fluxmeter {
                     physics,
                 )?;
             },
-            GeometryRef::External(geometry) => if self.media.is_empty() {
+            GeometryRef::Local(geometry) => if self.media.is_empty() {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
-                    let medium = medium.downcast::<external::Medium>().unwrap().borrow();
-                    let medium = CMedium::from_external(&medium, index, physics)?;
+                    let medium = medium.downcast::<local::Medium>().unwrap().borrow();
+                    let medium = CMedium::from_local(&medium, index, physics)?;
                     self.media.push(medium);
                 }
                 self.atmosphere_medium = CMedium::atmosphere(
@@ -678,7 +678,7 @@ impl Fluxmeter {
                 )?;
             } else {
                 for (index, medium) in geometry.media.bind(py).iter().enumerate() {
-                    let medium = medium.downcast::<external::Medium>().unwrap().borrow();
+                    let medium = medium.downcast::<local::Medium>().unwrap().borrow();
                     self.media[index].update(
                         medium.density,
                         medium.material.as_str(),
@@ -825,14 +825,14 @@ extern "C" fn opensky_geometry(
 }
 
 #[no_mangle]
-extern "C" fn external_geometry(
+extern "C" fn local_geometry(
     _context: *mut pumas::Context,
     state: *mut pumas::State,
     medium_ptr: *mut *mut pumas::Medium,
     step_ptr: *mut f64,
 ) -> c_uint {
     let agent: &mut Agent = state.into();
-    let GeometryAgent::External { tracer, direction, step, status, .. } = &mut agent.geometry
+    let GeometryAgent::Local { tracer, direction, step, status, .. } = &mut agent.geometry
         else { unreachable!() };
     let n = agent.fluxmeter.media.len();
     let mut set_medium_ptr = || {
@@ -931,8 +931,8 @@ impl CMedium {
         )
     }
 
-    fn from_external(
-        medium: &external::Medium,
+    fn from_local(
+        medium: &local::Medium,
         index: usize,
         physics: &physics::Physics,
     ) -> PyResult<Self> {
@@ -998,7 +998,7 @@ impl<'a> Agent<'a> {
     fn get_flavoured_geographic_state(&self) -> TaggedGeographicState {
         let (geographic, horizontal) = match self.geometry {
             GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
-            GeometryAgent::External { frame, .. } => frame.to_geographic(
+            GeometryAgent::Local { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
         };
@@ -1019,7 +1019,7 @@ impl<'a> Agent<'a> {
             GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
             ),
-            GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
+            GeometryAgent::Local { frame: geometry_frame, .. } => frame.from_local(
                 self.state.position, self.state.direction, geometry_frame
             ),
         };
@@ -1035,7 +1035,7 @@ impl<'a> Agent<'a> {
     fn get_unflavoured_geographic_state(&self) -> UntaggedGeographicState {
         let (geographic, horizontal) = match self.geometry {
             GeometryAgent::Earth { .. } => (self.geographic, self.horizontal),
-            GeometryAgent::External { frame, .. } => frame.to_geographic(
+            GeometryAgent::Local { frame, .. } => frame.to_geographic(
                 &self.state.position, &self.state.direction
             ),
         };
@@ -1055,7 +1055,7 @@ impl<'a> Agent<'a> {
             GeometryAgent::Earth { .. } => frame.from_geographic(
                 self.geographic, self.horizontal
             ),
-            GeometryAgent::External { frame: geometry_frame, .. } => frame.from_local(
+            GeometryAgent::Local { frame: geometry_frame, .. } => frame.from_local(
                 self.state.position, self.state.direction, geometry_frame
             ),
         };
@@ -1084,8 +1084,8 @@ impl<'a> Agent<'a> {
                 self.context.medium = Some(earth_geometry);
                 stepper.reset();
             },
-            GeometryAgent::External { tracer, status, .. } => {
-                self.context.medium = Some(external_geometry);
+            GeometryAgent::Local { tracer, status, .. } => {
+                self.context.medium = Some(local_geometry);
                 let u = [
                     -self.state.direction[0],
                     -self.state.direction[1],
@@ -1144,7 +1144,7 @@ impl<'a> Agent<'a> {
                 stepper: geometry.stepper(py)?,
                 zmax: geometry.zlim.max() + Self::DELTA_Z,
             },
-            GeometryRef::External(geometry) => GeometryAgent::External {
+            GeometryRef::Local(geometry) => GeometryAgent::Local {
                 tracer: geometry.tracer()?,
                 frame: &geometry.frame,
                 direction: [0.0; 3],
@@ -1217,7 +1217,7 @@ impl<'a> Agent<'a> {
                     },
                 }
             },
-            GeometryAgent::External { frame: geometry_frame, .. } => {
+            GeometryAgent::Local { frame: geometry_frame, .. } => {
                 match state {
                     ExtractedState::Geographic { state } => {
                         let TaggedGeographicState {
@@ -1275,7 +1275,7 @@ impl<'a> Agent<'a> {
                 }
                 is_inside
             },
-            GeometryAgent::External { tracer, status, .. } => {
+            GeometryAgent::Local { tracer, status, .. } => {
                 let u = [
                     -self.state.direction[0],
                     -self.state.direction[1],
@@ -1285,7 +1285,7 @@ impl<'a> Agent<'a> {
                 *status = TracingStatus::Start;
                 let is_inside = tracer.medium() < n_media;
                 if is_inside {
-                    self.context.medium = Some(external_geometry);
+                    self.context.medium = Some(local_geometry);
                 }
                 is_inside
             },
@@ -1355,7 +1355,7 @@ impl<'a> Agent<'a> {
             }
         }
 
-        if let GeometryAgent::External { frame, .. } = &self.geometry {
+        if let GeometryAgent::Local { frame, .. } = &self.geometry {
             self.state.position = frame.to_ecef_position(&self.state.position);
             self.state.direction = frame.to_ecef_direction(&self.state.direction);
             self.geographic = GeographicCoordinates::from_ecef(&self.state.position);
@@ -1587,7 +1587,7 @@ impl<'a> GeometryAgent<'a> {
     fn frame(&self) -> Option<&'a LocalFrame> {
         match self {
             Self::Earth { .. } => None,
-            Self::External { frame, .. } => Some(frame),
+            Self::Local { frame, .. } => Some(frame),
         }
     }
 }

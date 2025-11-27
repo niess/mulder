@@ -76,9 +76,12 @@ Geometry interface
 
 ----
 
-.. autoclass:: mulder.ExternalGeometry
+.. autoclass:: mulder.LocalGeometry
 
-   .. method:: __new__(*args, **kwargs)
+   .. method:: __new__(path, /, *, frame=None)
+
+      The *path* argument might point to a C module file or to a Calzone
+      geometry (Not-Yet-Implemented).
 
    .. rubric:: Geometry methods
      :heading-level: 4

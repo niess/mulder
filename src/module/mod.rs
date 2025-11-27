@@ -1,4 +1,4 @@
-use crate::geometry::ExternalGeometry;
+use crate::geometry::LocalGeometry;
 use crate::materials::{Element, Material, Registry};
 use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
@@ -113,12 +113,12 @@ impl Module {
 
     /// Creates a new geometry.
     #[pyo3(signature=(*, frame=None))]
-    fn geometry(
+    pub fn geometry(
         &self,
         py: Python<'_>,
         frame: Option<LocalFrame>,
-    ) -> PyResult<Py<ExternalGeometry>> {
-        ExternalGeometry::from_module(py, &self.interface, frame)
+    ) -> PyResult<Py<LocalGeometry>> {
+        LocalGeometry::from_module(py, &self.interface, frame)
     }
 
     /// Feches a module material.

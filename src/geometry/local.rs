@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::materials::{MaterialsSet, MaterialsSubscriber, Registry};
-use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3};
+use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3, Module};
 use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -10,8 +10,11 @@ use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::OwnedPtr;
 use pyo3::prelude::*;
+use pyo3::exceptions::PyNotImplementedError;
 use pyo3::types::PyTuple;
 use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::path::Path;
 
 
 // ===============================================================================================
@@ -19,7 +22,7 @@ use std::collections::HashSet;
 // ===============================================================================================
 
 #[pyclass(module="mulder")]
-pub struct ExternalGeometry { // XXX Rename to LocalGeometry?
+pub struct LocalGeometry {
     geometry: OwnedPtr<CGeometry>,
     subscribers: Vec<MaterialsSubscriber>,
 
@@ -47,12 +50,12 @@ pub struct Medium {
     #[pyo3(get, set)]
     pub description: Option<String>,
 
-    pub geometry: Option<Py<ExternalGeometry>>,
+    pub geometry: Option<Py<LocalGeometry>>,
 }
 
-pub struct ExternalTracer<'a> {
+pub struct LocalTracer<'a> {
     #[allow(dead_code)]
-    definition: &'a ExternalGeometry, // for lifetime guarantee.
+    definition: &'a LocalGeometry, // for lifetime guarantee.
     ptr: OwnedPtr<CTracer>,
 }
 
@@ -74,8 +77,8 @@ macro_rules! null_pointer_fmt {
     }
 }
 
-unsafe impl Send for ExternalGeometry {}
-unsafe impl Sync for ExternalGeometry {}
+unsafe impl Send for LocalGeometry {}
+unsafe impl Sync for LocalGeometry {}
 
 #[inline]
 fn type_error(what: &str, why: &str) -> PyErr {
@@ -83,16 +86,26 @@ fn type_error(what: &str, why: &str) -> PyErr {
 }
 
 #[pymethods]
-impl ExternalGeometry {
+impl LocalGeometry {
     #[new]
     #[pyo3(signature=(path, /, *, frame=None))]
-    #[allow(unused)] // XXX remove.
-    pub unsafe fn new(
+    pub fn new(
         py: Python,
         path: PathString,
         frame: Option<LocalFrame>,
     ) -> PyResult<Py<Self>> {
-        unimplemented!() // XXX impl from calzone.
+        match Path::new(&path.0).extension().and_then(OsStr::to_str) {
+            Some("json") | Some("toml") | Some("yml") | Some("yaml") => {
+                unimplemented!() // XXX impl from calzone.
+            },
+            Some("dll") | Some("dylib") | Some("mod") | Some("so")  => {
+                let module = unsafe { Module::new(py, path)? }
+                    .bind(py)
+                    .borrow();
+                module.geometry(py, frame)
+            },
+            _ => Err(PyNotImplementedError::new_err("")),
+        }
     }
 
     #[pyo3(name="locate", signature=(*, position))]
@@ -177,7 +190,7 @@ impl ExternalGeometry {
     }
 }
 
-impl ExternalGeometry {
+impl LocalGeometry {
     pub fn from_module(
         py: Python<'_>,
         module: &CModule,
@@ -205,19 +218,19 @@ impl ExternalGeometry {
         // Bundle the geometry definition.
         let subscribers = Vec::new();
         let frame = frame.unwrap_or_else(|| LocalFrame::default());
-        let external_geometry = Self {
+        let local_geometry = Self {
             subscribers,
             geometry,
             media,
             frame,
         };
-        let external_geometry = Py::new(py, external_geometry)?;
-        for medium in external_geometry.bind(py).borrow().media.bind(py).iter() {
+        let local_geometry = Py::new(py, local_geometry)?;
+        for medium in local_geometry.bind(py).borrow().media.bind(py).iter() {
             let medium: &Bound<Medium> = medium.downcast().unwrap();
-            medium.borrow_mut().geometry = Some(external_geometry.clone_ref(py));
+            medium.borrow_mut().geometry = Some(local_geometry.clone_ref(py));
         }
 
-        Ok(external_geometry)
+        Ok(local_geometry)
     }
 
     pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
@@ -235,34 +248,34 @@ impl ExternalGeometry {
         self.subscribers.retain(|s| s.is_alive() && !s.is_subscribed(set));
     }
 
-    pub fn tracer<'a>(&'a self) -> PyResult<ExternalTracer<'a>> {
+    pub fn tracer<'a>(&'a self) -> PyResult<LocalTracer<'a>> {
         let tracer = self.geometry.tracer()?;
         if tracer.is_none_locate() {
-            return Err(null_pointer_fmt!("ExternalTracer::locate"))
+            return Err(null_pointer_fmt!("LocalTracer::locate"))
         }
         if tracer.is_none_reset() {
-            return Err(null_pointer_fmt!("ExternalTracer::reset"))
+            return Err(null_pointer_fmt!("LocalTracer::reset"))
         }
         if tracer.is_none_trace() {
-            return Err(null_pointer_fmt!("ExternalTracer::trace"))
+            return Err(null_pointer_fmt!("LocalTracer::trace"))
         }
         if tracer.is_none_move_() {
-            return Err(null_pointer_fmt!("ExternalTracer::move"))
+            return Err(null_pointer_fmt!("LocalTracer::move"))
         }
         if tracer.is_none_turn() {
-            return Err(null_pointer_fmt!("ExternalTracer::turn"))
+            return Err(null_pointer_fmt!("LocalTracer::turn"))
         }
         if tracer.is_none_medium() {
-            return Err(null_pointer_fmt!("ExternalTracer::medium"))
+            return Err(null_pointer_fmt!("LocalTracer::medium"))
         }
         if tracer.is_none_position() {
-            return Err(null_pointer_fmt!("ExternalTracer::position"))
+            return Err(null_pointer_fmt!("LocalTracer::position"))
         }
-        Ok(ExternalTracer { definition: self, ptr: tracer })
+        Ok(LocalTracer { definition: self, ptr: tracer })
     }
 }
 
-impl<'a> ExternalTracer<'a> {
+impl<'a> LocalTracer<'a> {
     #[inline]
     pub fn locate(&self, position: [f64; 3]) -> usize {
         let func = unsafe { self.ptr.0.as_ref() }.locate.unwrap();

@@ -56,8 +56,8 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     module.add_class::<geometry::earth::EarthGeometry>()?;
     module.add_class::<geometry::earth::Grid>()?;
     module.add_class::<geometry::earth::Layer>()?;
-    module.add_class::<geometry::external::ExternalGeometry>()?;
-    module.add_class::<geometry::external::Medium>()?;
+    module.add_class::<geometry::local::LocalGeometry>()?;
+    module.add_class::<geometry::local::Medium>()?;
     module.add_class::<module::Module>()?;
     module.add_class::<simulation::Fluxmeter>()?;
     module.add_class::<simulation::atmosphere::Atmosphere>()?;
