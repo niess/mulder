@@ -62,12 +62,12 @@ impl Module {
         let library = Library::new(path.as_str())
             .map_err(|err| type_error(
                 "CModule",
-                &format!("{}: {}", path.as_str(), err)
+                &format!("{}", err)
             ))?;
         let initialise = library.get::<Initialise>(INITIALISE)
             .map_err(|err| type_error(
                 "CModule",
-                &format!("{}: {}", path.as_str(), err)
+                &format!("{}", err)
             ))?;
         let interface = unsafe { initialise() };
 

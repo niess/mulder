@@ -68,6 +68,12 @@ struct Intersection {
     pub distance: f64,
 }
 
+#[derive(FromPyObject)]
+pub enum LocalArg<'py> {
+    Path(PathString),
+    Any(Bound<'py, PyAny>),
+}
+
 macro_rules! null_pointer_fmt {
     ($($arg:tt)*) => {
         {
@@ -88,23 +94,55 @@ fn type_error(what: &str, why: &str) -> PyErr {
 #[pymethods]
 impl LocalGeometry {
     #[new]
-    #[pyo3(signature=(path, /, *, frame=None))]
-    pub fn new(
-        py: Python,
-        path: PathString,
+    #[pyo3(signature=(data, /, *, frame=None))]
+    pub fn new<'py>(
+        py: Python<'py>,
+        data: LocalArg<'py>,
         frame: Option<LocalFrame>,
     ) -> PyResult<Py<Self>> {
-        match Path::new(&path.0).extension().and_then(OsStr::to_str) {
-            Some("json") | Some("toml") | Some("yml") | Some("yaml") => {
-                unimplemented!() // XXX impl from calzone.
+        match data {
+            LocalArg::Path(path) => {
+                match Path::new(&path.0).extension().and_then(OsStr::to_str) {
+                    Some("json") | Some("toml") | Some("yml") | Some("yaml") => {
+                        let geometry = py.import("calzone")?
+                            .getattr("Geometry")?
+                            .call1((&path.0,))?
+                            .call_method1("export", ("mulder",))?
+                            .downcast_into_exact::<Self>()?;
+                        if let Some(frame) = frame {
+                            geometry.borrow_mut().frame = frame;
+                        }
+                        Ok(geometry.unbind())
+                    },
+                    Some("dll") | Some("dylib") | Some("mod") | Some("so")  => {
+                        let module = unsafe { Module::new(py, path)? }
+                            .bind(py)
+                            .borrow();
+                        module.geometry(py, frame)
+                    },
+                    _ => Err(PyNotImplementedError::new_err("")),
+                }
             },
-            Some("dll") | Some("dylib") | Some("mod") | Some("so")  => {
-                let module = unsafe { Module::new(py, path)? }
-                    .bind(py)
-                    .borrow();
-                module.geometry(py, frame)
+            LocalArg::Any(obj) => {
+                let typename = obj
+                    .get_type()
+                    .fully_qualified_name()?;
+                if typename.to_string_lossy() == "calzone.Geometry" {
+                    let geometry = obj
+                        .call_method1("export", ("mulder",))?
+                        .downcast_into_exact::<Self>()?;
+                    if let Some(frame) = frame {
+                        geometry.borrow_mut().frame = frame;
+                    }
+                    Ok(geometry.unbind())
+                } else {
+                    let why = format!(
+                        "cannot create LocalGeometry from a '{}' instance",
+                        typename,
+                    );
+                    Err(Error::new(TypeError).what("data").why(&why).to_err())
+                }
             },
-            _ => Err(PyNotImplementedError::new_err("")),
         }
     }
 

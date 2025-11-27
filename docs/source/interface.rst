@@ -78,10 +78,11 @@ Geometry interface
 
 .. autoclass:: mulder.LocalGeometry
 
-   .. method:: __new__(path, /, *, frame=None)
+   .. method:: __new__(data, /, *, frame=None)
 
-      The *path* argument might point to a C module file or to a Calzone
-      geometry (Not-Yet-Implemented).
+      The *data* argument may be a path-string pointing to a C-module file or to
+      a Calzone geometry file. Alternatively, one might provide a
+      :py:class:`calzone.Geometry` object as *data* argument.
 
    .. rubric:: Geometry methods
      :heading-level: 4

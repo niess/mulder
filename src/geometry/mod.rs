@@ -1,5 +1,4 @@
 use crate::materials::set::MaterialsSet;
-use crate::utils::io::PathString;
 use pyo3::prelude::*;
 
 pub mod earth;
@@ -27,9 +26,9 @@ pub enum GeometryRef<'py> {
 }
 
 #[derive(FromPyObject)]
-pub enum GeometryArg {
+pub enum GeometryArg<'py> {
     Object(Geometry),
-    Path(PathString),
+    Local(local::LocalArg<'py>),
 }
 
 impl Geometry {
@@ -77,12 +76,12 @@ impl<'a, 'py> BoundGeometry<'a, 'py> {
     }
 }
 
-impl GeometryArg {
-    pub fn into_geometry(self, py: Python) -> PyResult<Geometry> {
+impl<'py> GeometryArg<'py> {
+    pub fn into_geometry(self, py: Python<'py>) -> PyResult<Geometry> {
         let geometry = match self {
             Self::Object(geometry) => geometry,
-            Self::Path(path) => {
-                let geometry = LocalGeometry::new(py, path, None)?;
+            Self::Local(arg) => {
+                let geometry = LocalGeometry::new(py, arg, None)?;
                 Geometry::Local(Py::new(py, geometry)?)
             },
         };

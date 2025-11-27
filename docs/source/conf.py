@@ -17,6 +17,7 @@ numfig = True
 autodoc_member_order = "groupwise"
 autosectionlabel_prefix_document = True
 intersphinx_mapping = {
+    "calzone": ("https://calzone.readthedocs.io/en/latest/", None),
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None)
 }
