@@ -91,8 +91,11 @@ impl Module {
 
     /// Pointer to the C interface.
     #[getter]
-    fn get_ptr(&self) -> PyObject {
-        unimplemented!() // XXX return ctype pointer.
+    fn get_ptr<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let ptr = &self.interface as *const CModule as usize;
+        py.import("ctypes")?
+            .getattr("c_void_p")?
+            .call1((ptr,))
     }
 
     /// Fetches a module atomic element.

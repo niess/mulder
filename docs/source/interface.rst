@@ -617,10 +617,19 @@ Module interface
 
    .. automethod:: element
 
+      Fetches a module's element to Mulder's global scope. For example,
+
       >>> H = module.element("G4_H")  # doctest: +IGNORE
 
    .. automethod:: geometry
+
+      >>> geometry = module.geometry(frame=frame)  # doctest: +IGNORE
+
    .. automethod:: material
+
+      Fetches a module's material to Mulder's global scope. For example,
+
+      >>> air = module.material("G4_AIR")  # doctest: +IGNORE
 
    .. rubric:: Attributes
      :heading-level: 4
