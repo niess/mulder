@@ -1,5 +1,5 @@
 use crate::materials::definitions::{Component, Composite, Element, Mixture};
-use crate::materials::registry::Registry;
+use crate::materials::registry::MaterialsBroker;
 use crate::materials::set::{MaterialsSet, UnpackedMaterials};
 use pyo3::prelude::*;
 use ::std::path::Path;
@@ -15,30 +15,29 @@ pub struct Mdf (String);
 
 impl Mdf {
     pub fn new(py: Python, materials: &MaterialsSet) -> PyResult<Self> {
-        let registry = &Registry::get(py)?.read().unwrap();
+        let broker = MaterialsBroker::new(py)?;
         let materials = materials.borrow();
-        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(registry)?;
+        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(&broker)?;
+        let registry = &broker.registry.read().unwrap();
 
         let mut lines = Vec::<String>::new();
         lines.push("<pumas>".to_string());
 
         for symbol in elements {
-            let element = registry.get_element(symbol).unwrap();
-            let element = element.to_xml(Some(symbol));
+            let element = registry.element(&symbol);
+            let element = element.to_xml(Some(&symbol));
             lines.push(element);
         }
 
         for name in mixtures {
-            if let Some(mixture) = registry.get_material(name.as_str()).unwrap().as_mixture() {
-                let mixture = mixture.to_xml(Some(name.as_str()));
-                lines.push(mixture);
-            }
+            let mixture = registry.mixture(&name);
+            let mixture = mixture.to_xml(Some(&name));
+            lines.push(mixture);
         }
         for name in composites {
-            if let Some(composite) = registry.get_material(name).unwrap().as_composite() {
-                let composite = composite.to_xml(Some(name));
-                lines.push(composite);
-            }
+            let composite = registry.composite(&name);
+            let composite = composite.to_xml(Some(&name));
+            lines.push(composite);
         }
 
         lines.push("</pumas>".to_string());

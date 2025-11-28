@@ -1,3 +1,5 @@
+use crate::materials::Component;
+use crate::module::{calzone, Module, modules};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{ValueError, TypeError};
 use crate::utils::io::{ConfigFormat, Toml};
@@ -7,14 +9,29 @@ use pyo3::types::PyDict;
 use pyo3::sync::GILOnceCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use super::definitions::{Composite, Element, Material, Mixture};
 
 
 #[derive(Default)]
 pub struct Registry {
-    pub elements: HashMap<String, Element>,
-    pub materials: HashMap<String, Material>,
+    elements: HashMap<String, Element>,
+    materials: HashMap<String, Material>,
+}
+
+pub struct MaterialsBroker<'a, 'py:'a> {
+    pub registry: &'a RwLock<Registry>,
+    modules: Vec<Bound<'py, Module>>,
+}
+
+struct MixtureData {
+    density: f64,
+    composition: Composition,
+}
+
+enum Composition {
+    Formula(&'static str),
+    Mass(Vec<Component>)
 }
 
 static REGISTRY: GILOnceCell<RwLock<Registry>> = GILOnceCell::new();
@@ -22,7 +39,7 @@ static REGISTRY: GILOnceCell<RwLock<Registry>> = GILOnceCell::new();
 impl Registry {
     #[inline]
     pub fn get(py: Python) -> PyResult<&'static RwLock<Self>> {
-        REGISTRY.get_or_try_init(py, || Ok(RwLock::new(Self::new(py)?)))
+        REGISTRY.get_or_try_init(py, || Ok(RwLock::new(Self::default())))
     }
 
     pub fn add_element(&mut self, symbol: String, definition: Element) -> PyResult<()> {
@@ -46,6 +63,7 @@ impl Registry {
                 let err = Error::new(ValueError).what("material").why(&why).to_err();
                 return Err(err)
             } else if definition.is_composite() {
+                // Update fractions.
                 self.materials.insert(name, definition);
             },
             None => {
@@ -55,49 +73,40 @@ impl Registry {
         Ok(())
     }
 
-    pub fn load<P: AsRef<Path>>(&mut self, py: Python, path: P) -> PyResult<()> {
-        let to_err = |expected: &str, found: &Bound<PyAny>| {
-            let why = format!("expected a '{}', found a '{}'", expected, found.type_name());
-            Error::new(TypeError)
-                .what("materials")
-                .why(&why)
-                .to_err()
-        };
+    #[inline]
+    pub fn composite<'a>(&'a self, name: &str) -> &'a Composite {
+        self.materials.get(name).and_then(|material| material.as_composite()).unwrap()
+    }
 
-        let toml = Toml::load_dict(py, path.as_ref())?;
+    #[inline]
+    pub fn element<'a>(&'a self, symbol: &str) -> &'a Element {
+        self.elements.get(symbol).unwrap()
+    }
 
-        if let Some(elements) = toml.get_item("elements")? {
-            let elements = elements.downcast::<PyDict>()
-                .map_err(|_| to_err("dict", &elements))?;
-            for (k, v) in elements.iter() {
-                let k: String = k.extract()
-                    .map_err(|_| to_err("string", &k))?;
-                let v: Bound<PyDict> = v.extract()
-                    .map_err(|_| to_err("dict", &v))?;
-                let element: Element = (k.as_str(), &v).try_into()?;
-                self.add_element(k, element)?;
-            }
-        }
+    #[inline]
+    pub fn elements(&self) -> &HashMap<String, Element> {
+        &self.elements
+    }
 
-        for (k, v) in toml.iter() {
-            let k: String = k.extract()
-                .map_err(|_| to_err("string", &k))?;
-            if k == "elements" { continue }
-            let v: Bound<PyDict> = v.extract()
-                .map_err(|_| to_err("dict", &v))?;
-            let material: Material = (k.as_str(), &v, self as &Self).try_into()?;
-            self.add_material(k, material)?;
-        }
+    #[inline]
+    pub fn material<'a>(&'a self, name: &str) -> &'a Material {
+        self.materials.get(name).unwrap()
+    }
 
-        Ok(())
+    #[inline]
+    pub fn materials(&self) -> &HashMap<String, Material> {
+        &self.materials
+    }
+
+    #[inline]
+    pub fn mixture<'a>(&'a self, name: &str) -> &'a Mixture {
+        self.materials.get(name).and_then(|material| material.as_mixture()).unwrap()
     }
 }
 
 impl Registry {
-    const DEFAULT_MATERIALS: &'static str = "default";
-
-    fn new(py: Python) -> PyResult<Self> {
-        let elements = HashMap::from([
+    pub const DEFAULT_ELEMENTS: LazyLock<HashMap<String, Element>> = LazyLock::new(|| {
+        HashMap::from([
             ("H" .to_owned(), Element { Z: 1,   A: 1.008,   I: 19.2   }),
             ("D" .to_owned(), Element { Z: 1,   A: 2.0141,  I: 19.2   }),
             ("He".to_owned(), Element { Z: 2,   A: 4.0026,  I: 41.8   }),
@@ -218,48 +227,168 @@ impl Registry {
             ("Lv".to_owned(), Element { Z: 116, A: 293.204, I: 1213.0 }),
             ("Ts".to_owned(), Element { Z: 117, A: 294.211, I: 1227.0 }),
             ("Og".to_owned(), Element { Z: 118, A: 294.214, I: 1242.0 }),
-        ]);
+        ])
+    });
 
-        let materials = HashMap::new();
-        let mut registry = Self { elements, materials };
+    const DEFAULT_MATERIALS: LazyLock<HashMap<String, MixtureData>> = LazyLock::new(|| {
+        HashMap::from([
+            ("Air".to_owned(), MixtureData {
+                density: 1.205,
+                composition: Composition::Mass(vec![
+                    Component { name: "C" .to_owned(), weight: 0.000124 },
+                    Component { name: "N" .to_owned(), weight: 0.755267 },
+                    Component { name: "O" .to_owned(), weight: 0.231781 },
+                    Component { name: "Ar".to_owned(), weight: 0.012827 },
+                ]),
+            }),
+            ("Rock".to_owned(), MixtureData {
+                density: 2.65E+03,
+                composition: Composition::Formula("Rk")
+            }),
+            ("Water".to_owned(), MixtureData {
+                density: 1.02E+03,
+                composition: Composition::Formula("H2O")
+            }),
+        ])
+    });
+}
 
-        let path = Path::new(crate::PREFIX.get(py).unwrap())
-            .join(format!("data/materials/{}.toml", Self::DEFAULT_MATERIALS));
-        registry.load(py, &path)?;
-        Ok(registry)
+impl <'a, 'py: 'a> MaterialsBroker<'a, 'py> {
+    pub fn new(py: Python<'py>) -> PyResult<Self> {
+        let registry = Registry::get(py)?;
+        let _ = calzone(py)?;
+        let modules = modules(py)?
+            .read()
+            .unwrap()
+            .values()
+            .map(|module| module.bind(py).clone())
+            .collect();
+        Ok(Self { registry, modules })
     }
 
-    pub fn get_composite<'a>(&'a self, name: &str) -> PyResult<&'a Composite> {
-        self.materials.get(name)
-            .and_then(|m| m.as_composite())
+    pub fn get_composite(&self, name: &str) -> PyResult<Composite> {
+        self.get_material_opt(name)?
+            .and_then(|material| material.into_composite())
             .ok_or_else(|| {
                 let why = format!("undefined composite '{}'", name);
                 Error::new(ValueError).why(&why).to_err()
             })
     }
 
-    pub fn get_element<'a>(&'a self, symbol: &str) -> PyResult<&'a Element> {
-        self.elements.get(symbol)
+    pub fn get_element(&self, symbol: &str) -> PyResult<Element> {
+        self.get_element_opt(symbol)?
             .ok_or_else(|| {
                 let why = format!("undefined element '{}'", symbol);
                 Error::new(ValueError).why(&why).to_err()
             })
     }
 
-    pub fn get_material<'a>(&'a self, name: &str) -> PyResult<&'a Material> {
-        self.materials.get(name)
+    pub fn get_element_opt(&self, symbol: &str) -> PyResult<Option<Element>> {
+        if let Some(element) = self.registry.read().unwrap().elements.get(symbol) {
+            return Ok(Some(element.clone()))
+        }
+        for module in self.modules.iter() {
+            if let Some(element) = module.borrow().interface.element(symbol)? {
+                self.registry.write().unwrap()
+                    .add_element(symbol.to_owned(), element.clone())?;
+                return Ok(Some(element))
+            }
+        }
+        if let Some(element) = (&*Registry::DEFAULT_ELEMENTS).get(symbol) {
+            self.registry.write().unwrap()
+                .add_element(symbol.to_owned(), element.clone())?;
+            return Ok(Some(element.clone()))
+        }
+        Ok(None)
+    }
+
+    pub fn get_material(&self, name: &str) -> PyResult<Material> {
+        self.get_material_opt(name)?
             .ok_or_else(|| {
                 let why = format!("undefined material '{}'", name);
                 Error::new(ValueError).why(&why).to_err()
             })
     }
 
-    pub fn get_mixture<'a>(&'a self, name: &str) -> PyResult<&'a Mixture> {
-        self.materials.get(name)
-            .and_then(|m| m.as_mixture())
+    pub fn get_material_opt(&self, name: &str) -> PyResult<Option<Material>> {
+        if let Some(material) = self.registry.read().unwrap().materials.get(name) {
+            return Ok(Some(material.clone()))
+        }
+        for module in self.modules.iter() {
+            let material = module.borrow().interface.material(name, self)?;
+            if let Some(material) = material {
+                self.registry.write().unwrap()
+                    .add_material(name.to_owned(), material.clone())?;
+                return Ok(Some(material))
+            }
+        }
+        if let Some(data) = (&*Registry::DEFAULT_MATERIALS).get(name) {
+            let mixture = match &data.composition {
+                Composition::Formula(formula) => Mixture::from_formula(
+                    data.density,
+                    formula,
+                    None,
+                    self,
+                ),
+                Composition::Mass(composition) => Mixture::from_composition(
+                    data.density,
+                    composition,
+                    None,
+                    self,
+                ),
+            }
+                .map_err(|(kind, why)| Error::new(kind).why(&why).to_err())?;
+            let material = Material::Mixture(mixture);
+            self.registry.write().unwrap()
+                .add_material(name.to_owned(), material.clone())?;
+            return Ok(Some(material))
+        }
+        Ok(None)
+    }
+
+    pub fn get_mixture(&self, name: &str) -> PyResult<Mixture> {
+        self.get_material_opt(name)?
+            .and_then(|material| material.into_mixture())
             .ok_or_else(|| {
-                let why = format!("undefined material '{}'", name);
+                let why = format!("undefined base material '{}'", name);
                 Error::new(ValueError).why(&why).to_err()
             })
+    }
+
+    pub fn load<P: AsRef<Path>>(&self, py: Python, path: P) -> PyResult<()> {
+        let to_err = |expected: &str, found: &Bound<PyAny>| {
+            let why = format!("expected a '{}', found a '{}'", expected, found.type_name());
+            Error::new(TypeError)
+                .what("materials")
+                .why(&why)
+                .to_err()
+        };
+
+        let toml = Toml::load_dict(py, path.as_ref())?;
+
+        if let Some(elements) = toml.get_item("elements")? {
+            let elements = elements.downcast::<PyDict>()
+                .map_err(|_| to_err("dict", &elements))?;
+            for (k, v) in elements.iter() {
+                let k: String = k.extract()
+                    .map_err(|_| to_err("string", &k))?;
+                let v: Bound<PyDict> = v.extract()
+                    .map_err(|_| to_err("dict", &v))?;
+                let element: Element = (k.as_str(), &v).try_into()?;
+                self.registry.write().unwrap().add_element(k, element)?;
+            }
+        }
+
+        for (k, v) in toml.iter() {
+            let k: String = k.extract()
+                .map_err(|_| to_err("string", &k))?;
+            if k == "elements" { continue }
+            let v: Bound<PyDict> = v.extract()
+                .map_err(|_| to_err("dict", &v))?;
+            let material: Material = (k.as_str(), &v, self).try_into()?;
+            self.registry.write().unwrap().add_material(k, material)?;
+        }
+
+        Ok(())
     }
 }

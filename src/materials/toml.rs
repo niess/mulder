@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use std::cmp::Ordering::{Less, Equal, Greater};
 use super::definitions::{Component, Composite, Element, Mixture};
-use super::registry::Registry;
+use super::registry::MaterialsBroker;
 use super::set::{MaterialsSet, UnpackedMaterials};
 
 
@@ -17,14 +17,15 @@ pub trait ToToml {
 
 impl ToToml for MaterialsSet {
     fn to_toml(&self, py: Python) -> PyResult<String> {
-        let registry = &Registry::get(py)?.read().unwrap();
+        let broker = MaterialsBroker::new(py)?;
         let materials = self.borrow();
-        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(registry)?;
+        let UnpackedMaterials { composites, elements, mixtures } = materials.unpack(&broker)?;
+        let registry = &broker.registry.read().unwrap();
 
-        let mut elements = elements
+        let mut elements: Vec<_> = elements
             .iter()
-            .map(|e| -> PyResult<_> { Ok((e, registry.get_element(e)?)) })
-            .collect::<PyResult<Vec<_>>>()?;
+            .map(|e| (e, registry.element(e)))
+            .collect();
         elements.sort_by(|a, b| match a.1.Z.cmp(&b.1.Z) {
             Equal => match a.1.A.partial_cmp(&b.1.A).unwrap() {
                 Equal => a.0.cmp(&b.0),
@@ -48,17 +49,15 @@ impl ToToml for MaterialsSet {
         }
 
         for name in mixtures {
-            if let Some(mixture) = registry.get_material(name.as_str())?.as_mixture() {
-                lines.push(format!("\n[{}]", name));
-                lines.push(mixture.to_toml(py)?);
-            }
+            let mixture = registry.mixture(&name);
+            lines.push(format!("\n[{}]", name));
+            lines.push(mixture.to_toml(py)?);
         }
 
         for name in composites {
-            if let Some(composite) = registry.get_material(name)?.as_composite() {
-                lines.push(format!("\n[{}]", name));
-                lines.push(composite.to_toml(py)?);
-            }
+            let composite = registry.composite(&name);
+            lines.push(format!("\n[{}]", name));
+            lines.push(composite.to_toml(py)?);
         }
 
         Ok(lines.join("\n"))

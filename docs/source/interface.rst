@@ -392,10 +392,9 @@ rock composed of various minerals.
 
 .. important::
 
-   Materials (atomic elements) are defined at the global scope. They are
-   uniquely identified by their name (atomic symbol). It is not possible to
-   modify or remove a material (atomic element) within a given Python instance.
-
+   Materials (atomic elements) are uniquely identified by their name (atomic
+   symbol). It is not possible to modify or remove a material (atomic element)
+   once it has been defined.
 
 .. autoclass:: mulder.materials.Composite
 
@@ -411,24 +410,11 @@ rock composed of various minerals.
 
    .. method:: __new__(name, /, **kwargs)
 
-      Gets or defines a composite material.
+      Gets a composite definition.
 
-      Without *kwargs*, this constructor simply returns the definition of the
-      composite matching *name*. If the composite does not exists, it can be
-      defined by specifying its composition as *kwargs*. For instance,
+      Returns the definition of the composite matching *name*. For instance,
 
-      >>> humid_rock = materials.Composite(
-      ...     "HumidRock",
-      ...     composition=("Rock", "Water"),
-      ... )
-
-      The mass fractions may be specified when defining the composite, for
-      instance as
-
-      >>> humid_rock = materials.Composite(
-      ...     "HumidRock",
-      ...     composition={"Rock": 0.95, "Water": 0.05},
-      ... )
+      >>> composite = materials.Composite("HumidRock")  # doctest: +IGNORE
 
    .. method:: all()
 
@@ -436,6 +422,25 @@ rock composed of various minerals.
 
       The composites are returned as a :py:class:`dict` object mapping names to
       definitions.
+
+   .. method:: define(name, /, *, composition)
+
+      Defines a composite material.
+
+      The composite is defined by specifying its *composition*, for instance as,
+
+      >>> humid_rock = materials.Composite(
+      ...     "HumidRock",
+      ...     composition=("Rock", "Water"),
+      ... )
+
+      The mass fractions may also be specified when defining the composite, for
+      instance as
+
+      >>> humid_rock = materials.Composite(
+      ...     "HumidRock",
+      ...     composition={"Rock": 0.95, "Water": 0.05},
+      ... )
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -467,29 +472,24 @@ rock composed of various minerals.
 
 .. autoclass:: mulder.materials.Element
 
-   This class serves as a proxy for the definition of an atomic element, which
-   may represent a specific isotope or a mixture of isotopes.
+   This class represents an atomic element, which may be a specific isotope or a
+   mixture of isotopes.
 
    .. tip::
 
-      Mulder predefines atomic elements from :python:`H`, :python:`D`
-      (:math:`Z=1`) to :python:`Og` (:math:`Z=118`) according to the `PDG`_.
-      Furthermore, Mulder defines a fictitious :python:`Rk` (:math:`Z=11, A=22`)
-      element to represent `standard rock`_.
+      Mulder provides default definitions for atomic elements from :python:`H`,
+      :python:`D` (:math:`Z=1`) to :python:`Og` (:math:`Z=118`) according to the
+      `PDG`_. Furthermore, Mulder provides a fictitious :python:`Rk`
+      (:math:`Z=11, A=22`) element to represent `standard rock`_.
 
    .. method:: __new__(symbol, /, **kwargs)
 
-      Gets or defines an atomic element.
+      Gets an atomic element definition.
 
-      Without *kwargs*, this constructor simply returns the definition of the
-      atomic element matching *symbol*. For instance,
+      Returns the definition of the atomic element matching *symbol*. For
+      instance,
 
       >>> H = materials.Element("H")
-
-      If the element does not exists, it can be defined by specifying its
-      properties as *kwargs*. For instance,
-
-      >>> U_238 = materials.Element("U-238", Z=92, A=238.0508, I=890E-09)
 
    .. method:: all()
 
@@ -497,6 +497,15 @@ rock composed of various minerals.
 
       The elements are returned as a :py:class:`dict` object mapping the atomic
       elements symbols to their definitions.
+
+   .. method:: define(symbol, /, *, Z, A, I=None)
+
+      Defines a new atomic element.
+
+      If the Mean Excitation Energy (*I*) is omitted, a default value is
+      used depending on *Z*. For example,
+
+      >>> U_238 = materials.Element.define("U-238", Z=92, A=238.0508)
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -521,32 +530,16 @@ rock composed of various minerals.
 
    .. tip::
 
-      Mulder predefines the :python:`Air`, :python:`Rock` and :python:`Water`
-      materials.
+      Mulder provides default definitions for the :python:`Air`, :python:`Rock`
+      and :python:`Water` materials.
 
    .. method:: __new__(name, /, **kwargs)
 
-      Gets or defines a material.
+      Gets a material definition.
 
-      Without *kwargs*, this constructor simply returns the definition of the
-      material matching *name*. For instance,
+      Returns the definition of the material matching *name*. For instance,
 
       >>> rock = materials.Material("Rock")
-
-      If the material does not exists, it can be defined by specifying its
-      properties as *kwargs*. For instance,
-
-      >>> ice = materials.Material("Ice", composition="H2O", density=0.92E+03)
-
-      The *composition* argument may be a :py:class:`str`, specifying the
-      material chemical composition, or akin to a :py:class:`dict` mapping
-      atomic elements or other materials to mass fractions. For example, as
-
-      >>> moist_air = materials.Material(
-      ...     "MoistAir",
-      ...     composition={"Air": 0.99, "Water": 0.01},
-      ...     density=1.2
-      ... )
 
    .. method:: all()
 
@@ -554,6 +547,26 @@ rock composed of various minerals.
 
       The materials are returned as a :py:class:`dict` object mapping names to
       definitions.
+
+   .. method:: define(name, /, *, composition, density, I=None)
+
+      The *composition* argument may be a :py:class:`str`, specifying the
+      material chemical composition, as
+
+      >>> ice = materials.Material("Ice", composition="H2O", density=0.92E+03)
+
+      Alternatively, the *composition* argument may be akin to a
+      :py:class:`dict` mapping atomic elements or other materials to mass
+      fractions. For example, as
+
+      >>> moist_air = materials.Material(
+      ...     "MoistAir",
+      ...     composition={"Air": 0.99, "Water": 0.01},
+      ...     density=1.2
+      ... )
+
+      See the material *attributes* below for a description of the *density* and
+      *I* arguments.
 
    .. rubric:: Attributes
      :heading-level: 4

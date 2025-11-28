@@ -1,13 +1,12 @@
 use crate::utils::cache;
 use pyo3::prelude::*;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock, RwLockReadGuard, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use super::definitions::{Component, Material};
-use super::registry::Registry;
+use super::registry::MaterialsBroker;
 use super::toml::ToToml;
 
 
@@ -22,10 +21,10 @@ pub struct MaterialsSubscriber {
 
 pub struct MaterialsBorrow<'a> (RwLockReadGuard<'a, Set>);
 
-pub struct UnpackedMaterials<'a> {
-    pub composites: Vec<&'a str>,
-    pub elements: Vec<&'a str>,
-    pub mixtures: Vec<Cow<'a, String>>,
+pub struct UnpackedMaterials {
+    pub composites: Vec<String>,
+    pub elements: Vec<String>,
+    pub mixtures: Vec<String>,
 }
 
 pub struct CachePath {
@@ -81,23 +80,24 @@ impl MaterialsSet {
     pub fn hash(&self, py: Python) -> PyResult<u64> {
         let mut set = self.inner.write().unwrap();
         if set.hash.is_none() {
-            let registry = &Registry::get(py)?.read().unwrap();
-            let UnpackedMaterials { composites, elements, mixtures } = set.unpack(registry)?;
+            let broker = MaterialsBroker::new(py)?;
+            let UnpackedMaterials { composites, elements, mixtures } = set.unpack(&broker)?;
 
+            let registry = &broker.registry.read().unwrap();
             let mut state = DefaultHasher::new();
             for element in elements {
                 element.hash(&mut state);
-                let definition = registry.get_element(element)?;
+                let definition = registry.element(&element);
                 definition.hash(&mut state);
             }
             for mixture in mixtures {
                 mixture.hash(&mut state);
-                let definition = registry.get_material(mixture.as_str())?;
+                let definition = registry.mixture(&mixture);
                 definition.hash(&mut state);
             }
             for composite in composites {
                 composite.hash(&mut state);
-                let definition = registry.get_material(composite)?;
+                let definition = registry.composite(&composite);
                 definition.hash(&mut state);
             }
             set.hash = Some(state.finish());
@@ -113,30 +113,9 @@ impl MaterialsSet {
     pub fn is_cached(&self, py: Python) -> PyResult<bool> {
         let path = self.cache_path(py, "toml")?
             .into_path()?;
-        let cached = if path.try_exists().unwrap_or(false) {
-            let registry = &Registry::get(py)?.read().unwrap();
-            let mut cached = Registry::default();
-            cached.load(py, &path)?;
-            let eq = || {
-                for (k, v) in cached.elements.iter() {
-                    match registry.elements.get(k) {
-                        Some(def) => if def != v {
-                            return false
-                        },
-                        None => return false
-                    }
-                }
-                for (k, v) in cached.materials.iter() {
-                    match registry.materials.get(k) {
-                        Some(def) => if def != v {
-                            return false
-                        },
-                        None => return false
-                    }
-                }
-                true
-            };
-            if eq() {
+        let cached = if path.try_exists().unwrap_or(false) { // XXX ensure readable file?
+            let broker = MaterialsBroker::new(py)?;
+            if broker.load(py, &path).is_ok() {
                 true
             } else {
                 self.delete_dumps(py)?;
@@ -228,20 +207,20 @@ impl Set {
         Self { data, version, hash }
     }
 
-    fn unpack<'a>(&'a self, registry: &'a Registry) -> PyResult<UnpackedMaterials<'a>> {
+    fn unpack(&self, broker: &MaterialsBroker) -> PyResult<UnpackedMaterials> {
         let mut composites = Vec::new();
         let mut mixtures = Vec::new();
         for key in self.data.keys() {
-            match registry.get_material(key)? {
+            match broker.get_material(key)? {
                 Material::Mixture(_) => {
-                    mixtures.push(Cow::Borrowed(key));
+                    mixtures.push(key.clone());
                 },
                 Material::Composite(composite) => {
                     let data = composite.read();
                     for Component { name, .. } in data.composition.iter() {
-                        mixtures.push(Cow::Owned(name.clone()));
+                        mixtures.push(name.clone());
                     }
-                    composites.push(key.as_str());
+                    composites.push(key.clone());
                 },
             }
         }
@@ -249,12 +228,12 @@ impl Set {
         mixtures.sort();
         mixtures.dedup();
 
+        let registry = &broker.registry.read().unwrap();
         let mut elements = Vec::new();
         for mixture in mixtures.iter() {
-            if let Some(definition) = registry.get_material(mixture)?.as_mixture() {
-                for Component { name, .. } in definition.composition.iter() {
-                    elements.push(name.as_str())
-                }
+            let mixture = registry.mixture(mixture);
+            for Component { name, .. } in mixture.composition.iter() {
+                elements.push(name.clone())
             }
         }
         elements.sort();
@@ -306,8 +285,8 @@ impl<'a> MaterialsBorrow<'a> {
     }
 
     #[inline]
-    pub fn unpack<'b>(&'b self, registry: &'b Registry) -> PyResult<UnpackedMaterials<'b>> {
-        self.0.unpack(registry)
+    pub fn unpack(&self, broker: &MaterialsBroker) -> PyResult<UnpackedMaterials> {
+        self.0.unpack(broker)
     }
 }
 

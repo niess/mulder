@@ -1,20 +1,18 @@
-use crate::module::{calzone, modules};
 use crate::utils::error::Error;
-use crate::utils::error::ErrorKind::{self, KeyError, TypeError, ValueError};
+use crate::utils::error::ErrorKind::{self, Exception, KeyError, TypeError, ValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
 use ordered_float::OrderedFloat;
 use regex::Regex;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use super::registry::Registry;
+use super::registry::{MaterialsBroker, Registry};
 
 
 type ElementContext<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>);
 type ErrorData = (ErrorKind, String);
-type MaterialContext<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>, &'a Registry);
+type MaterialContext<'a, 'py> = (&'a str, &'a Bound<'py, PyDict>, &'a MaterialsBroker<'a, 'py>);
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug, PartialEq)]
@@ -28,7 +26,7 @@ pub struct Element {
     #[pyo3(get)]
     pub A: f64,
 
-    pub I: f64,  // Beware: eV.
+    pub I: f64,  // Beware: eV. XXX Change to GeV.
 }
 
 #[derive(Clone, IntoPyObject, Hash, PartialEq)]
@@ -72,62 +70,82 @@ pub struct CompositeData {
 
 struct Composition(Vec<Component>);  // for parsing.
 
+#[derive(FromPyObject)]
+enum MixtureComposition {
+    #[pyo3(annotation="str")]
+    Formula(String),
+
+    #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
+    Composition(Composition),
+}
+
+#[derive(FromPyObject)]
+enum CompositeComposition {
+    #[pyo3(annotation="seq[str]")]
+    Names(Vec<String>),
+
+    #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
+    Composition(Composition),
+}
+
 #[pymethods]
 impl Element {
     #[new]
-    #[pyo3(signature=(symbol, /, **kwargs))]
-    fn __new__(py: Python, symbol: &str, kwargs: Option<&Bound<PyDict>>) -> PyResult<Self> {
-        let registry = &Registry::get(py)?;
-
-        if let Some(kwargs) = kwargs {
-            let element: Element = (symbol, kwargs).try_into()?;
-            registry.write().unwrap().add_element(symbol.to_owned(), element)?;
-        }
-
-        let element = registry.read().unwrap()
-            .get_element(symbol)?
-            .clone();
+    #[pyo3(signature=(symbol, /))]
+    fn __new__(py: Python, symbol: &str) -> PyResult<Self> {
+        let broker = MaterialsBroker::new(py)?;
+        let element = broker.get_element(symbol)?;
         Ok(element)
     }
 
     fn __repr__(&self) -> String {
-        format!("{{'Z': {}, 'A': {}, 'I': {}}}", self.Z, self.A, self.I * 1E+09)
+        format!("{{'Z': {}, 'A': {}, 'I': {}}}", self.Z, self.A, self.I * 1E-09)
     }
-
 
     /// Returns all currently defined elements.
     #[classmethod]
-    fn all<'py>(
-        cls: &Bound<'py, PyType>,
-    ) -> PyResult<Bound<'py, PyDict>> {
+    fn all<'py>(cls: &Bound<'py, PyType>) -> PyResult<Bound<'py, PyDict>> {
         let py = cls.py();
         let registry = &Registry::get(py)?.read().unwrap();
         let elements = PyDict::new(py);
-        for (k, v) in registry.elements.iter() {
+        for (k, v) in registry.elements().iter() {
             elements.set_item(k.clone(), v.clone())?;
         }
         Ok(elements)
     }
 
-    /// Fetches an atomic element.
+    /// Defines a new element.
+    #[allow(non_snake_case)]
+    #[pyo3(signature=(symbol, /, *, Z, A, I=None))]
     #[classmethod]
-    #[pyo3(signature=(symbol, /))]
-    fn fetch<'py>(
-        cls: &Bound<'py, PyType>,
-        symbol: &str,
+    fn define(
+        cls: &Bound<'_, PyType>,
+        symbol: String,
+        Z: u32,
+        A: f64,
+        I: Option<f64>,
     ) -> PyResult<Self> {
         let py = cls.py();
-        if let Some(element) = Registry::get(py)?.read().unwrap().elements.get(symbol) {
-            return Ok(element.clone())
-        }
-        let _ = calzone(py)?;
-        for module in modules(py)?.read().unwrap().values() {
-            if let Some(element) = module.bind(py).borrow().element(py, symbol)? {
-                return Ok(element)
-            }
-        }
-        let why = format!("undefined element '{}'", symbol);
-        Err(Error::new(ValueError).why(&why).to_err())
+        let I = I
+            .or_else(|| {
+                let binding = &*Registry::DEFAULT_ELEMENTS;
+                let mut elements = binding.values();
+                loop {
+                    match elements.next() {
+                        Some(element) => if Z == element.Z {
+                            break Some(element.I)
+                        }
+                        None => break None,
+                    }
+                }
+            })
+            .ok_or_else(|| {
+                Error::new(ValueError).what("element").why("could not infer I").to_err()
+            })?;
+        let I = I * 1E+09; // XXX Use GeV.
+        let element = Self { Z, A, I };
+        Registry::get(py)?.write().unwrap().add_element(symbol, element.clone())?;
+        Ok(element)
     }
 
     /// The element Mean Excitation Energy, in GeV.
@@ -141,19 +159,11 @@ impl Element {
 #[pymethods]
 impl Mixture {
     #[new]
-    #[pyo3(signature=(name, /, **kwargs))]
-    fn __new__(py: Python, name: &str, kwargs: Option<&Bound<PyDict>>) -> PyResult<Self> {
-        let registry = &Registry::get(py)?;
-
-        if let Some(kwargs) = kwargs {
-            let mixture: Mixture = (name, kwargs, &*registry.read().unwrap()).try_into()?;
-            registry.write().unwrap().add_material(name.to_owned(), Material::Mixture(mixture))?;
-        }
-
-        let material = registry.read().unwrap()
-            .get_mixture(name)?
-            .clone();
-        Ok(material)
+    #[pyo3(signature=(name, /))]
+    fn __new__(py: Python, name: &str) -> PyResult<Self> {
+        let broker = MaterialsBroker::new(py)?;
+        let mixture = broker.get_mixture(name)?;
+        Ok(mixture)
     }
 
     fn __repr__(&self) -> String {
@@ -179,7 +189,7 @@ impl Mixture {
         let py = cls.py();
         let registry = &Registry::get(py)?.read().unwrap();
         let mixtures = PyDict::new(py);
-        for (k, v) in registry.materials.iter() {
+        for (k, v) in registry.materials().iter() {
             if let Some(v) = v.as_mixture() {
                 mixtures.set_item(k.clone(), v.clone())?;
             }
@@ -187,30 +197,28 @@ impl Mixture {
         Ok(mixtures)
     }
 
-    /// Fetches a material.
+    /// Defines a new base material.
+    #[allow(non_snake_case)]
+    #[pyo3(signature=(name, /, *, composition, density, I=None))]
     #[classmethod]
-    #[pyo3(signature=(name, /))]
-    fn fetch<'py>(
-        cls: &Bound<'py, PyType>,
-        name: &str,
+    fn define(
+        cls: &Bound<'_, PyType>,
+        name: String,
+        composition: MixtureComposition,
+        density: f64,
+        I: Option<f64>,
     ) -> PyResult<Self> {
         let py = cls.py();
-        if let Some(material) = Registry::get(py)?.read().unwrap().materials.get(name) {
-            if let Some(mixture) = material.as_mixture() {
-                return Ok(mixture.clone())
-            }
-        }
-        let _ = calzone(py)?;
-        for module in modules(py)?.read().unwrap().values() {
-            if let Some(material) = module.bind(py).borrow().material(py, name)? {
-                match material {
-                    Material::Mixture(mixture) => return Ok(mixture),
-                    _ => unreachable!()
-                }
-            }
-        }
-        let why = format!("undefined material '{}'", name);
-        Err(Error::new(ValueError).why(&why).to_err())
+        let broker = MaterialsBroker::new(py)?;
+        let mixture = composition
+            .into_mixture(density, I, &broker)
+            .map_err(|(kind, why)| {
+                let what = format!("'{}' material", name);
+                Error::new(kind).what(&what).why(&why).to_err()
+            })?;
+        broker.registry.write().unwrap()
+            .add_material(name.to_owned(), Material::Mixture(mixture.clone()))?;
+        Ok(mixture)
     }
 
     /// The material mass composition.
@@ -224,21 +232,11 @@ impl Mixture {
 #[pymethods]
 impl Composite {
     #[new]
-    #[pyo3(signature=(name, /, **kwargs))]
-    fn __new__(py: Python, name: &str, kwargs: Option<&Bound<PyDict>>) -> PyResult<Self> {
-        let registry = &Registry::get(py)?;
-
-        if let Some(kwargs) = kwargs {
-            let composite: Composite = (name, kwargs, &*registry.read().unwrap()).try_into()?;
-            registry.write().unwrap().add_material(
-                name.to_owned(), Material::Composite(composite)
-            )?;
-        }
-
-        let material = registry.read().unwrap()
-            .get_composite(name)?
-            .clone();
-        Ok(material)
+    #[pyo3(signature=(name, /))]
+    fn __new__(py: Python, name: &str) -> PyResult<Self> {
+        let broker = MaterialsBroker::new(py)?;
+        let composite = broker.get_composite(name)?;
+        Ok(composite)
     }
 
     fn __repr__(&self) -> String {
@@ -290,7 +288,7 @@ impl Composite {
         let data = self.read();
         for component in data.composition.iter() {
             let Component { name, weight } = component;
-            let mixture = registry.get_mixture(name.as_str()).unwrap();
+            let mixture = registry.mixture(name.as_str());
             inverse_density += *weight / mixture.density;
             sum += *weight;
         }
@@ -305,12 +303,33 @@ impl Composite {
         let py = cls.py();
         let registry = &Registry::get(py)?.read().unwrap();
         let composites = PyDict::new(py);
-        for (k, v) in registry.materials.iter() {
+        for (k, v) in registry.materials().iter() {
             if let Some(v) = v.as_composite() {
                 composites.set_item(k.clone(), v.clone())?;
             }
         }
         Ok(composites)
+    }
+
+    /// Defines a new composite material.
+    #[pyo3(signature=(name, /, *, composition))]
+    #[classmethod]
+    fn define(
+        cls: &Bound<'_, PyType>,
+        name: String,
+        composition: CompositeComposition,
+    ) -> PyResult<Self> {
+        let py = cls.py();
+        let broker = MaterialsBroker::new(py)?;
+        let composite = composition
+            .into_composite(&broker)
+            .map_err(|(kind, why)| {
+                let what = format!("'{}' composite", name);
+                Error::new(kind).what(&what).why(&why).to_err()
+            })?;
+        broker.registry.write().unwrap()
+            .add_material(name.to_owned(), Material::Composite(composite.clone()))?;
+        Ok(composite)
     }
 }
 
@@ -370,10 +389,18 @@ impl PartialEq for Component {
 }
 
 impl Composite {
-    pub fn new(mut composition: Vec<Component>, registry: &Registry) -> Result<Self, ErrorData> {
+    pub fn new(
+        mut composition: Vec<Component>,
+        broker: &MaterialsBroker,
+    ) -> Result<Self, ErrorData> {
         for Component { name, .. } in composition.iter() {
-            let _ = registry.get_mixture(name.as_str())
+            let material = broker
+                .get_material(name.as_str())
                 .map_err(|err| (ValueError, err.to_string()))?;
+            if material.is_composite() {
+                let why = format!("{} is a composite material", name);
+                return Err((TypeError, why))
+            }
         }
         composition.sort_by(|a,b| a.name.cmp(&b.name));
         let data = CompositeData { composition };
@@ -397,37 +424,35 @@ impl Mixture {
         composition: &[Component], // Beware: mass fractions.
         #[allow(non_snake_case)]
         I: Option<f64>,
-        registry: &Registry,
+        broker: &MaterialsBroker,
     ) -> Result<Self, ErrorData> {
-        let mut weights = HashMap::<&str, f64>::new();
+        let mut weights = HashMap::<String, f64>::new();
         let mut sum = 0.0;
         for Component { name, weight: wi } in composition.iter() {
-            let xi = match registry.elements.get(name.as_str()) {
+            let xi = match broker.get_element_opt(name.as_str())
+                .map_err(to_error_data)? {
                 Some(element) => {
                     let xi = wi / element.A;
                     weights
-                        .entry(name.as_ref())
+                        .entry(name.clone())
                         .and_modify(|x| *x += xi)
                         .or_insert(xi);
                     xi
                 },
                 None => {
-                    let mixture: Option<Cow<Mixture>> = registry.materials.get(name.as_str())
-                        .and_then(|material| material.as_mixture())
-                        .map(|mixture| Cow::Borrowed(mixture))
-                        .or_else(||
-                            Self::from_formula(0.0, name.as_str(), None, registry)
-                                .ok()
-                                .map(|material| Cow::Owned(material))
-                        );
+                    let mixture: Option<Mixture> = broker.get_material_opt(name.as_str())
+                        .map_err(to_error_data)?
+                        .and_then(|material| material.into_mixture())
+                        .or_else(|| Self::from_formula(0.0, name.as_str(), None, broker).ok());
 
                     match mixture {
                         Some(mixture) => {
+                            let registry = &broker.registry.read().unwrap();
                             let xi = wi / mixture.mass;
-                            for cj in mixture.composition.iter() {
+                            for cj in mixture.composition {
                                 let Component { name: symbol, weight: wj } = cj;
-                                let (symbol, element) = registry.elements
-                                    .get_key_value(symbol.as_str()).unwrap();
+                                let element = registry.elements()
+                                    .get(symbol.as_str()).unwrap();
                                 let xj = wj / element.A * mixture.mass;
                                 let xij = xi * xj;
                                 weights
@@ -439,7 +464,7 @@ impl Mixture {
                         },
                         None => {
                             let why = format!(
-                                "unknown element, molecule or material '{}'",
+                                "unknown element or material '{}'",
                                 name.as_str(),
                             );
                             return Err((KeyError, why))
@@ -454,7 +479,7 @@ impl Mixture {
         for (symbol, weight) in weights.iter() {
             composition.push(Component { name: symbol.to_string(), weight: weight / sum })
         }
-        Self::from_elements(density, &composition, I, registry)
+        Self::from_elements(density, &composition, I, broker)
     }
 
     pub fn from_elements(
@@ -462,13 +487,14 @@ impl Mixture {
         composition: &[Component], // Beware: mole fractions.
         #[allow(non_snake_case)]
         I: Option<f64>,
-        registry: &Registry,
+        broker: &MaterialsBroker,
     ) -> Result<Self, ErrorData> {
         let n = composition.len();
         let mut mass = 0.0;
         let mut mass_composition = Vec::<Component>::with_capacity(n);
         for component in composition.iter() {
-            let element = registry.elements.get(&component.name)
+            let element = broker.get_element_opt(&component.name)
+                .map_err(to_error_data)?
                 .ok_or_else(|| {
                     let why = format!("unkown element '{}'", &component.name);
                     (KeyError, why)
@@ -495,17 +521,13 @@ impl Mixture {
         formula: &str,
         #[allow(non_snake_case)]
         I: Option<f64>,
-        registry: &Registry,
+        broker: &MaterialsBroker,
     ) -> Result<Self, ErrorData> {
         let re = Regex::new(r"([A-Z][a-z]?)([0-9]*)").unwrap();
         let mut composition = Vec::<Component>::new();
         let mut sum = 0.0;
         for captures in re.captures_iter(formula) {
             let symbol = captures.get(1).unwrap().as_str();
-            if !registry.elements.contains_key(symbol) {
-                let why = format!("undefined element '{}'", symbol);
-                return Err((KeyError, why))
-            }
             let weight = captures.get(2).unwrap().as_str();
             let weight: f64 = if weight.len() == 0 {
                 1.0
@@ -528,7 +550,7 @@ impl Mixture {
                 component.weight /= sum;
             }
         }
-        Mixture::from_elements(density, &composition, I, registry)
+        Mixture::from_elements(density, &composition, I, broker)
     }
 
     #[allow(non_snake_case)]
@@ -597,7 +619,7 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Composite {
     type Error = PyErr;
 
     fn try_from(value: MaterialContext) -> PyResult<Self> {
-        let (name, data, registry) = value;
+        let (name, data, broker) = value;
         let py = data.py();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' composite", name);
@@ -621,31 +643,10 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Composite {
         let composition = composition
             .ok_or_else(|| to_err(KeyError, "missing 'composition'"))?;
 
-        #[derive(FromPyObject)]
-        enum CompositeComposition {
-            #[pyo3(annotation="seq[str]")]
-            Names(Vec<String>),
-
-            #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
-            Composition(Composition),
-        }
-
         let composition: CompositeComposition = composition.extract()
             .map_err(|err| to_err(TypeError, &err.value(py).to_string()))?;
 
-        let composition = match composition {
-            CompositeComposition::Names(composition) => if composition.len() > 0 {
-                let weight = 1.0 / composition.len() as f64;
-                composition.into_iter()
-                    .map(|name| Component { name, weight })
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::<Component>::new()
-            },
-            CompositeComposition::Composition(composition) => composition.0,
-        };
-
-        Composite::new(composition, registry)
+        composition.into_composite(broker)
             .map_err(|(kind, why)| to_err(kind, &why))
     }
 }
@@ -670,7 +671,7 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Mixture {
     type Error = PyErr;
 
     fn try_from(value: MaterialContext) -> PyResult<Self> {
-        let (name, data, registry) = value;
+        let (name, data, broker) = value;
         let py = data.py();
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' material", name);
@@ -708,30 +709,12 @@ impl<'a, 'py> TryFrom<MaterialContext<'a, 'py>> for Mixture {
         let composition = composition
             .ok_or_else(|| to_err(KeyError, "missing 'composition'"))?;
 
-        #[derive(FromPyObject)]
-        enum MixtureComposition {
-            #[pyo3(annotation="str")]
-            Formula(String),
-
-            #[pyo3(annotation="dict[str,float] | seq[(str,float)]")]
-            Composition(Composition),
-        }
-
         let composition: MixtureComposition = composition.extract()
             .map_err(|err| to_err(TypeError, &err.value(py).to_string()))?;
 
-        let mixture = match composition {
-            MixtureComposition::Formula(formula) => {
-                Mixture::from_formula(density, formula.as_str(), mee, registry)
-                    .map_err(|(kind, why)| to_err(kind, &why))?
-            },
-            MixtureComposition::Composition(composition) => {
-                Mixture::from_composition(density, &composition.0, mee, registry)
-                    .map_err(|(kind, why)| to_err(kind, &why))?
-            },
-        };
-
-        Ok(mixture)
+        composition
+            .into_mixture(density, mee, broker)
+            .map_err(|(kind, why)| to_err(kind, &why))
     }
 }
 
@@ -758,6 +741,41 @@ impl FromPyObject<'_> for Composition {
             CompositionArg::Sequence(s) => s,
         };
         Ok(Self(composition))
+    }
+}
+
+impl MixtureComposition {
+    fn into_mixture(
+        self,
+        density: f64,
+        mee: Option<f64>,
+        broker: &MaterialsBroker,
+    ) -> Result<Mixture, ErrorData> {
+        match self {
+            MixtureComposition::Formula(formula) => {
+                Mixture::from_formula(density, formula.as_str(), mee, broker)
+            },
+            MixtureComposition::Composition(composition) => {
+                Mixture::from_composition(density, &composition.0, mee, broker)
+            },
+        }
+    }
+}
+
+impl CompositeComposition {
+    fn into_composite(self, broker: &MaterialsBroker) -> Result<Composite, ErrorData> {
+        let composition = match self {
+            CompositeComposition::Names(composition) => if composition.len() > 0 {
+                let weight = 1.0 / composition.len() as f64;
+                composition.into_iter()
+                    .map(|name| Component { name, weight })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::<Component>::new()
+            },
+            CompositeComposition::Composition(composition) => composition.0,
+        };
+        Composite::new(composition, broker)
     }
 }
 
@@ -828,10 +846,28 @@ impl Material {
         }
     }
 
+    pub fn into_composite(self) -> Option<Composite> {
+        match self {
+            Self::Composite(composite) => Some(composite),
+            _ => None,
+        }
+    }
+
+    pub fn into_mixture(self) -> Option<Mixture> {
+        match self {
+            Self::Mixture(mixture) => Some(mixture),
+            _ => None,
+        }
+    }
+
     pub fn is_composite(&self) -> bool {
         match self {
             Self::Composite(_) => true,
             _ => false,
         }
     }
+}
+
+fn to_error_data(err: PyErr) -> ErrorData {
+    (Exception, format!("{}", err))
 }

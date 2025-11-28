@@ -2,7 +2,7 @@
 
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
-use crate::materials::{Component, Element, Material, Mixture, Registry};
+use crate::materials::{Component, Element, Material, MaterialsBroker, Mixture};
 use crate::utils::ptr::{Destroy, null_pointer_err, OwnedPtr};
 use paste::paste;
 use pyo3::prelude::*;
@@ -196,7 +196,7 @@ impl CModule {
         }
     }
 
-    pub fn material(&self, name: &str, registry: &mut Registry) -> PyResult<Option<Material>> {
+    pub fn material(&self, name: &str, broker: &MaterialsBroker) -> PyResult<Option<Material>> {
         self.material
             .and_then(|func| {
                 let binding = CString::new(name).unwrap();
@@ -222,15 +222,10 @@ impl CModule {
                     symbols.insert(symbol.clone());
                     composition.push(Component { name: symbol, weight });
                 }
-                for symbol in symbols {
-                    if let Some(element) = self.element(&symbol)? {
-                        registry.add_element(symbol, element)?;
-                    }
-                }
                 let density = material.density()
                     .map_err(|_| null_pointer_fmt!("density for {} material", name))?;
                 let mee = material.I();
-                let mixture = Mixture::from_elements(density, &composition, mee, registry)
+                let mixture = Mixture::from_elements(density, &composition, mee, broker)
                     .map_err(|(kind, why)| {
                         let what = format!("{} material", name);
                         Error::new(kind).what(&what).why(&why).to_err()

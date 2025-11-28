@@ -1,5 +1,5 @@
 use crate::geometry::LocalGeometry;
-use crate::materials::{Element, Material, Registry};
+use crate::materials::{Element, Material, MaterialsBroker, Registry};
 use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -24,7 +24,7 @@ pub struct Module {
 
     #[allow(dead_code)]
     lib: Library, // for keeping the library alive.
-    interface: CModule,
+    pub interface: CModule,
 }
 
 pub type Modules = HashMap<String, Py<Module>>;
@@ -139,14 +139,14 @@ impl Module {
         LocalGeometry::from_module(py, &self.interface, frame)
     }
 
-    /// Feches a module material.
+    /// Fetches a module material.
     #[pyo3(signature=(name, /))]
     pub fn material(&self, py: Python<'_>, name: &str) -> PyResult<Option<Material>> {
-        let registry = &mut Registry::get(py)?.write().unwrap();
+        let broker = MaterialsBroker::new(py)?;
         self.interface
-            .material(name, registry)?
+            .material(name, &broker)?
             .map(|material| {
-                registry.add_material(name.to_owned(), material.clone())?;
+                broker.registry.write().unwrap().add_material(name.to_owned(), material.clone())?;
                 Ok(material)
             })
             .transpose()

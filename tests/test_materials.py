@@ -11,11 +11,13 @@ PREFIX = Path(__file__).parent
 def test_composite():
     """Test the composite interface."""
 
-    composite = materials.Composite("Composite", composition=("Rock", "Water"))
+    composite = materials.Composite.define(
+        "Composite", composition=("Rock", "Water")
+    )
     assert composite.composition == ("Rock", "Water")
     assert_allclose(composite.density, 1473.02, atol=0.01)
 
-    composite = materials.Composite("Composite",
+    composite = materials.Composite.define("Composite",
         composition=(("Rock", 1.0), ("Water", 0.0))
     )
     assert composite.density == 2.65E+03
@@ -36,10 +38,10 @@ def test_element():
     assert H.A == 1.008
     assert H.I == 19.2E-09
 
-    U_238 = materials.Element("U-238", Z = 92, A = 238.0508, I = 890E-09)
+    U_238 = materials.Element.define("U-238", Z=92, A=238.0508, I=890E-09)
     assert U_238.Z == 92
     assert U_238.A == 238.0508
-    assert U_238.I == 890E-09
+    assert_allclose(U_238.I, 890E-09)
 
     elements = materials.Element.all()
     assert "U-238" in elements
@@ -69,7 +71,7 @@ def test_base():
     assert air.density == 1.205
     assert air.I == None
 
-    base = materials.Material(
+    base = materials.Material.define(
         "TestRock",
         composition = {
             "Rock": 0.95,
@@ -87,7 +89,7 @@ def test_base():
     assert base.density == 2E+03
     assert base.I == 120E-09
 
-    base2 = materials.Material(
+    base2 = materials.Material.define(
         "TestRock2",
         composition = (
             ("Rock", 0.95),
@@ -98,7 +100,9 @@ def test_base():
     )
     assert base.composition == base2.composition
 
-    H2O = materials.Material("PureWater", composition="H2O", density=1E+03)
+    H2O = materials.Material.define(
+        "PureWater", composition="H2O", density=1E+03
+    )
     assert H2O.composition == water.composition
 
     bases = materials.Material.all()

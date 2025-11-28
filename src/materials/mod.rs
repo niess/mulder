@@ -10,7 +10,7 @@ pub mod xml;
 pub use definitions::{Component, Composite, Element, Material, Mixture};
 pub use set::{MaterialsSet, MaterialsSubscriber};
 pub use xml::Mdf;
-pub use registry::Registry;
+pub use registry::{MaterialsBroker, Registry};
 
 use toml::ToToml;
 
@@ -19,8 +19,8 @@ use toml::ToToml;
 #[pyfunction]
 #[pyo3(signature=(path, /))]
 pub fn load(py: Python, path: PathString) -> PyResult<()> {
-    let registry = &mut Registry::get(py)?.write().unwrap();
-    registry.load(py, path.0.as_str())
+    let broker = MaterialsBroker::new(py)?;
+    broker.load(py, path.0.as_str())
 }
 
 /// Dump material definitions.
@@ -29,7 +29,7 @@ pub fn load(py: Python, path: PathString) -> PyResult<()> {
 pub fn dump(py: Python, path: PathString, mut materials: Vec<String>) -> PyResult<()> {
     if materials.is_empty() {
         let registry = &Registry::get(py)?.read().unwrap();
-        for material in registry.materials.keys() {
+        for material in registry.materials().keys() {
             materials.push(material.clone());
         }
     }

@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::materials::{MaterialsSet, MaterialsSubscriber, Registry};
+use crate::materials::{MaterialsSet, MaterialsSubscriber};
 use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3, Module};
 use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
@@ -12,7 +12,6 @@ use crate::utils::ptr::OwnedPtr;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::types::PyTuple;
-use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -235,21 +234,13 @@ impl LocalGeometry {
         frame: Option<LocalFrame>,
     ) -> PyResult<Py<Self>> {
         let geometry = module.geometry()?;
-        let registry = &mut Registry::get(py)?.write().unwrap();
 
         // Build geometry media.
         let size = geometry.media_len()?;
         let mut media = Vec::with_capacity(size);
-        let mut materials = HashSet::new();
         for i in 0..size {
             let medium = Medium::try_from(geometry.medium(i)?)?;
-            materials.insert(medium.material.clone());
             media.push(medium);
-        }
-        for name in materials {
-            if let Some(material) = module.material(&name, registry)? {
-                registry.add_material(name, material)?;
-            }
         }
         let media = PyTuple::new(py, media)?.unbind();
 

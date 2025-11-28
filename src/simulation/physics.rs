@@ -166,7 +166,7 @@ impl Physics {
     ) -> PyResult<PyObject> {
         if materials.is_empty() {
             let registry = &Registry::get(py)?.read().unwrap();
-            for material in registry.materials.keys() {
+            for material in registry.materials().keys() {
                 materials.push(material.clone());
             }
         }
@@ -255,7 +255,7 @@ impl Physics {
                 }
                 self.materials_indices.insert(material.to_owned(), index);
 
-                if let Some(composite) = registry.materials
+                if let Some(composite) = registry.materials()
                     .get(material.as_str())
                         .and_then(|m| m.as_composite()) {
                     update_composite(&composite.read(), physics, index)?;
@@ -266,7 +266,7 @@ impl Physics {
             let registry = Registry::get(py)?.read().unwrap();
             let physics = self.physics.as_ref().unwrap().0.as_ptr();
             for material in materials.borrow().iter() {
-                if let Some(composite) = registry.materials
+                if let Some(composite) = registry.materials()
                     .get(material.as_str())
                         .and_then(|m| m.as_composite()) {
                     let index = self.materials_indices[material.as_str()];
@@ -568,7 +568,7 @@ macro_rules! compute_property {
 
             let physics = $slf.physics.as_ref().0.as_ptr();
             let registry = &Registry::get(py)?.read().unwrap();
-            let density = match registry.get_material($slf.name.as_str())? {
+            let density = match registry.material($slf.name.as_str()) {
                 Material::Composite(composite) => {
                     update_composite(&composite.read(), physics, $slf.index)?;
                     composite.get_density(py)?
@@ -610,7 +610,7 @@ macro_rules! compute_property {
             };
             let physics = $slf.physics.as_ref().0.as_ptr();
             let registry = &Registry::get(py)?.read().unwrap();
-            let density = match registry.get_material($slf.name.as_str())? {
+            let density = match registry.material($slf.name.as_str()) {
                 Material::Composite(composite) => {
                     update_composite(&composite.read(), physics, $slf.index)?;
                     composite.get_density(py)?
@@ -657,7 +657,7 @@ impl CompiledMaterial {
     #[getter]
     fn get_definition(&self, py: Python) -> PyResult<Material> {
         let registry = &Registry::get(py)?.read().unwrap();
-        let definition = registry.get_material(self.name.as_str())?;
+        let definition = registry.material(self.name.as_str());
         Ok(definition.clone())
     }
 
@@ -689,7 +689,7 @@ impl CompiledMaterial {
 
         let physics = self.physics.as_ref().0.as_ptr();
         let registry = &Registry::get(py)?.read().unwrap();
-        let density = match registry.get_material(self.name.as_str())? {
+        let density = match registry.material(self.name.as_str()) {
             Material::Composite(composite) => {
                 update_composite(&composite.read(), physics, self.index)?;
                 composite.get_density(py)?
