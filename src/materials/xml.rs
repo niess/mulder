@@ -82,7 +82,7 @@ impl ToXml for Element {
             key.unwrap(),
             self.Z,
             self.A, // g/mol
-            self.I, // eV.
+            self.I * 1E+09, // eV.
         )
     }
 }

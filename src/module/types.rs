@@ -184,7 +184,7 @@ impl CModule {
             .map(|element| Ok(Element {
                 Z: element.Z()? as u32,
                 A: element.A()?,
-                I: element.I()? * 1E-09,
+                I: element.I()?,
             }))
             .transpose()
     }

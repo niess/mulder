@@ -26,7 +26,9 @@ pub struct Element {
     #[pyo3(get)]
     pub A: f64,
 
-    pub I: f64,  // Beware: eV. XXX Change to GeV.
+    /// The element Mean Excitation Energy, in GeV.
+    #[pyo3(get)]
+    pub I: f64,
 }
 
 #[derive(Clone, IntoPyObject, Hash, PartialEq)]
@@ -99,7 +101,7 @@ impl Element {
     }
 
     fn __repr__(&self) -> String {
-        format!("{{'Z': {}, 'A': {}, 'I': {}}}", self.Z, self.A, self.I * 1E-09)
+        format!("{{'Z': {}, 'A': {}, 'I': {}}}", self.Z, self.A, self.I)
     }
 
     /// Returns all currently defined elements.
@@ -142,17 +144,9 @@ impl Element {
             .ok_or_else(|| {
                 Error::new(ValueError).what("element").why("could not infer I").to_err()
             })?;
-        let I = I * 1E+09; // XXX Use GeV.
         let element = Self { Z, A, I };
         Registry::get(py)?.write().unwrap().add_element(symbol, element.clone())?;
         Ok(element)
-    }
-
-    /// The element Mean Excitation Energy, in GeV.
-    #[allow(non_snake_case)]
-    #[getter]
-    fn get_I(&self) -> f64 { // XXX Is this correct?
-        self.I * 1E-09
     }
 }
 
@@ -566,7 +560,6 @@ impl<'a, 'py> TryFrom<ElementContext<'a, 'py>> for Element {
 
     #[allow(non_snake_case)]
     fn try_from(value: ElementContext) -> PyResult<Self> {
-        const EV: f64 = 1E-09;
         let (name, data) = value;
         let to_err = |kind: ErrorKind, why: &str| -> PyErr {
             let what = format!("'{}' element", name);
@@ -597,7 +590,7 @@ impl<'a, 'py> TryFrom<ElementContext<'a, 'py>> for Element {
                 "I" => {
                     let v: f64 = v.extract()
                         .map_err(|_| to_err(ValueError, "'I' is not a float"))?;
-                    I = Some(v / EV);
+                    I = Some(v);
                 },
                 _ => {
                     return Err(to_err(KeyError, &format!("invalid property '{}'", k)));

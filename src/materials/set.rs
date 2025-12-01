@@ -113,7 +113,7 @@ impl MaterialsSet {
     pub fn is_cached(&self, py: Python) -> PyResult<bool> {
         let path = self.cache_path(py, "toml")?
             .into_path()?;
-        let cached = if path.try_exists().unwrap_or(false) { // XXX ensure readable file?
+        let cached = if path.try_exists().unwrap_or(false) {
             let broker = MaterialsBroker::new(py)?;
             if broker.load(py, &path).is_ok() {
                 true

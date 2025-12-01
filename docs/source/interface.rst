@@ -390,11 +390,25 @@ rock composed of various minerals.
    slightly differs from that of a base :py:class:`~mulder.materials.Material`
    with the same composition, due to the density effect in ionisation loss.
 
-.. important::
+A material (atomic element) is uniquely identified by its name (atomic symbol),
+which maps to a concrete definition, e.g. a
+:py:class:`~mulder.materials.Material` (:py:class:`~mulder.materials.Element`).
+The mapping may be lazy, i.e. delayed until usage. Once a material (element)
+definition has been established, it cannot be modified or removed.
 
-   Materials (atomic elements) are uniquely identified by their name (atomic
-   symbol). It is not possible to modify or remove a material (atomic element)
-   once it has been defined.
+.. note::
+
+   The resolution of unmapped materials (elements) is done in the following
+   order.
+
+   1. Firstly, the material name (element symbol) is searched for in
+      :py:class:`Modules <mulder.Module>`, in order of loading.
+
+   2. Secondly, Mulder's companion Python package(s) are inspected, e.g.
+      `Calzone`_.
+
+   3. Finally, Mulder default definitions are checked.
+
 
 .. autoclass:: mulder.materials.Composite
 
@@ -405,7 +419,7 @@ rock composed of various minerals.
    >>> composite["Water"] = 0.1  # doctest: +SKIP
 
    It is not possible to add or remove a constitutive material once the
-   composite has been defined. However, a specific material may be disabled by
+   composite has been mapped. However, a specific material may be disabled by
    setting its mass fraction to zero.
 
    .. method:: __new__(name, /, **kwargs)
@@ -418,7 +432,7 @@ rock composed of various minerals.
 
    .. method:: all()
 
-      Returns all currently defined composites.
+      Returns all currently mapped composites.
 
       The composites are returned as a :py:class:`dict` object mapping names to
       definitions.
@@ -426,6 +440,11 @@ rock composed of various minerals.
    .. method:: define(name, /, *, composition)
 
       Defines a composite material.
+
+      .. note::
+
+         This method explictly maps the material *name* to the provided
+         composite definition.
 
       The composite is defined by specifying its *composition*, for instance as,
 
@@ -493,7 +512,7 @@ rock composed of various minerals.
 
    .. method:: all()
 
-      Returns all currently defined elements.
+      Returns all currently mapped elements.
 
       The elements are returned as a :py:class:`dict` object mapping the atomic
       elements symbols to their definitions.
@@ -501,6 +520,11 @@ rock composed of various minerals.
    .. method:: define(symbol, /, *, Z, A, I=None)
 
       Defines a new atomic element.
+
+      .. note::
+
+         This method explictly maps the element *symbol* to the provided
+         element definition.
 
       If the Mean Excitation Energy (*I*) is omitted, a default value is
       used depending on *Z*. For example,
@@ -543,12 +567,17 @@ rock composed of various minerals.
 
    .. method:: all()
 
-      Returns all currently defined materials.
+      Returns all currently mapped materials.
 
       The materials are returned as a :py:class:`dict` object mapping names to
       definitions.
 
    .. method:: define(name, /, *, composition, density, I=None)
+
+      .. note::
+
+         This method explictly maps the material *name* to the provided
+         material definition.
 
       The *composition* argument may be a :py:class:`str`, specifying the
       material chemical composition, as
@@ -592,7 +621,7 @@ rock composed of various minerals.
 
 .. autofunction:: mulder.materials.dump
 
-   If the *materials* arguments are ommited, then the current material
+   If the *materials* arguments are ommited, then all currently mapped material
    definitions are dumped to a `TOML`_ file, for instance as
 
    >>> materials.dump("materials.toml")
@@ -1392,6 +1421,7 @@ these data are immutable.
 .. URL links.
 .. _ASCII Grid: https://en.wikipedia.org/wiki/Esri_grid
 .. _Bugaev and Shlepin: https://doi.org/10.1103/PhysRevD.67.034027
+.. _Calzone: https://github.com/niess/calzone
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model

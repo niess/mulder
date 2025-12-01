@@ -66,12 +66,11 @@ impl ToToml for MaterialsSet {
 
 impl ToToml for Element {
     fn to_toml(&self, _py: Python) -> PyResult<String> {
-        const EV: f64 = 1E-09;
         Ok(format!(
             "{{ Z = {}, A = {}, I = {} }}",
             self.Z,
             self.A,
-            self.I * EV,
+            self.I,
         ))
     }
 }
