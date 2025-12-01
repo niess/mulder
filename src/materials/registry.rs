@@ -22,6 +22,7 @@ pub struct Registry {
 pub struct MaterialsBroker<'a, 'py:'a> {
     pub registry: &'a RwLock<Registry>,
     modules: Vec<Bound<'py, Module>>,
+    companions: Vec<Bound<'py, Module>>,
 }
 
 struct MixtureData {
@@ -256,14 +257,20 @@ impl Registry {
 impl <'a, 'py: 'a> MaterialsBroker<'a, 'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
         let registry = Registry::get(py)?;
-        let _ = calzone(py)?;
+        let cz = calzone(py)?
+            .map(|module| module.bind(py).clone());
         let modules = modules(py)?
             .read()
             .unwrap()
             .values()
             .map(|module| module.bind(py).clone())
+            .filter(|m| cz.as_ref().map(|cz| *m.borrow() != *cz.borrow()).unwrap_or(true))
             .collect();
-        Ok(Self { registry, modules })
+        let companions = match cz {
+            Some(cz) => vec![cz],
+            None => Vec::new(),
+        };
+        Ok(Self { registry, modules, companions })
     }
 
     pub fn get_composite(&self, name: &str) -> PyResult<Composite> {
@@ -294,6 +301,13 @@ impl <'a, 'py: 'a> MaterialsBroker<'a, 'py> {
                 return Ok(Some(element))
             }
         }
+        for module in self.companions.iter() {
+            if let Some(element) = module.borrow().interface.element(symbol)? {
+                self.registry.write().unwrap()
+                    .add_element(symbol.to_owned(), element.clone())?;
+                return Ok(Some(element))
+            }
+        }
         if let Some(element) = (&*Registry::DEFAULT_ELEMENTS).get(symbol) {
             self.registry.write().unwrap()
                 .add_element(symbol.to_owned(), element.clone())?;
@@ -315,6 +329,14 @@ impl <'a, 'py: 'a> MaterialsBroker<'a, 'py> {
             return Ok(Some(material.clone()))
         }
         for module in self.modules.iter() {
+            let material = module.borrow().interface.material(name, self)?;
+            if let Some(material) = material {
+                self.registry.write().unwrap()
+                    .add_material(name.to_owned(), material.clone())?;
+                return Ok(Some(material))
+            }
+        }
+        for module in self.companions.iter() {
             let material = module.borrow().interface.material(name, self)?;
             if let Some(material) = material {
                 self.registry.write().unwrap()

@@ -7,6 +7,7 @@ use crate::utils::io::PathString;
 use libloading::Library;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::RwLock;
@@ -150,5 +151,11 @@ impl Module {
                 Ok(material)
             })
             .transpose()
+    }
+}
+
+impl PartialEq for Module {
+    fn eq(&self, other: &Self) -> bool {
+        self.path.eq(&other.path)
     }
 }
