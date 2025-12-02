@@ -1313,10 +1313,13 @@ Simulation interface
 .. autoclass:: mulder.Fluxmeter
 
    .. method:: __new__(*layers, **kwargs)
-   .. method:: __call__(states=None, /, *, events=None, notify=None, **kwargs)
 
+   .. automethod:: flux
    .. automethod:: grammage
    .. automethod:: transport
+
+   .. rubric:: Attributes
+     :heading-level: 4
 
    .. autoattribute:: atmosphere
    .. autoattribute:: geomagnet
@@ -1334,6 +1337,9 @@ Simulation interface
 
    .. automethod:: uniform01
 
+   .. rubric:: Attributes
+     :heading-level: 4
+
    .. autoattribute:: index
    .. autoattribute:: seed
 
@@ -1342,7 +1348,11 @@ Simulation interface
 .. autoclass:: mulder.Reference
 
    .. method:: __new__(model, /, **kwargs)
-   .. method:: __call__(states=None, /, **kwargs)
+
+   .. method:: flux(states=None, /, **kwargs)
+
+   .. rubric:: Attributes
+     :heading-level: 4
 
    .. autoattribute:: altitude
    .. autoattribute:: elevation
@@ -1359,6 +1369,9 @@ Picture interface
    .. method:: __new__(coordinates=None, /, **kwargs)
 
    .. automethod:: shoot
+
+   .. rubric:: Attributes
+     :heading-level: 4
 
    .. autoattribute:: altitude
    .. autoattribute:: azimuth

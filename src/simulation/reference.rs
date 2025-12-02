@@ -131,8 +131,8 @@ impl Reference {
         Ok(reference)
     }
 
-    #[pyo3(signature=(states=None, /, **kwargs))]
-    fn __call__<'py>(
+    #[pyo3(name="flux", signature=(states=None, /, **kwargs))]
+    fn py_flux<'py>(
         &self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,

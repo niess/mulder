@@ -400,7 +400,7 @@ impl Fluxmeter {
 
     /// Compute flux estimate(s).
     #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
-    fn __call__<'py>(
+    fn flux<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
