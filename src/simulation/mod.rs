@@ -1254,7 +1254,6 @@ impl<'a> Agent<'a> {
     }
 
     fn transport(&mut self) -> PyResult<()> {
-        // XXX Check local case (returned coordinates, etc).
         if self.geomagnet.is_some() {
             self.use_geomagnet = true;
             self.geomagnet_position = [0.0; 3];
@@ -1369,15 +1368,24 @@ impl<'a> Agent<'a> {
             self.horizontal = HorizontalCoordinates::from_ecef(&direction, &self.geographic);
         }
 
+        let revert_local = |agent: &mut Self| {
+            if let GeometryAgent::Local { frame, .. } = &agent.geometry {
+                agent.state.position = frame.from_ecef_position(agent.state.position);
+                agent.state.direction = frame.from_ecef_direction(&agent.state.direction);
+            }
+        };
+
         const EPSILON: f64 = 1E-04;
         if self.geographic.altitude < self.reference.altitude.min() - EPSILON {
             if self.horizontal.elevation < 0.0 {
                 self.state.weight = 0.0;
+                revert_local(self);
                 return Ok(())
             }
             let zref = self.reference.altitude.min();
             self.transport_opensky(zref)?;
             if self.state.weight == 0.0 {
+                revert_local(self);
                 return Ok(())
             }
         } else if self.geographic.altitude > self.reference.altitude.max() + EPSILON {
@@ -1390,6 +1398,7 @@ impl<'a> Agent<'a> {
             let zref = self.reference.altitude.max();
             self.transport_opensky(zref)?;
             if self.state.weight == 0.0 {
+                revert_local(self);
                 return Ok(())
             }
 
@@ -1418,6 +1427,8 @@ impl<'a> Agent<'a> {
         } else if (self.geographic.altitude - self.reference.altitude.max()).abs() < EPSILON {
             self.geographic.altitude = self.reference.altitude.max();
         };
+
+        revert_local(self);
 
         // Apply the decay probability.
         const MUON_C_TAU: f64 = 658.654;
