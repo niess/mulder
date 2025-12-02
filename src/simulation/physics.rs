@@ -8,12 +8,12 @@ use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::notify;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, OwnedPtr};
+use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use temp_dir::TempDir;
 use ::std::borrow::Cow;
-use ::std::collections::HashMap;
 use ::std::ffi::{c_char, c_int, CStr, CString, c_uint};
 use ::std::fs::File;
 use ::std::hash::{DefaultHasher, Hash, Hasher};
@@ -27,8 +27,8 @@ pub struct Physics {
     pub context: Option<OwnedPtr<pumas::Context>>,
     settings: Settings,
     materials_version: Option<usize>,
-    materials_indices: HashMap<String, c_int>,
-    composites_version: HashMap<String, usize>,
+    materials_indices: IndexMap<String, c_int>,
+    composites_version: IndexMap<String, usize>,
 }
 
 struct Settings {
@@ -68,8 +68,8 @@ impl Physics {
         let context = None;
         let settings = Settings::default();
         let materials_version = None;
-        let materials_indices = HashMap::new();
-        let composites_version = HashMap::new();
+        let materials_indices = IndexMap::new();
+        let composites_version = IndexMap::new();
 
         let physics = Self {
             physics, context, settings, materials_version, materials_indices, composites_version,

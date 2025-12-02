@@ -4,10 +4,10 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{ValueError, TypeError};
 use crate::utils::io::{ConfigFormat, Toml};
 use crate::utils::traits::TypeName;
+use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::sync::GILOnceCell;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{LazyLock, RwLock};
 use super::definitions::{Composite, Element, Material, Mixture};
@@ -15,8 +15,8 @@ use super::definitions::{Composite, Element, Material, Mixture};
 
 #[derive(Default)]
 pub struct Registry {
-    elements: HashMap<String, Element>,
-    materials: HashMap<String, Material>,
+    elements: IndexMap<String, Element>,
+    materials: IndexMap<String, Material>,
 }
 
 pub struct MaterialsBroker<'a, 'py:'a> {
@@ -85,7 +85,7 @@ impl Registry {
     }
 
     #[inline]
-    pub fn elements(&self) -> &HashMap<String, Element> {
+    pub fn elements(&self) -> &IndexMap<String, Element> {
         &self.elements
     }
 
@@ -95,7 +95,7 @@ impl Registry {
     }
 
     #[inline]
-    pub fn materials(&self) -> &HashMap<String, Material> {
+    pub fn materials(&self) -> &IndexMap<String, Material> {
         &self.materials
     }
 
@@ -106,8 +106,8 @@ impl Registry {
 }
 
 impl Registry {
-    pub const DEFAULT_ELEMENTS: LazyLock<HashMap<String, Element>> = LazyLock::new(|| {
-        HashMap::from([
+    pub const DEFAULT_ELEMENTS: LazyLock<IndexMap<String, Element>> = LazyLock::new(|| {
+        IndexMap::from([
             ("H" .to_owned(), Element { Z: 1,   A: 1.008,   I: 19.2E-09   }),
             ("D" .to_owned(), Element { Z: 1,   A: 2.0141,  I: 19.2E-09   }),
             ("He".to_owned(), Element { Z: 2,   A: 4.0026,  I: 41.8E-09   }),
@@ -231,8 +231,8 @@ impl Registry {
         ])
     });
 
-    const DEFAULT_MATERIALS: LazyLock<HashMap<String, MixtureData>> = LazyLock::new(|| {
-        HashMap::from([
+    const DEFAULT_MATERIALS: LazyLock<IndexMap<String, MixtureData>> = LazyLock::new(|| {
+        IndexMap::from([
             ("Air".to_owned(), MixtureData {
                 density: 1.205,
                 composition: Composition::Mass(vec![

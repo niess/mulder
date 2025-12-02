@@ -3,9 +3,9 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, impl_dtype, PyArray};
+use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use std::collections::HashMap;
 use super::Transform;
 
 mod atmosphere;
@@ -160,7 +160,7 @@ impl RawPicture {
         atmosphere: Option<bool>,
         exposure: Option<f64>,
         lights: Option<lights::Lights>,
-        materials: Option<HashMap<String, OpticalProperties>>,
+        materials: Option<IndexMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
         let atmosphere = atmosphere.unwrap_or(true);

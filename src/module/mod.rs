@@ -4,11 +4,11 @@ use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
+use indexmap::IndexMap;
 use libloading::Library;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use std::cmp::PartialEq;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::RwLock;
 
@@ -28,7 +28,7 @@ pub struct Module {
     pub interface: CModule,
 }
 
-pub type Modules = HashMap<String, Py<Module>>;
+pub type Modules = IndexMap<String, Py<Module>>;
 
 #[inline]
 fn type_error(what: &str, why: &str) -> PyErr {

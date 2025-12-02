@@ -1,10 +1,10 @@
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{self, Exception, KeyError, TypeError, ValueError};
+use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
 use ordered_float::OrderedFloat;
 use regex::Regex;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use super::registry::{MaterialsBroker, Registry};
@@ -420,7 +420,7 @@ impl Mixture {
         I: Option<f64>,
         broker: &MaterialsBroker,
     ) -> Result<Self, ErrorData> {
-        let mut weights = HashMap::<String, f64>::new();
+        let mut weights = IndexMap::<String, f64>::new();
         let mut sum = 0.0;
         for Component { name, weight: wi } in composition.iter() {
             let xi = match broker.get_element_opt(name.as_str())
@@ -716,7 +716,7 @@ impl FromPyObject<'_> for Composition {
         #[derive(FromPyObject)]
         enum CompositionArg {
             #[pyo3(annotation="dict[str,float]")]
-            Dict(HashMap<String, f64>),
+            Dict(IndexMap<String, f64>),
 
             #[pyo3(annotation="seq[(str,float)]")]
             Sequence(Vec<Component>),
