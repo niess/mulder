@@ -1,10 +1,10 @@
 use crate::bindings::turtle;
 use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
 use crate::simulation::coordinates::{
-    GeographicCoordinates, HorizontalCoordinates, LocalFrame, PositionExtractor,
+    CoordinatesExtractor, GeographicCoordinates, HorizontalCoordinates, LocalFrame,
+    PositionExtractor,
 };
 use crate::utils::error;
-use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, OwnedPtr};
@@ -143,24 +143,17 @@ impl EarthGeometry {
         Ok(array)
     }
 
-    #[pyo3(signature=(coordinates=None, /, *, notify=None, **kwargs))]
+    #[pyo3(signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
     fn scan<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let coordinates = Extractor::from_args(
-            [
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-            ],
-            coordinates,
-            kwargs
+        let coordinates = CoordinatesExtractor::new(
+            py, coordinates, kwargs, frame.as_ref(), None
         )?;
         let (size, shape, n) = {
             let size = coordinates.size();
@@ -182,11 +175,9 @@ impl EarthGeometry {
             stepper.reset();
 
             // Get the starting point.
-            let geographic = GeographicCoordinates {
-                latitude: coordinates.get_f64(Name::Latitude, i)?,
-                longitude: coordinates.get_f64(Name::Longitude, i)?,
-                altitude: coordinates.get_f64(Name::Altitude, i)?,
-            };
+            let (geographic, horizontal) = coordinates
+                .extract(i)?
+                .into_geographic();
             let mut r = geographic.to_ecef();
             let mut index = [ -2; 2 ];
             error::to_result(
@@ -207,10 +198,6 @@ impl EarthGeometry {
             )?;
 
             // Iterate until the particle exits.
-            let horizontal = HorizontalCoordinates {
-                azimuth: coordinates.get_f64(Name::Azimuth, i)?,
-                elevation: coordinates.get_f64(Name::Elevation, i)?,
-            };
             let u = horizontal.to_ecef(&geographic);
             while (index[0] >= 1) && (index[0] as usize <= n + 1) {
                 let current = index[0];
@@ -254,24 +241,17 @@ impl EarthGeometry {
         Ok(array)
     }
 
-    #[pyo3(name="trace", signature=(coordinates=None, /, *, notify=None, **kwargs))]
+    #[pyo3(name="trace", signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
     fn py_trace<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
-        let coordinates = Extractor::from_args(
-            [
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-            ],
-            coordinates,
-            kwargs
+        let coordinates = CoordinatesExtractor::new(
+            py, coordinates, kwargs, frame.as_ref(), None
         )?;
         let size = coordinates.size();
         let shape = coordinates.shape();
@@ -286,16 +266,9 @@ impl EarthGeometry {
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             stepper.reset();
-
-            let position = GeographicCoordinates {
-                latitude: coordinates.get_f64(Name::Latitude, i)?,
-                longitude: coordinates.get_f64(Name::Longitude, i)?,
-                altitude: coordinates.get_f64(Name::Altitude, i)?,
-            };
-            let direction = HorizontalCoordinates {
-                azimuth: coordinates.get_f64(Name::Azimuth, i)?,
-                elevation: coordinates.get_f64(Name::Elevation, i)?,
-            };
+            let (position, direction) = coordinates
+                .extract(i)?
+                .into_geographic();
             intersections[i] = stepper.trace(position, direction)?.0;
             notifier.tic();
         }

@@ -44,6 +44,16 @@ pub struct LocalTransformer {
     pub translation: [f64; 3],
 }
 
+pub enum CoordinatesExtractor<'py> {
+    Geographic {
+        extractor: Extractor<'py, 5>,
+    },
+    Local {
+        extractor: Extractor<'py, 2>,
+        frame: LocalFrame,
+    },
+}
+
 pub enum PositionExtractor<'py> {
     Geographic {
         extractor: Extractor<'py, 3>,
@@ -54,6 +64,11 @@ pub enum PositionExtractor<'py> {
         extractor: Extractor<'py, 1>,
         frame: LocalFrame,
     },
+}
+
+pub enum ExtractedCoordinates<'a> {
+    Geographic { position: GeographicCoordinates, direction: HorizontalCoordinates },
+    Local { position: [f64; 3], direction: [f64; 3], frame: &'a LocalFrame },
 }
 
 pub enum ExtractedPosition<'a> {
@@ -449,6 +464,148 @@ impl LocalTransformer {
     }
 }
 
+impl<'py> CoordinatesExtractor<'py> {
+    pub fn new(
+        py: Python<'py>,
+        states: Option<&Bound<'py, PyAny>>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+        frame: Option<&LocalFrame>,
+        expected_size: Option<usize>,
+    ) -> PyResult<Self> {
+        let extractor = match states {
+            Some(states) => match states.getattr_opt("frame")? {
+                Some(frame) => {
+                    let frame: LocalFrame = frame.extract()
+                        .map_err(|err| {
+                            let why = err.value(py).to_string();
+                            Error::new(TypeError).what("states' frame").why(&why).to_err()
+                        })?;
+                    let extractor = Self::local_extractor(Some(states), kwargs)?;
+                    Self::Local { extractor, frame }
+                },
+                None => {
+                    let extractor = Self::geographic_extractor(Some(states), kwargs)?;
+                    Self::Geographic { extractor }
+                },
+            },
+            None => match frame {
+                Some(frame) => {
+                    let extractor = Self::local_extractor(None, kwargs)?;
+                    Self::Local { extractor, frame: frame.clone() }
+                },
+                None => {
+                    let extractor = Self::geographic_extractor(None, kwargs)?;
+                    Self::Geographic { extractor }
+                },
+            },
+        };
+        if let Some(expected_size) = expected_size {
+            let found_size = extractor.size();
+            if found_size != expected_size {
+                let why = format!(
+                    "expected size={}, found size={}",
+                    expected_size,
+                    found_size,
+                );
+                let err = Error::new(TypeError).what("coordinates").why(&why).to_err();
+                return Err(err)
+            }
+        }
+        Ok(extractor)
+    }
+
+    pub fn extract<'a>(&'a self, index: usize) -> PyResult<ExtractedCoordinates<'a>> {
+        let extracted = match self {
+            Self::Geographic { extractor } => {
+                let position = GeographicCoordinates {
+                    latitude: extractor.get_f64_opt(Name::Latitude, index)?
+                        .unwrap_or(0.0),
+                    longitude: extractor.get_f64_opt(Name::Longitude, index)?
+                        .unwrap_or(0.0),
+                    altitude: extractor.get_f64_opt(Name::Altitude, index)?
+                        .unwrap_or(0.0),
+                };
+                let direction = HorizontalCoordinates {
+                    azimuth: extractor.get_f64_opt(Name::Azimuth, index)?
+                        .unwrap_or(0.0),
+                    elevation: extractor.get_f64_opt(Name::Elevation, index)?
+                        .unwrap_or(0.0),
+                };
+                ExtractedCoordinates::Geographic { position, direction }
+            },
+            Self::Local { extractor, frame } => {
+                let position = extractor.get_vec3_opt(Name::Position, index)?
+                    .unwrap_or([0.0; 3]);
+                let direction = extractor.get_vec3_opt(Name::Direction, index)?
+                    .unwrap_or([0.0, 0.0, 1.0]);
+                ExtractedCoordinates::Local { position, direction, frame }
+            },
+        };
+        Ok(extracted)
+    }
+
+    fn geographic_extractor(
+        states: Option<&Bound<'py, PyAny>>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Extractor<'py, 5>> {
+        Extractor::from_args(
+            [
+                Field::maybe_float(Name::Latitude),
+                Field::maybe_float(Name::Longitude),
+                Field::maybe_float(Name::Altitude),
+                Field::maybe_float(Name::Azimuth),
+                Field::maybe_float(Name::Elevation),
+            ],
+            states,
+            kwargs,
+        )
+    }
+
+    fn local_extractor(
+        states: Option<&Bound<'py, PyAny>>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Extractor<'py, 2>> {
+        Extractor::from_args(
+            [
+                Field::maybe_vec3(Name::Position),
+                Field::maybe_vec3(Name::Direction),
+            ],
+            states,
+            kwargs,
+        )
+    }
+
+    pub fn transformer(&self, destination: &LocalFrame) -> Option<LocalTransformer> {
+        match self {
+            Self::Geographic { .. } => None,
+            Self::Local { frame, .. } => {
+                if frame.eq(destination) {
+                    None
+                } else {
+                    let transformer = LocalTransformer::new(frame, destination);
+                    Some(transformer)
+                }
+            },
+        }
+    }
+
+    #[inline]
+    pub fn shape(&self) -> Vec<usize> {
+        match self {
+            Self::Geographic { extractor, .. } => extractor.shape(),
+            Self::Local { extractor, .. } => extractor.shape(),
+        }
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Geographic { extractor, .. } => extractor.size(),
+            Self::Local { extractor, .. } => extractor.size(),
+        }
+    }
+}
+
 impl<'py> PositionExtractor<'py> {
     pub fn new(
         py: Python<'py>,
@@ -558,7 +715,6 @@ impl<'py> PositionExtractor<'py> {
         )
     }
 
-    #[allow(unused)] // XXX needed?
     #[inline]
     pub fn shape(&self) -> Vec<usize> {
         match self {
@@ -572,6 +728,20 @@ impl<'py> PositionExtractor<'py> {
         match self {
             Self::Geographic { extractor, .. } => extractor.size(),
             Self::Local { extractor, .. } => extractor.size(),
+        }
+    }
+
+    pub fn transformer(&self, destination: &LocalFrame) -> Option<LocalTransformer> {
+        match self {
+            Self::Geographic { .. } => None,
+            Self::Local { frame, .. } => {
+                if frame.eq(destination) {
+                    None
+                } else {
+                    let transformer = LocalTransformer::new(frame, destination);
+                    Some(transformer)
+                }
+            },
         }
     }
 
@@ -596,11 +766,60 @@ impl<'py> PositionExtractor<'py> {
     }
 }
 
+impl<'a> ExtractedCoordinates<'a> {
+    pub fn into_geographic(self) -> (GeographicCoordinates, HorizontalCoordinates) {
+        match self {
+            Self::Geographic { position, direction } => (position, direction),
+            Self::Local { position, direction, frame } => {
+                let position = frame.to_geographic_position(&position);
+                let direction = frame.to_horizontal(&direction);
+                (position, direction)
+            },
+        }
+    }
+
+    pub fn into_local(
+        self,
+        destination: &LocalFrame,
+        transformer: Option<&LocalTransformer>,
+    ) -> ([f64; 3], [f64; 3]) {
+        match self {
+            Self::Geographic { position, direction } => {
+                destination.from_geographic(position, direction)
+            },
+            Self::Local { position, direction, .. } => match transformer {
+                Some(transformer) => {
+                    let position = transformer.transform_point(&position);
+                    let direction = transformer.transform_vector(&direction);
+                    (position, direction)
+                },
+                None => (position, direction),
+            },
+        }
+    }
+}
+
 impl<'a> ExtractedPosition<'a> {
     pub fn into_geographic(self) -> GeographicCoordinates {
         match self {
             Self::Geographic { position } => position,
             Self::Local { position, frame } => frame.to_geographic_position(&position),
+        }
+    }
+
+    pub fn into_local(
+        self,
+        destination: &LocalFrame,
+        transformer: Option<&LocalTransformer>,
+    ) -> [f64; 3] {
+        match self {
+            Self::Geographic { position, .. } => {
+                destination.from_ecef_position(position.to_ecef())
+            },
+            Self::Local { position, .. } => match transformer {
+                Some(transformer) => transformer.transform_point(&position),
+                None => position,
+            },
         }
     }
 }

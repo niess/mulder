@@ -76,29 +76,6 @@ Geometry interface
 
 ----
 
-.. autoclass:: mulder.LocalGeometry
-
-   .. method:: __new__(data, /, *, frame=None)
-
-      The *data* argument may be a path-string pointing to a C-module file or to
-      a Calzone geometry file. Alternatively, one might provide a
-      :py:class:`calzone.Geometry` object as *data* argument.
-
-   .. rubric:: Geometry methods
-     :heading-level: 4
-
-   .. automethod:: locate
-   .. automethod:: scan
-   .. automethod:: trace
-
-   .. rubric:: Attributes
-     :heading-level: 4
-
-   .. autoattribute:: frame
-   .. autoattribute:: media
-
-----
-
 .. autoclass:: mulder.Grid
 
    This class represents a parametric surface, :math:`z = f(x, y)`, described by
@@ -363,6 +340,28 @@ Geometry interface
    .. autoattribute:: longitude
    .. autoattribute:: inclination
 
+----
+
+.. autoclass:: mulder.LocalGeometry
+
+   .. method:: __new__(data, /, *, frame=None)
+
+      The *data* argument may be a path-string pointing to a C-module file or to
+      a Calzone geometry file. Alternatively, one might provide a
+      :py:class:`calzone.Geometry` object as *data* argument.
+
+   .. rubric:: Geometry methods
+     :heading-level: 4
+
+   .. automethod:: locate
+   .. automethod:: scan
+   .. automethod:: trace
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: frame
+   .. autoattribute:: media
 
 ----
 

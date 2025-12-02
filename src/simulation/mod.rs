@@ -570,6 +570,7 @@ impl Fluxmeter {
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         events: Option<usize>,
+        // XXX add frame argument?
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewStates<'py>> {

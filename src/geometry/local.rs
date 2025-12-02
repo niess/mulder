@@ -2,16 +2,16 @@
 
 use crate::materials::{MaterialsSet, MaterialsSubscriber};
 use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3, Module};
-use crate::simulation::coordinates::LocalFrame;
-use crate::utils::error::Error;
+use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, PositionExtractor};
+use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
-use crate::utils::extract::Size;
 use crate::utils::io::PathString;
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
+use crate::utils::notify::{Notifier, NotifyArg};
+use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
 use crate::utils::ptr::OwnedPtr;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyNotImplementedError;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyDict, PyTuple};
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -85,11 +85,6 @@ macro_rules! null_pointer_fmt {
 unsafe impl Send for LocalGeometry {}
 unsafe impl Sync for LocalGeometry {}
 
-#[inline]
-fn type_error(what: &str, why: &str) -> PyErr {
-    Error::new(TypeError).what(what).why(&why).to_err()
-}
-
 #[pymethods]
 impl LocalGeometry {
     #[new]
@@ -145,73 +140,103 @@ impl LocalGeometry {
         }
     }
 
-    #[pyo3(name="locate", signature=(*, position))]
-    fn py_locate<'py>(&self, position: AnyArray<'py, f64>) -> PyResult<NewArray<'py, i32>> {
-        let py = position.py();
+    /// Locates point(s) within the local geometry.
+    #[pyo3(name="locate", signature=(position=None, /, *, frame=None, notify=None, **kwargs))]
+    fn py_locate<'py>(
+        &mut self,
+        py: Python<'py>,
+        position: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
+        notify: Option<NotifyArg>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, i32>> {
+        let frame = frame
+            .as_ref()
+            .or_else(|| Some(&self.frame));
+        let position = PositionExtractor::new(py, position, kwargs, frame, None)?;
+        let transformer = position.transformer(&self.frame);
 
-        let size = Size::try_from_vec3(&position)
-            .map_err(|why| type_error("position", &why))?;
-
+        let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
         let tracer = self.tracer()?;
-        let mut array = NewArray::empty(py, size.shape())?;
+
+        let mut array = NewArray::empty(py, position.shape())?;
         let n = array.size();
         let media = array.as_slice_mut();
         for i in 0..n {
-            let ri = [
-                position.get_item(3 * i + 0)?,
-                position.get_item(3 * i + 1)?,
-                position.get_item(3 * i + 2)?,
-            ];
+            const WHY: &str = "while locating position(s)";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let ri = position
+                .extract(i)?
+                .into_local(&self.frame, transformer.as_ref());
             media[i] = tracer.locate(ri) as i32;
+            notifier.tic();
         }
 
         Ok(array)
     }
 
-    #[pyo3(name="scan", signature=(*, position, direction))]
-    #[allow(unused)] // XXX remove.
-    fn py_scan<'py>(
+    #[allow(unused)] // XXX remove
+    #[pyo3(signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
+    fn scan<'py>(
         &self,
-        position: AnyArray<'py, f64>,
-        direction: AnyArray<'py, f64>,
+        py: Python<'py>,
+        coordinates: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
+        notify: Option<NotifyArg>,
+        kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        // XXX implement this.
-        // XXX Use dict as return type?
-        unimplemented!()
+        let frame = frame
+            .as_ref()
+            .or_else(|| Some(&self.frame));
+        let coordinates = CoordinatesExtractor::new(
+            py, coordinates, kwargs, frame, None
+        )?;
+        let (size, shape, n) = {
+            let size = coordinates.size();
+            let mut shape = coordinates.shape();
+            let n = self.media.bind(py).len();
+            shape.push(n);
+            (size, shape, n)
+        };
+
+        let notifier = Notifier::from_arg(notify, size, "scanning geometry");
+
+        unimplemented!() // XXX implement.
     }
 
-    #[pyo3(name="trace", signature=(*, position, direction))]
+    #[pyo3(name="trace", signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
     fn py_trace<'py>(
         &self,
-        position: AnyArray<'py, f64>,
-        direction: AnyArray<'py, f64>,
+        py: Python<'py>,
+        coordinates: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
+        notify: Option<NotifyArg>,
+        kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
-        let py = position.py();
-
-        let sizes = [
-            Size::try_from_vec3(&position)
-                .map_err(|why| type_error("position", &why))?,
-            Size::try_from_vec3(&direction)
-                .map_err(|why| type_error("direction", &why))?,
-        ];
-        let common_size = Size::join(&sizes)
-            .map_err(|why| type_error("coordinates", why))?;
+        let frame = frame
+            .as_ref()
+            .or_else(|| Some(&self.frame));
+        let coordinates = CoordinatesExtractor::new(
+            py, coordinates, kwargs, frame, None
+        )?;
+        let size = coordinates.size();
+        let shape = coordinates.shape();
+        let transformer = coordinates.transformer(&self.frame);
 
         let tracer = self.tracer()?;
-        let mut array = NewArray::empty(py, common_size.shape())?;
+        let notifier = Notifier::from_arg(notify, size, "tracing geometry");
+
+        let mut array = NewArray::empty(py, shape)?;
         let n = array.size();
         let intersections = array.as_slice_mut();
         for i in 0..n {
-            let ri = [
-                position.get_item(3 * i + 0)?,
-                position.get_item(3 * i + 1)?,
-                position.get_item(3 * i + 2)?,
-            ];
-            let ui = [
-                direction.get_item(3 * i + 0)?,
-                direction.get_item(3 * i + 1)?,
-                direction.get_item(3 * i + 2)?,
-            ];
+            const WHY: &str = "while tracing geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let (ri, ui) = coordinates
+                .extract(i)?
+                .into_local(&self.frame, transformer.as_ref());
             tracer.reset(ri, ui);
             let before = tracer.medium() as i32;
             let distance = tracer.trace(f64::INFINITY);
@@ -220,7 +245,8 @@ impl LocalGeometry {
             let position = tracer.position();
             intersections[i] = Intersection {
                 before, after, position, distance
-            }
+            };
+            notifier.tic();
         }
 
         Ok(array)

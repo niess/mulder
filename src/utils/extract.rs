@@ -311,21 +311,6 @@ pub enum Size {
 }
 
 impl Size {
-    pub fn join<'a, I: IntoIterator<Item=&'a Self>>(sizes: I) -> Result<&'a Self, &'static str> {
-        Self::join_opt(sizes)
-            .ok_or_else(|| "inconsistent arrays size")
-    }
-
-    #[inline]
-    fn join_opt<'a, I: IntoIterator<Item=&'a Self>>(sizes: I) -> Option<&'a Self> {
-        let mut sizes = sizes.into_iter();
-        let mut acc = sizes.next()?;
-        for e in sizes {
-            acc = acc.common(e)?;
-        }
-        Some(acc)
-    }
-
     pub fn shape(&self) -> Vec<usize> {
         match self {
             Size::Scalar => Vec::new(),
@@ -337,23 +322,6 @@ impl Size {
         match self {
             Size::Scalar => 1,
             Size::Array { size, .. } => *size,
-        }
-    }
-
-    pub fn try_from_vec3<'py, T: Clone + Dtype>(array: &AnyArray<'py, T>) -> Result<Self, String> {
-        let mut shape = array.shape();
-        let n = shape.pop().unwrap_or(0);
-        if n != 3 {
-            let why = format!(
-                "expected a shape [.., 3] array, found [.., {}]",
-                n,
-            );
-            Err(why)
-        } else if shape.is_empty() {
-            Ok(Self::Scalar)
-        } else {
-            let size = array.size() / 3;
-            Ok(Self::Array { size, shape })
         }
     }
 
