@@ -1318,6 +1318,8 @@ Simulation interface
    .. automethod:: grammage
    .. automethod:: transport
 
+   .. autoattribute:: atmosphere
+   .. autoattribute:: geomagnet
    .. autoattribute:: geometry
    .. autoattribute:: mode
    .. autoattribute:: physics

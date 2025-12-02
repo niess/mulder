@@ -197,13 +197,33 @@ impl Fluxmeter {
             },
         };
 
-        let geomagnet = match extract_field("geomagnet")? { 
-            Some(arg) => {
-                arg.extract::<EarthMagnetArg>()?
-                    .into_geomagnet(py)?
-                // XXX Apply any date arg?
-            },
-            None => None,
+        let geomagnet = {
+            let geomagnet_kwargs = extract_kwargs(
+                &["date"]
+            )?;
+            match extract_field("geomagnet")? {
+                Some(arg) => if geomagnet_kwargs.is_none() {
+                    arg.extract::<EarthMagnetArg>()?
+                        .into_geomagnet(py)?
+                } else {
+                    let err = Error::new(TypeError)
+                        .what("geomagnet argument(s)")
+                        .why("geomagnet already provided as **kwargs")
+                        .to_err();
+                    return Err(err)
+                },
+                None => match geomagnet_kwargs {
+                    Some(kwargs) => {
+                        let date: geomagnet::DateArg = kwargs
+                            .get_item("date")?
+                            .unwrap()
+                            .extract()?;
+                        let geomagnet = geomagnet::EarthMagnet::new(py, None, Some(date))?;
+                        Some(Py::new(py, geomagnet)?)
+                    },
+                    None => None,
+                },
+            }
         };
 
         let geometry = {
@@ -245,15 +265,39 @@ impl Fluxmeter {
             }
         };
 
-        let random = match extract_field("random")? { // XXX apply any seed?
-            Some(random) => {
-                let random: Py<random::Random> = random.extract()?;
-                random
-            },
-            None => {
-                let random = random::Random::new(None, None)?;
-                Py::new(py, random)?
-            },
+        let random = {
+            let random_kwargs = extract_kwargs(
+                &["seed", "index",]
+            )?;
+            match extract_field("random")? {
+                Some(random) => if random_kwargs.is_none() {
+                    let random: Py<random::Random> = random.extract()?;
+                    random
+                } else {
+                    let err = Error::new(TypeError)
+                        .what("random argument(s)")
+                        .why("random already provided as **kwargs")
+                        .to_err();
+                    return Err(err)
+                },
+                None => {
+                    let random = match random_kwargs {
+                        Some(kwargs) => {
+                            let seed: Option<u128> = kwargs
+                                .get_item("seed")?
+                                .map(|seed| seed.extract())
+                                .transpose()?;
+                            let index: Option<random::Index> = kwargs
+                                .get_item("index")?
+                                .map(|index| index.extract())
+                                .transpose()?;
+                            random::Random::new(seed, index)?
+                        },
+                        None => random::Random::new(None, None)?,
+                    };
+                    Py::new(py, random)?
+                },
+            }
         };
 
         let mode = TransportMode::default();
