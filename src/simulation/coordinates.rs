@@ -66,6 +66,12 @@ pub enum PositionExtractor<'py> {
     },
 }
 
+pub enum Maybe<T> {
+    Explicit(T),
+    Implicit(T),
+    None,
+}
+
 pub enum ExtractedCoordinates<'a> {
     Geographic { position: GeographicCoordinates, direction: HorizontalCoordinates },
     Local { position: [f64; 3], direction: [f64; 3], frame: &'a LocalFrame },
@@ -154,15 +160,18 @@ impl_dtype!(
 #[pymethods]
 impl LocalFrame {
     #[new]
-    #[pyo3(signature=(position=None, /, *, declination=None, inclination=None, **kwargs))]
+    #[pyo3(signature=(position=None, /, *, declination=None, frame=None, inclination=None, **kwargs))]
     fn py_new(
         py: Python,
         position: Option<&Bound<PyAny>>,
         declination: Option<f64>,
+        frame: Option<LocalFrame>,
         inclination: Option<f64>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
-        let position = PositionExtractor::new(py, position, kwargs, None, Some(1))?
+        let position = PositionExtractor::new(
+            py, position, kwargs, frame.as_ref().into(), Some(1)
+        )?
             .with_default_latitude(Self::DEFAULT_LATITUDE)
             .with_default_longitude(Self::DEFAULT_LONGITUDE);
         let position = position.extract(0)?;
@@ -611,7 +620,7 @@ impl<'py> PositionExtractor<'py> {
         py: Python<'py>,
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
-        frame: Option<&LocalFrame>,
+        frame: Maybe<&LocalFrame>,
         expected_size: Option<usize>,
     ) -> PyResult<Self> {
         const DEFAULT_LATITUDE: f64 = 0.0;
@@ -638,11 +647,28 @@ impl<'py> PositionExtractor<'py> {
                 },
             },
             None => match frame {
-                Some(frame) => {
+                Maybe::Explicit(frame) => {
                     let extractor = Self::local_extractor(None, kwargs)?;
                     Self::Local { extractor, frame: frame.clone() }
                 },
-                None => {
+                Maybe::Implicit(frame) => match kwargs {
+                    Some(k) => if k.contains("position")? {
+                        let extractor = Self::local_extractor(None, kwargs)?;
+                        Self::Local { extractor, frame: frame.clone() }
+                    } else {
+                        let extractor = Self::geographic_extractor(None, kwargs)?;
+                        Self::Geographic {
+                            extractor,
+                            default_latitude: DEFAULT_LATITUDE,
+                            default_longitude: DEFAULT_LONGITUDE,
+                        }
+                    },
+                    None => {
+                        let extractor = Self::local_extractor(None, kwargs)?;
+                        Self::Local { extractor, frame: frame.clone() }
+                    },
+                },
+                Maybe::None => {
                     let extractor = Self::geographic_extractor(None, kwargs)?;
                     Self::Geographic {
                         extractor,
@@ -820,6 +846,24 @@ impl<'a> ExtractedPosition<'a> {
                 Some(transformer) => transformer.transform_point(&position),
                 None => position,
             },
+        }
+    }
+}
+
+impl<T> Maybe<T> {
+    pub fn always(value: Option<T>, default: T) -> Self {
+        match value {
+            Some(value) => Self::Explicit(value),
+            None => Self::Implicit(default),
+        }
+    }
+}
+
+impl<'a, T> From<Option<&'a T>> for Maybe<&'a T> {
+    fn from(value: Option<&'a T>) -> Self {
+        match value {
+            Some(value) => Maybe::Explicit(value),
+            None => Maybe::None,
         }
     }
 }

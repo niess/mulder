@@ -2,7 +2,7 @@
 
 use crate::materials::{MaterialsSet, MaterialsSubscriber};
 use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3, Module};
-use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, PositionExtractor};
+use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, Maybe, PositionExtractor};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
@@ -150,9 +150,7 @@ impl LocalGeometry {
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
-        let frame = frame
-            .as_ref()
-            .or_else(|| Some(&self.frame));
+        let frame = Maybe::always(frame.as_ref(), &self.frame);
         let position = PositionExtractor::new(py, position, kwargs, frame, None)?;
         let transformer = position.transformer(&self.frame);
 

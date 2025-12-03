@@ -38,6 +38,7 @@ def test_local():
     # Test the locate method.
     assert geometry.locate(position=[0.0, 0.0, 1.0]) == 0
     assert geometry.locate(position=[0.0, 0.0, -1.0]) == 1
+    assert geometry.locate(latitude=37, longitude=3, altitude=-1.0) == 1
     media = geometry.locate(position=[
         [0.0, 0.0, -1001],
         [0.0, 0.0, -999],

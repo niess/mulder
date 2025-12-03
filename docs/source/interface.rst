@@ -303,7 +303,7 @@ Geometry interface
    Earth. Optionnaly, the frame can be inclined (w.r.t. the vertical) or
    declined (w.r.t. the geographic north).
 
-   .. method:: __new__(position=None, /, *, declination=None, inclination=None, **kwargs)
+   .. method:: __new__(position=None, /, *, declination=None, frame=None, inclination=None, **kwargs)
 
       Creates a new Earth-local reference-frame.
 
@@ -311,7 +311,7 @@ Geometry interface
       interface <States interface_>`_. For example, the following defines a
       local frame close to `Clermont-Ferrand`_, France.
 
-      >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1)
+      >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1
 
    .. automethod:: transform
 

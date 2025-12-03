@@ -139,7 +139,7 @@ impl EarthMagnet {
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let position = PositionExtractor::new(py, position, kwargs, frame.as_ref(), None)?;
+        let position = PositionExtractor::new(py, position, kwargs, frame.as_ref().into(), None)?;
         let shape = {
             let mut shape = position.shape();
             shape.push(3);

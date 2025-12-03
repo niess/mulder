@@ -122,7 +122,7 @@ impl EarthGeometry {
         notify: Option<NotifyArg>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
-        let position = PositionExtractor::new(py, position, kwargs, frame.as_ref(), None)?;
+        let position = PositionExtractor::new(py, position, kwargs, frame.as_ref().into(), None)?;
 
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
@@ -153,7 +153,7 @@ impl EarthGeometry {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         let coordinates = CoordinatesExtractor::new(
-            py, coordinates, kwargs, frame.as_ref(), None
+            py, coordinates, kwargs, frame.as_ref().into(), None
         )?;
         let (size, shape, n) = {
             let size = coordinates.size();
