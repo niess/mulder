@@ -303,7 +303,7 @@ Geometry interface
    Earth. Optionnaly, the frame can be inclined (w.r.t. the vertical) or
    declined (w.r.t. the geographic north).
 
-   .. method:: __new__(position=None, /, *, declination=None, frame=None, inclination=None, **kwargs)
+   .. method:: __new__(position=None, /, *, declination=None, inclination=None, **kwargs)
 
       Creates a new Earth-local reference-frame.
 
@@ -311,7 +311,7 @@ Geometry interface
       interface <States interface_>`_. For example, the following defines a
       local frame close to `Clermont-Ferrand`_, France.
 
-      >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1
+      >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1)
 
    .. automethod:: transform
 
@@ -972,6 +972,8 @@ the two representations.
      - :py:attr:`~mulder.LocalStates.direction`
    * - :py:attr:`~mulder.GeographicStates.energy`, :py:attr:`~mulder.GeographicStates.pid`, :py:attr:`~mulder.GeographicStates.weight`
      - :py:attr:`~mulder.LocalStates.energy`, :py:attr:`~mulder.LocalStates.pid`, :py:attr:`~mulder.LocalStates.weight`
+   * - :python:`None`
+     - :py:attr:`~mulder.LocalStates.frame`
 
 .. note::
 
@@ -999,7 +1001,7 @@ States objects are used as input to Mulder functions, for instance as follows
 .. doctest::
    :hide:
 
-   >>> def some_state_function(states=None, /, *, frame=None, **kwargs):
+   >>> def some_state_function(states=None, /, *, **kwargs):
    ...     pass
 
 >>> states = mulder.GeographicStates(
@@ -1055,7 +1057,7 @@ variables as named arguments.
 
    .. automethod:: dtype(*, tagged=False)
    .. automethod:: empty(shape=None, /, *, tagged=False)
-   .. automethod:: full
+   .. automethod:: full(shape=None, /, fill_value=None, **kwargs)
    .. automethod:: from_array(array, /, *, copy=True)
 
          The input NumPy *array* must be of :py:class:`GeographicStates.dtype
@@ -1110,7 +1112,7 @@ variables as named arguments.
 
 .. autoclass:: mulder.LocalStates
 
-   .. method:: __new__(states=None, /, *, frame=None, **kwargs)
+   .. method:: __new__(states=None, /, **kwargs)
 
       Creates state(s) using local coordinates.
 
@@ -1139,7 +1141,7 @@ variables as named arguments.
 
    .. automethod:: dtype(*, tagged=False)
    .. automethod:: empty(shape=None, /, *, tagged=False)
-   .. automethod:: full
+   .. automethod:: full(shape=None, /, fill_value=None, **kwargs)
    .. automethod:: from_array(array, /, *, copy=True, frame=None)
 
       The input NumPy *array* must be of :py:class:`LocalStates.dtype

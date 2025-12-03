@@ -131,11 +131,16 @@ impl EarthMagnet {
     }
 
     /// Computes the geomagnetic field value(s) at the specified position(s).
-    #[pyo3(name="field", signature=(position=None, /, *, frame=None, **kwargs))]
+    #[pyo3(
+        name="field",
+        signature=(position=None, /, *, frame=None, **kwargs),
+        text_signature="(self, position=None, /, **kwargs)",
+    )]
     fn py_field<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
+        // XXX notifier?
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {

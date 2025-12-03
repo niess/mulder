@@ -113,13 +113,17 @@ impl EarthGeometry {
     }
 
     /// Locates point(s) within the Earth geometry.
-    #[pyo3(name="locate", signature=(position=None, /, *, frame=None, notify=None, **kwargs))]
+    #[pyo3(
+        name="locate",
+        signature=(position=None, /, *, notify=None, frame=None, **kwargs),
+        text_signature="(self, position=None, /, *, notify=None, **kwargs)",
+    )]
     fn py_locate<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
-        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, i32>> {
         let position = PositionExtractor::new(py, position, kwargs, frame.as_ref().into(), None)?;
@@ -143,13 +147,16 @@ impl EarthGeometry {
         Ok(array)
     }
 
-    #[pyo3(signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
+    #[pyo3(
+        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+    )]
     fn scan<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
-        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         let coordinates = CoordinatesExtractor::new(
@@ -241,13 +248,17 @@ impl EarthGeometry {
         Ok(array)
     }
 
-    #[pyo3(name="trace", signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
+    #[pyo3(
+        name="trace",
+        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+    )]
     fn py_trace<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
-        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
         let coordinates = CoordinatesExtractor::new(

@@ -798,7 +798,10 @@ macro_rules! new_array {
 
 #[pymethods]
 impl LocalStates {
-    #[pyo3(signature=(states=None, /, *, frame=None, **kwargs))]
+    #[pyo3(
+        signature=(states=None, /, *, frame=None, **kwargs),
+        text_signature="(states=None, /, **kwargs)",
+    )]
     #[new]
     fn new(
         py: Python,
@@ -1078,7 +1081,10 @@ impl LocalStates {
 
     /// Returns a collection of identical local states.
     #[classmethod]
-    #[pyo3(signature=(shape=None, /, fill_value=None, *, frame=None, **kwargs))]
+    #[pyo3(
+        signature=(shape=None, /, fill_value=None, *, frame=None, **kwargs),
+        text_signature="(self, shape=None, /, fill_value=None, **kwargs)",
+    )]
     fn full(
         cls: &Bound<PyType>,
         shape: Option<ShapeArg>,

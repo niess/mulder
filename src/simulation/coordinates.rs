@@ -160,13 +160,16 @@ impl_dtype!(
 #[pymethods]
 impl LocalFrame {
     #[new]
-    #[pyo3(signature=(position=None, /, *, declination=None, frame=None, inclination=None, **kwargs))]
+    #[pyo3(
+        signature=(position=None, /, *, declination=None, inclination=None, frame=None, **kwargs),
+        text_signature="(position=None, /, *, declination=None, inclination=None, **kwargs)",
+    )]
     fn py_new(
         py: Python,
         position: Option<&Bound<PyAny>>,
         declination: Option<f64>,
-        frame: Option<LocalFrame>,
         inclination: Option<f64>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
         let position = PositionExtractor::new(
