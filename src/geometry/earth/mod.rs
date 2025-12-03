@@ -262,7 +262,7 @@ impl EarthGeometry {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
         let coordinates = CoordinatesExtractor::new(
-            py, coordinates, kwargs, frame.as_ref(), None
+            py, coordinates, kwargs, frame.as_ref().into(), None
         )?;
         let size = coordinates.size();
         let shape = coordinates.shape();

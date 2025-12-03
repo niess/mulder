@@ -191,9 +191,7 @@ impl LocalGeometry {
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let frame = frame
-            .as_ref()
-            .or_else(|| Some(&self.frame));
+        let frame = Maybe::always(frame.as_ref(), &self.frame);
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame, None
         )?;
@@ -259,9 +257,7 @@ impl LocalGeometry {
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, Intersection>> {
-        let frame = frame
-            .as_ref()
-            .or_else(|| Some(&self.frame));
+        let frame = Maybe::always(frame.as_ref(), &self.frame);
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame, None
         )?;

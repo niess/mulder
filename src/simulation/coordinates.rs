@@ -481,7 +481,7 @@ impl<'py> CoordinatesExtractor<'py> {
         py: Python<'py>,
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
-        frame: Option<&LocalFrame>,
+        frame: Maybe<&LocalFrame>,
         expected_size: Option<usize>,
     ) -> PyResult<Self> {
         let extractor = match states {
@@ -500,15 +500,29 @@ impl<'py> CoordinatesExtractor<'py> {
                     Self::Geographic { extractor }
                 },
             },
-            None => match frame {
-                Some(frame) => {
-                    let extractor = Self::local_extractor(None, kwargs)?;
-                    Self::Local { extractor, frame: frame.clone() }
-                },
-                None => {
-                    let extractor = Self::geographic_extractor(None, kwargs)?;
-                    Self::Geographic { extractor }
-                },
+            None => {
+                let frame = match frame {
+                    Maybe::Explicit(frame) => Some(frame.clone()),
+                    Maybe::Implicit(frame) => match kwargs {
+                        Some(k) => if k.contains("position")? || k.contains("direction")? {
+                            Some(frame.clone())
+                        } else {
+                            None
+                        },
+                        None => Some(frame.clone()),
+                    },
+                    Maybe::None => None,
+                };
+                match frame {
+                    Some(frame) => {
+                        let extractor = Self::local_extractor(None, kwargs)?;
+                        Self::Local { extractor, frame }
+                    },
+                    None => {
+                        let extractor = Self::geographic_extractor(None, kwargs)?;
+                        Self::Geographic { extractor }
+                    },
+                }
             },
         };
         if let Some(expected_size) = expected_size {
@@ -649,16 +663,25 @@ impl<'py> PositionExtractor<'py> {
                     }
                 },
             },
-            None => match frame {
-                Maybe::Explicit(frame) => {
-                    let extractor = Self::local_extractor(None, kwargs)?;
-                    Self::Local { extractor, frame: frame.clone() }
-                },
-                Maybe::Implicit(frame) => match kwargs {
-                    Some(k) => if k.contains("position")? {
+            None => {
+                let frame = match frame {
+                    Maybe::Explicit(frame) => Some(frame.clone()),
+                    Maybe::Implicit(frame) => match kwargs {
+                        Some(k) => if k.contains("position")? {
+                            Some(frame.clone())
+                        } else {
+                            None
+                        },
+                        None => Some(frame.clone()),
+                    },
+                    Maybe::None => None,
+                };
+                match frame {
+                    Some(frame) => {
                         let extractor = Self::local_extractor(None, kwargs)?;
-                        Self::Local { extractor, frame: frame.clone() }
-                    } else {
+                        Self::Local { extractor, frame }
+                    },
+                    None => {
                         let extractor = Self::geographic_extractor(None, kwargs)?;
                         Self::Geographic {
                             extractor,
@@ -666,19 +689,7 @@ impl<'py> PositionExtractor<'py> {
                             default_longitude: DEFAULT_LONGITUDE,
                         }
                     },
-                    None => {
-                        let extractor = Self::local_extractor(None, kwargs)?;
-                        Self::Local { extractor, frame: frame.clone() }
-                    },
-                },
-                Maybe::None => {
-                    let extractor = Self::geographic_extractor(None, kwargs)?;
-                    Self::Geographic {
-                        extractor,
-                        default_latitude: DEFAULT_LATITUDE,
-                        default_longitude: DEFAULT_LONGITUDE,
-                    }
-                },
+                }
             },
         };
         if let Some(expected_size) = expected_size {
