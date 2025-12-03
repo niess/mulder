@@ -507,62 +507,6 @@ impl Fluxmeter {
         Ok(array)
     }
 
-    // XXX move to geometry?
-    /// Compute grammage(s) along line of sight(s).
-    #[pyo3(signature=(states=None, /, *, notify=None, sum=None, **kwargs))]
-    fn grammage<'py>(
-        &mut self,
-        py: Python<'py>,
-        states: Option<&Bound<PyAny>>,
-        notify: Option<NotifyArg>,
-        sum: Option<bool>,
-        kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, f64>> {
-        // Configure physics, geometry, samplers etc.
-        error::clear();
-        let mut proxy = self.borrow(py);
-        let mut pinned = proxy.pinned_agent(py, self)?;
-        let agent: &mut Agent = &mut pinned.deref_mut();
-
-        // Extract states.
-        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
-        let size = states.size();
-        let shape = states.shape();
-        let sum = sum.unwrap_or_else(|| false);
-
-        // Setup notifications.
-        let notifier = Notifier::from_arg(notify, size, "computing grammage");
-
-        // Loop over states.
-        let n = agent.fluxmeter.media.len() + 1;
-        let mut array = if sum {
-            NewArray::empty(py, shape)?
-        } else {
-            let mut shape = shape.clone();
-            shape.push(n);
-            NewArray::empty(py, shape)?
-        };
-        let result = array.as_slice_mut();
-        for i in 0..size {
-            if (i % 100) == 0 { error::check_ctrlc("while computing grammage(s)")?; }
-
-            let state = states.extract(i)?;
-            agent.set_state(&state)?;
-            let grammage = agent.grammage()?;
-            if sum {
-                result[i] = grammage.iter().sum();
-            } else {
-                for j in 0..n {
-                    result[i * n + j] = grammage[j];
-                }
-            }
-
-            notifier.tic();
-        }
-
-        Ok(array)
-    }
-
     /// Transport state(s) to the reference flux.
     #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
     fn transport<'py>(
@@ -1110,65 +1054,6 @@ impl<'a> Agent<'a> {
             direction: [-direction[0], -direction[1], -direction[2]],
             weight: self.state.weight,
         }
-    }
-
-    fn grammage(&mut self) -> PyResult<Vec<f64>> {
-        // Disable any geomagnetic field.
-        self.use_geomagnet = false;
-
-        // XXX check that point is inside the geometry.
-
-        // Configure the transport with Pumas.
-        self.context.mode.direction = pumas::MODE_BACKWARD;
-        self.context.mode.energy_loss = pumas::MODE_DISABLED;
-        self.context.mode.scattering = pumas::MODE_DISABLED;
-        self.context.event = pumas::EVENT_MEDIUM;
-
-        match &mut self.geometry {
-            GeometryAgent::Earth { stepper, .. } => {
-                self.context.medium = Some(earth_geometry);
-                stepper.reset();
-            },
-            GeometryAgent::Local { tracer, status, .. } => {
-                self.context.medium = Some(local_geometry);
-                let u = [
-                    -self.state.direction[0],
-                    -self.state.direction[1],
-                    -self.state.direction[2],
-                ];
-                tracer.reset(self.state.position, u);
-                *status = TracingStatus::Start;
-            },
-        }
-
-        // Compute the grammage.
-        let n = self.fluxmeter.media.len();
-        let mut grammage = vec![0.0; n + 1];
-        let mut last_grammage = 0.0;
-        loop {
-            let mut event = 0;
-            let mut media: [*mut pumas::Medium; 2] = [null_mut(); 2];
-            let rc = unsafe {
-                pumas::context_transport(
-                    self.context,
-                    &mut self.state,
-                    &mut event,
-                    media.as_mut_ptr(),
-                )
-            };
-            error::to_result(rc, None::<&str>)?;
-            if media[0] == null_mut() { break }
-
-            let medium: &MediumData = media[0].into();
-            grammage[medium.index] += self.state.grammage - last_grammage;
-            last_grammage = self.state.grammage;
-
-            if (event != pumas::EVENT_MEDIUM) || (media[1] == null_mut()) {
-                break
-            }
-        }
-
-        Ok(grammage)
     }
 
     fn new(

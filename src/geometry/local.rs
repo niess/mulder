@@ -176,7 +176,7 @@ impl LocalGeometry {
         Ok(array)
     }
 
-    #[allow(unused)] // XXX remove
+    // XXX sum & grammage mode?
     #[pyo3(signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
     fn scan<'py>(
         &self,

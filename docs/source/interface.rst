@@ -1314,7 +1314,6 @@ Simulation interface
    .. method:: __new__(*layers, **kwargs)
 
    .. automethod:: flux
-   .. automethod:: grammage
    .. automethod:: transport
 
    .. rubric:: Attributes
