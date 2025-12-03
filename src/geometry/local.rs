@@ -192,6 +192,7 @@ impl LocalGeometry {
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame, None
         )?;
+        let transformer = coordinates.transformer(&self.frame);
         let (size, shape, n) = {
             let size = coordinates.size();
             let mut shape = coordinates.shape();
@@ -200,9 +201,37 @@ impl LocalGeometry {
             (size, shape, n)
         };
 
+        let tracer = self.tracer()?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
-        unimplemented!() // XXX implement.
+        let mut array = NewArray::<f64>::zeros(py, shape)?;
+        let distances = array.as_slice_mut();
+        for i in 0..size {
+            const WHY: &str = "while scanning geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let (ri, ui) = coordinates
+                .extract(i)?
+                .into_local(&self.frame, transformer.as_ref());
+            tracer.reset(ri, ui);
+            let mut medium = tracer.medium();
+            let mut outside_allowed = medium < n;
+            loop {
+                if medium < n {
+                    let distance = tracer.trace(f64::INFINITY);
+                    distances[i * n + medium] += distance;
+                    tracer.move_(distance);
+                    medium = tracer.medium();
+                } else if outside_allowed {
+                    outside_allowed = false;
+                } else {
+                    break
+                }
+            }
+            notifier.tic();
+        }
+
+        Ok(array)
     }
 
     #[pyo3(name="trace", signature=(coordinates=None, /, *, frame=None, notify=None, **kwargs))]
