@@ -1,0 +1,8 @@
+[Environment]
+box = 2E+05
+material = "G4_AIR"
+
+[Environment.Ground]
+box = [ 2E+05, 2E+05, 1E+05 ]
+position = [ 0, 0, -5E+04 ]
+material = "G4_CALCIUM_CARBONATE"

@@ -215,15 +215,22 @@ impl LocalGeometry {
                 .into_local(&self.frame, transformer.as_ref());
             tracer.reset(ri, ui);
             let mut medium = tracer.medium();
-            let mut outside_allowed = medium < n;
+            let mut inside = medium < n;
             loop {
                 if medium < n {
                     let distance = tracer.trace(f64::INFINITY);
                     distances[i * n + medium] += distance;
                     tracer.move_(distance);
                     medium = tracer.medium();
-                } else if outside_allowed {
-                    outside_allowed = false;
+                } else if !inside {
+                    let distance = tracer.trace(f64::INFINITY);
+                    if distance > 0.0 {
+                        tracer.move_(distance);
+                        medium = tracer.medium();
+                        inside = true;
+                    } else {
+                        break
+                    }
                 } else {
                     break
                 }
