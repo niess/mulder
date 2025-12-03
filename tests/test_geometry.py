@@ -7,6 +7,27 @@ import pytest
 PREFIX = Path(__file__).parent
 
 
+def test_earth():
+    """Test Earth geometry."""
+
+    # Test constructor & attributes.
+    geometry = mulder.EarthGeometry(
+        mulder.Layer(-1000, material="Rock"),
+        mulder.Layer(0.0, material="Water"),
+    )
+
+    assert_allclose(geometry.zlim, [-1000, 0])
+
+    assert len(geometry.layers) == 2
+    assert geometry.layers[0].material == "Rock"
+    assert geometry.layers[0].density == None
+    assert geometry.layers[1].material == "Water"
+    assert geometry.layers[1].density == None
+
+    # Test the locate method.
+    assert geometry.locate(position=[0.0, 0.0, 1.0], frame=mulder.LocalFrame()) == 1
+
+
 @pytest.mark.requires_calzone
 def test_local():
     """Test local geometry."""
