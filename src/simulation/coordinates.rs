@@ -522,7 +522,7 @@ impl<'py> CoordinatesExtractor<'py> {
                         if let Some(k) = kwargs {
                             if k.contains("position")? || k.contains("direction")? {
                                 let err = Error::new(TypeError)
-                                    .what("position")
+                                    .what("coordinates")
                                     .why("missing 'frame' argument")
                                     .to_err();
                                 return Err(err)

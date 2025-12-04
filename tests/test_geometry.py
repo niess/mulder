@@ -28,9 +28,11 @@ def test_earth():
     assert geometry.locate(
         position=[0.0, 0.0, -1001.0], frame=mulder.LocalFrame()
     ) == 0
+    assert geometry.locate(altitude=-1001) == 0
     assert geometry.locate(
         position=[0.0, 0.0, -1.0], frame=mulder.LocalFrame()
     ) == 1
+    assert geometry.locate(altitude=-1) == 1
 
 
 @pytest.mark.requires_calzone

@@ -26,6 +26,11 @@ pub struct LocalStates {
     pub array: LocalStatesArray,
 }
 
+enum AnyStates {
+    Geographic(GeographicStates),
+    Local(LocalStates),
+}
+
 #[derive(Debug, FromPyObject, IntoPyObject)]
 pub enum GeographicStatesArray {
     Tagged(Py<PyArray<TaggedGeographicState>>),
@@ -175,16 +180,19 @@ macro_rules! new_array {
 
 #[pymethods]
 impl GeographicStates {
-    #[pyo3(signature=(states=None, /, **kwargs))]
+    #[pyo3(
+        signature=(states=None, /, *, frame=None, **kwargs),
+        text_signature="(states=None, /, **kwargs)",
+    )]
     #[new]
-    fn new(
+    fn py_new(
         py: Python,
         states: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
-        let states = Self::extract_states(states, kwargs)?;
-        let shape = states.shape();
-        Self::from_extractor(py, shape, states)
+        let states = AnyStates::new(py, states, frame.as_ref().into(), kwargs)?;
+        states.into_geographic(py)
     }
 
     fn __len__(&self, py: Python) -> PyResult<usize> {
@@ -542,6 +550,15 @@ macro_rules! convert_local {
 }
 
 impl GeographicStates {
+    pub fn new(py: Python,
+        states: Option<&Bound<PyAny>>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let states = Self::extract_states(states, kwargs)?;
+        let shape = states.shape();
+        Self::from_extractor(py, shape, states)
+    }
+
     pub fn extract_states<'py>(
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
@@ -803,15 +820,17 @@ impl LocalStates {
         text_signature="(states=None, /, **kwargs)",
     )]
     #[new]
-    fn new(
+    fn py_new(
         py: Python,
         states: Option<&Bound<PyAny>>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
-        let states = Self::extract_states(states, kwargs)?;
-        let shape = states.shape();
-        Self::from_extractor(py, shape, frame, states)
+        let default_frame = LocalFrame::default();
+        let maybe_frame = Maybe::always(frame.as_ref(), &default_frame);
+        let states = AnyStates::new(py, states, maybe_frame, kwargs)?;
+        let frame = frame.or_else(|| Some(default_frame));
+        states.into_local(py, frame)
     }
 
     fn __len__(&self, py: Python) -> PyResult<usize> {
@@ -1158,6 +1177,17 @@ macro_rules! convert_geographic {
 }
 
 impl LocalStates {
+    fn new(
+        py: Python,
+        states: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let states = Self::extract_states(states, kwargs)?;
+        let shape = states.shape();
+        Self::from_extractor(py, shape, frame, states)
+    }
+
     fn extract_states<'py>(
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
@@ -1472,7 +1502,7 @@ impl<'py> StatesExtractor<'py> {
                         if let Some(k) = kwargs {
                             if k.contains("position")? || k.contains("direction")? {
                                 let err = Error::new(TypeError)
-                                    .what("position")
+                                    .what("states")
                                     .why("missing 'frame' argument")
                                     .to_err();
                                 return Err(err)
@@ -1545,6 +1575,81 @@ impl<'a> ExtractedState<'a> {
         match self {
             Self::Geographic { state } => state.weight,
             Self::Local { state, .. } => state.weight,
+        }
+    }
+}
+
+impl AnyStates {
+    fn new(
+        py: Python,
+        states: Option<&Bound<PyAny>>,
+        frame: Maybe<&LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let states = match states {
+            Some(s) => match s.getattr_opt("frame")? { // XXX Require None kwargs & frame?
+                Some(frame) => {
+                    let frame: LocalFrame = frame.extract()
+                        .map_err(|err| {
+                            let why = format!("{}", err);
+                            Error::new(TypeError).what("states' frame").why(&why).to_err()
+                        })?;
+                    let states = LocalStates::new(py, states, Some(frame), None)?;
+                    Self::Local(states)
+                },
+                None => {
+                    let states = GeographicStates::new(py, None, kwargs)?;
+                    Self::Geographic(states)
+                },
+            },
+            None => {
+                let frame = match frame {
+                    Maybe::Explicit(frame) => Some(frame.clone()),
+                    Maybe::Implicit(frame) => match kwargs {
+                        Some(k) => if k.contains("position")? || k.contains("direction")? {
+                            Some(frame.clone())
+                        } else {
+                            None
+                        },
+                        None => Some(frame.clone()),
+                    },
+                    Maybe::None => None,
+                };
+                match frame {
+                    Some(_) => {
+                        let states = LocalStates::new(py, None, frame, kwargs)?;
+                        Self::Local(states)
+                    },
+                    None => {
+                        if let Some(k) = kwargs {
+                            if k.contains("position")? || k.contains("direction")? {
+                                let err = Error::new(TypeError)
+                                    .what("states")
+                                    .why("missing 'frame' argument")
+                                    .to_err();
+                                return Err(err)
+                            }
+                        }
+                        let states = GeographicStates::new(py, None, kwargs)?;
+                        Self::Geographic(states)
+                    },
+                }
+            },
+        };
+        Ok(states)
+    }
+
+    fn into_geographic(self, py: Python<'_>) -> PyResult<GeographicStates> {
+        match self {
+            Self::Geographic(states) => Ok(states),
+            Self::Local(states) => states.to_geographic(py),
+        }
+    }
+
+    fn into_local(self, py: Python<'_>, frame: Option<LocalFrame>) -> PyResult<LocalStates> {
+        match self {
+            Self::Geographic(states) => states.to_local(py, frame),
+            Self::Local(states) => Ok(states),
         }
     }
 }
