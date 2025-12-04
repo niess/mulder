@@ -6,7 +6,7 @@ use crate::utils::convert::{Bremsstrahlung, PairProduction, Photonuclear, Transp
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{KeyboardInterrupt, ValueError};
 use crate::utils::notify;
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, impl_dtype, NewArray};
 use crate::utils::ptr::{Destroy, OwnedPtr};
 use indexmap::IndexMap;
 use ordered_float::OrderedFloat;

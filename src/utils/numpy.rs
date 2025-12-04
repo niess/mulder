@@ -728,7 +728,7 @@ macro_rules! impl_dtype {
             static [< $type:upper _DTYPE >]: pyo3::sync::GILOnceCell<PyObject> =
                 pyo3::sync::GILOnceCell::new();
 
-            impl Dtype for $type {
+            impl crate::utils::numpy::Dtype for $type {
                 fn dtype<'py>(py: Python<'py>) -> PyResult<&'py Bound<'py, PyAny>> {
                     let ob = [< $type:upper _DTYPE >].get_or_try_init(py, || -> PyResult<_> {
                         let ob = PyModule::import(py, "numpy")?

@@ -2,7 +2,7 @@ use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinate
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{ArrayMethods, Dtype, NewArray, impl_dtype, PyArray};
+use crate::utils::numpy::{ArrayMethods, NewArray, impl_dtype, PyArray};
 use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};

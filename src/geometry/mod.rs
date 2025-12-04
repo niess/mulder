@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 
 pub mod earth;
 pub mod local;
+mod intersections;
 
 pub use earth::EarthGeometry;
 pub use local::LocalGeometry;

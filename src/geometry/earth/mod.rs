@@ -6,13 +6,14 @@ use crate::simulation::coordinates::{
 };
 use crate::utils::error;
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
+use crate::utils::numpy::NewArray;
 use crate::utils::ptr::{Destroy, OwnedPtr};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::ffi::c_int;
 use std::ptr::{NonNull, null, null_mut};
+use super::intersections::{GeographicIntersection, IntersectionsArray};
 
 pub mod grid;
 pub mod layer;
@@ -49,17 +50,6 @@ enum LayerLike<'py> {
     ManyData(Vec<DataLike<'py>>),
 }
 
-#[repr(C)]
-#[derive(Debug)]
-pub struct Intersection {
-    pub before: i32,
-    pub after: i32,
-    pub latitude: f64,
-    pub longitude: f64,
-    pub altitude: f64,
-    pub distance: f64,
-}
-
 pub struct EarthGeometryStepper {
     ptr: OwnedPtr<turtle::Stepper>,
     pub layers: usize,
@@ -72,7 +62,7 @@ impl EarthGeometry {
     pub fn new(layers: &Bound<PyTuple>) -> PyResult<Py<Self>> {
         let py = layers.py();
         let (layers, zlim) = {
-            let mut zlim = (f64::INFINITY, -f64::INFINITY);
+            let mut zlim = (Self::ZMIN, -f64::INFINITY);
             let mut v = Vec::with_capacity(layers.len());
             for layer in layers.iter() {
                 let layer: LayerLike = layer.extract()?;
@@ -260,7 +250,7 @@ impl EarthGeometry {
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, Intersection>> {
+    ) -> PyResult<IntersectionsArray<'py>> {
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame.as_ref().into(), None
         )?;
@@ -270,8 +260,13 @@ impl EarthGeometry {
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
-        let mut array = NewArray::empty(py, shape)?;
-        let intersections = array.as_slice_mut();
+        let mut array = if coordinates.is_geographic() {
+            IntersectionsArray::Geographic(NewArray::empty(py, shape)?)
+        } else {
+            IntersectionsArray::Local(NewArray::empty(py, shape)?)
+        };
+        let mut intersections = array.as_slice_mut();
+
         for i in 0..size {
             const WHY: &str = "while tracing geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
@@ -280,7 +275,8 @@ impl EarthGeometry {
             let (position, direction) = coordinates
                 .extract(i)?
                 .into_geographic();
-            intersections[i] = stepper.trace(position, direction)?.0;
+            let intersection = stepper.trace(position, direction)?.0;
+            intersections.set_geographic(i, intersection, coordinates.frame());
             notifier.tic();
         }
         Ok(array)
@@ -325,7 +321,7 @@ impl EarthGeometry {
         const WHAT: Option<&str> = Some("geometry");
         let mut ptr = null_mut();
         error::to_result(unsafe { turtle::stepper_create(&mut ptr) }, WHAT)?;
-        error::to_result(unsafe { turtle::stepper_add_flat(ptr, Self::ZMIN) }, WHAT)?;
+        error::to_result(unsafe { turtle::stepper_add_flat(ptr, self.zlim.min()) }, WHAT)?;
         for layer in layers.iter() {
             let layer = layer.downcast::<Layer>().unwrap().borrow();
             unsafe { layer.insert(py, ptr)?; }
@@ -338,18 +334,6 @@ impl EarthGeometry {
         Ok(stepper)
     }
 }
-
-impl_dtype!(
-    Intersection,
-    [
-        ("before",    "i4"),
-        ("after",     "i4"),
-        ("latitude",  "f8"),
-        ("longitude", "f8"),
-        ("altitude",  "f8"),
-        ("distance",  "f8"),
-    ]
-);
 
 impl EarthGeometryStepper {
     pub fn step(
@@ -413,7 +397,7 @@ impl EarthGeometryStepper {
         &mut self,
         position: GeographicCoordinates,
         direction: HorizontalCoordinates
-    ) -> PyResult<(Intersection, i32)> {
+    ) -> PyResult<(GeographicIntersection, i32)> {
         let mut r = position.to_ecef();
         let mut index = [ -2; 2 ];
         error::to_result(
@@ -471,7 +455,7 @@ impl EarthGeometryStepper {
             position
         };
         Ok((
-            Intersection {
+            GeographicIntersection {
                 before: layer_index(start_layer),
                 after: layer_index(index[0]),
                 latitude: position.latitude,

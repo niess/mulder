@@ -7,13 +7,14 @@ use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{Dtype, impl_dtype, NewArray};
+use crate::utils::numpy::NewArray;
 use crate::utils::ptr::OwnedPtr;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::types::{PyDict, PyTuple};
 use std::ffi::OsStr;
 use std::path::Path;
+use super::intersections::{LocalIntersection, IntersectionsArray};
 
 
 // ===============================================================================================
@@ -56,15 +57,6 @@ pub struct LocalTracer<'a> {
     #[allow(dead_code)]
     definition: &'a LocalGeometry, // for lifetime guarantee.
     ptr: OwnedPtr<CTracer>,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-struct Intersection {
-    pub before: i32,
-    pub after: i32,
-    pub position: [f64; 3],
-    pub distance: f64,
 }
 
 #[derive(FromPyObject)]
@@ -256,7 +248,7 @@ impl LocalGeometry {
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, Intersection>> {
+    ) -> PyResult<IntersectionsArray<'py>> {
         let frame = Maybe::always(frame.as_ref(), &self.frame);
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame, None
@@ -268,10 +260,14 @@ impl LocalGeometry {
         let tracer = self.tracer()?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
-        let mut array = NewArray::empty(py, shape)?;
-        let n = array.size();
-        let intersections = array.as_slice_mut();
-        for i in 0..n {
+        let mut array = if coordinates.is_geographic() {
+            IntersectionsArray::Geographic(NewArray::empty(py, shape)?)
+        } else {
+            IntersectionsArray::Local(NewArray::empty(py, shape)?)
+        };
+        let mut intersections = array.as_slice_mut();
+
+        for i in 0..size {
             const WHY: &str = "while tracing geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
@@ -284,9 +280,10 @@ impl LocalGeometry {
             tracer.move_(distance);
             let after = tracer.medium() as i32;
             let position = tracer.position();
-            intersections[i] = Intersection {
+            let intersection = LocalIntersection {
                 before, after, position, distance
             };
+            intersections.set_local(i, intersection, Some(&self.frame), transformer.as_ref());
             notifier.tic();
         }
 
@@ -426,16 +423,6 @@ impl From<CVec3> for [f64; 3] {
         [ value.x, value.y, value.z ]
     }
 }
-
-impl_dtype!(
-    Intersection,
-    [
-        ("before",    "i4"),
-        ("after",     "i4"),
-        ("position",  "3f8"),
-        ("distance",  "f8")
-    ]
-);
 
 #[pymethods]
 impl Medium {

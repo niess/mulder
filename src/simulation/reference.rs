@@ -4,7 +4,7 @@ use crate::utils::convert::{Convert, ParametricModel};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
 use crate::utils::io::PathString;
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, impl_dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::ffi::OsStr;

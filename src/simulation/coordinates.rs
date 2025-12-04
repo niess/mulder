@@ -3,7 +3,7 @@ use crate::utils::convert::TransformMode;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::TypeError;
 use crate::utils::extract::{Extractor, Field, Name};
-use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, impl_dtype, NewArray};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -454,6 +454,28 @@ impl LocalTransformer {
     }
 
     #[inline]
+    pub fn inverse_transform_point(&self, p: &[f64; 3]) -> [f64; 3] {
+        let mut r = [0.0; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                r[i] += self.rotation[j][i] * (p[j] - self.translation[j]);
+            }
+        }
+        r
+    }
+
+    #[inline]
+    pub fn inverse_transform_vector(&self, v: &[f64; 3]) -> [f64; 3] {
+        let mut r = [0.0; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                r[i] += self.rotation[j][i] * v[j];
+            }
+        }
+        r
+    }
+
+    #[inline]
     pub fn transform_point(&self, p: &[f64; 3]) -> [f64; 3] {
         let mut r = self.translation;
         for i in 0..3 {
@@ -603,6 +625,20 @@ impl<'py> CoordinatesExtractor<'py> {
             states,
             kwargs,
         )
+    }
+
+    pub fn frame(&self) -> Option<&LocalFrame> {
+        match self {
+            Self::Geographic { .. } => None,
+            Self::Local { frame, .. } => Some(frame),
+        }
+    }
+
+    pub fn is_geographic(&self) -> bool {
+        match self {
+            Self::Geographic { .. } => true,
+            _ => false,
+        }
     }
 
     fn local_extractor(
