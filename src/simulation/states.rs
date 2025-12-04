@@ -5,7 +5,7 @@ use crate::utils::numpy::{ArrayMethods, Dtype, impl_dtype, NewArray, PyArray, Sh
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
 use super::coordinates::{
-    GeographicCoordinates, LocalFrame, LocalTransformer, HorizontalCoordinates,
+    GeographicCoordinates, LocalFrame, LocalTransformer, HorizontalCoordinates, Maybe,
 };
 use super::Particle;
 
@@ -1432,7 +1432,7 @@ impl<'py> StatesExtractor<'py> {
     pub fn new(
         states: Option<&Bound<'py, PyAny>>,
         kwargs: Option<&Bound<'py, PyDict>>,
-        frame: Option<&LocalFrame>,
+        frame: Maybe<&LocalFrame>,
     ) -> PyResult<Self> {
         let states = match states {
             Some(states) => match states.getattr_opt("frame")? {
@@ -1450,15 +1450,38 @@ impl<'py> StatesExtractor<'py> {
                     Self::Geographic { extractor }
                 },
             },
-            None => match frame {
-                Some(frame) => {
-                    let extractor = LocalStates::extract_states(None, kwargs)?;
-                    Self::Local { extractor, frame: frame.clone() }
-                },
-                None => {
-                    let extractor = GeographicStates::extract_states(None, kwargs)?;
-                    Self::Geographic { extractor }
-                },
+            None => {
+                let frame = match frame {
+                    Maybe::Explicit(frame) => Some(frame.clone()),
+                    Maybe::Implicit(frame) => match kwargs {
+                        Some(k) => if k.contains("position")? || k.contains("direction")? {
+                            Some(frame.clone())
+                        } else {
+                            None
+                        },
+                        None => Some(frame.clone()),
+                    },
+                    Maybe::None => None,
+                };
+                match frame {
+                    Some(frame) => {
+                        let extractor = LocalStates::extract_states(None, kwargs)?;
+                        Self::Local { extractor, frame: frame }
+                    },
+                    None => {
+                        if let Some(k) = kwargs {
+                            if k.contains("position")? || k.contains("direction")? {
+                                let err = Error::new(TypeError)
+                                    .what("position")
+                                    .why("missing 'frame' argument")
+                                    .to_err();
+                                return Err(err)
+                            }
+                        }
+                        let extractor = GeographicStates::extract_states(None, kwargs)?;
+                        Self::Geographic { extractor }
+                    },
+                }
             },
         };
         Ok(states)

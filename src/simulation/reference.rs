@@ -1,7 +1,8 @@
+use crate::simulation::coordinates::LocalFrame;
+use crate::simulation::states::{ExtractedState, StatesExtractor};
 use crate::utils::convert::{Convert, ParametricModel};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{IOError, TypeError, ValueError};
-use crate::utils::extract::{Extractor, Field, Name};
 use crate::utils::io::PathString;
 use crate::utils::numpy::{AnyArray, ArrayMethods, Dtype, impl_dtype, NewArray};
 use pyo3::prelude::*;
@@ -131,36 +132,40 @@ impl Reference {
         Ok(reference)
     }
 
-    #[pyo3(name="flux", signature=(states=None, /, **kwargs))]
+    #[pyo3(
+        name="flux",
+        signature=(states=None, /, *, frame=None, **kwargs),
+        text_signature="(self, states=None, /, **kwargs)",
+    )]
     fn py_flux<'py>(
         &self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
-        let states = Extractor::from_args(
-            [
-                Field::maybe_int(Name::Pid),
-                Field::float(Name::Energy),
-                Field::float(Name::Elevation),
-                Field::maybe_float(Name::Altitude),
-            ],
-            states,
-            kwargs
-        )?;
+        // Extract states.
+        let states = StatesExtractor::new(states, kwargs, frame.as_ref().into())?;
+        let tagged = states.is_tagged();
 
         let mut array = NewArray::zeros(py, states.shape())?;
         let flux = array.as_slice_mut();
 
         for i in 0..states.size() {
-            let pid = states.get_i32_opt(Name::Pid, i)?;
-            let energy = states.get_f64(Name::Energy, i)?;
-            let elevation = states.get_f64(Name::Elevation, i)?;
-            let altitude = states.get_f64_opt(Name::Altitude, i)?
-                .unwrap_or_else(|| self.altitude.min());
+            let (pid, energy, elevation, altitude) = match states.extract(i)? {
+                ExtractedState::Geographic { state } => {
+                    (state.pid, state.energy, state.elevation, state.altitude)
+                },
+                ExtractedState::Local { state, frame } => {
+                    let (geographic, horizontal) = frame.to_geographic(
+                        &state.position, &state.direction
+                    );
+                    (state.pid, state.energy, horizontal.elevation, geographic.altitude)
+                }
+            };
             let f = self.flux(energy, elevation, altitude);
-            flux[i] = match pid {
-                Some(pid) => if pid == 13 {
+            flux[i] = if tagged {
+                if pid == 13 {
                     f.muon
                 } else if pid == -13 {
                     f.anti
@@ -168,8 +173,9 @@ impl Reference {
                     let why = format!("expected '13' or '-13', found {}", pid);
                     let err = Error::new(ValueError).what("pid").why(&why).to_err();
                     return Err(err)
-                },
-                None => f.muon + f.anti,
+                }
+            } else {
+                f.muon + f.anti
             };
         }
         Ok(array)

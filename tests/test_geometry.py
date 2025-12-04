@@ -25,7 +25,12 @@ def test_earth():
     assert geometry.layers[1].density == None
 
     # Test the locate method.
-    assert geometry.locate(position=[0.0, 0.0, 1.0], frame=mulder.LocalFrame()) == 1
+    assert geometry.locate(
+        position=[0.0, 0.0, -1001.0], frame=mulder.LocalFrame()
+    ) == 0
+    assert geometry.locate(
+        position=[0.0, 0.0, -1.0], frame=mulder.LocalFrame()
+    ) == 1
 
 
 @pytest.mark.requires_calzone

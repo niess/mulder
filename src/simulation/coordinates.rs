@@ -519,6 +519,15 @@ impl<'py> CoordinatesExtractor<'py> {
                         Self::Local { extractor, frame }
                     },
                     None => {
+                        if let Some(k) = kwargs {
+                            if k.contains("position")? || k.contains("direction")? {
+                                let err = Error::new(TypeError)
+                                    .what("position")
+                                    .why("missing 'frame' argument")
+                                    .to_err();
+                                return Err(err)
+                            }
+                        }
                         let extractor = Self::geographic_extractor(None, kwargs)?;
                         Self::Geographic { extractor }
                     },
@@ -682,6 +691,15 @@ impl<'py> PositionExtractor<'py> {
                         Self::Local { extractor, frame }
                     },
                     None => {
+                        if let Some(k) = kwargs {
+                            if k.contains("position")? {
+                                let err = Error::new(TypeError)
+                                    .what("position")
+                                    .why("missing 'frame' argument")
+                                    .to_err();
+                                return Err(err)
+                            }
+                        }
                         let extractor = Self::geographic_extractor(None, kwargs)?;
                         Self::Geographic {
                             extractor,
@@ -869,6 +887,16 @@ impl<T> Maybe<T> {
         match value {
             Some(value) => Self::Explicit(value),
             None => Self::Implicit(default),
+        }
+    }
+
+    pub fn new(value: Option<T>, default: Option<T>) -> Self
+    where
+        Maybe<T>: From<Option<T>>,
+    {
+        match default {
+            Some(default) => Self::always(value, default),
+            None => value.into(),
         }
     }
 }

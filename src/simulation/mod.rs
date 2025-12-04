@@ -399,13 +399,17 @@ impl Fluxmeter {
     }
 
     /// Compute flux estimate(s).
-    #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
+    #[pyo3(
+        signature=(states=None, /, *, events=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, states=None, /, *, events=None, notify=None, **kwargs)",
+    )]
     fn flux<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         events: Option<usize>,
         notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
         // Configure physics, geometry, samplers etc.
@@ -415,7 +419,8 @@ impl Fluxmeter {
         let agent: &mut Agent = &mut pinned.deref_mut();
 
         // Extract states.
-        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
+        let frame = coordinates::Maybe::new(frame.as_ref(), agent.geometry.frame());
+        let states = StatesExtractor::new(states, kwargs, frame)?;
         let size = states.size();
         let mut shape = states.shape();
 
@@ -508,14 +513,17 @@ impl Fluxmeter {
     }
 
     /// Transport state(s) to the reference flux.
-    #[pyo3(signature=(states=None, /, *, events=None, notify=None, **kwargs))]
+    #[pyo3(
+        signature=(states=None, /, *, events=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, states=None, /, *, events=None, notify=None, **kwargs)",
+    )]
     fn transport<'py>(
         &mut self,
         py: Python<'py>,
         states: Option<&Bound<PyAny>>,
         events: Option<usize>,
-        // XXX add frame argument?
         notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewStates<'py>> {
         // Configure physics, geometry, samplers etc.
@@ -525,7 +533,8 @@ impl Fluxmeter {
         let agent: &mut Agent = &mut pinned.deref_mut();
 
         // Extract states.
-        let states = StatesExtractor::new(states, kwargs, agent.geometry.frame())?;
+        let frame = coordinates::Maybe::new(frame.as_ref(), agent.geometry.frame());
+        let states = StatesExtractor::new(states, kwargs, frame)?;
         let size = states.size();
         let mut shape = states.shape();
 

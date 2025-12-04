@@ -972,8 +972,6 @@ the two representations.
      - :py:attr:`~mulder.LocalStates.direction`
    * - :py:attr:`~mulder.GeographicStates.energy`, :py:attr:`~mulder.GeographicStates.pid`, :py:attr:`~mulder.GeographicStates.weight`
      - :py:attr:`~mulder.LocalStates.energy`, :py:attr:`~mulder.LocalStates.pid`, :py:attr:`~mulder.LocalStates.weight`
-   * - :python:`None`
-     - :py:attr:`~mulder.LocalStates.frame`
 
 .. note::
 
