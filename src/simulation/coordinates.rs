@@ -485,20 +485,29 @@ impl<'py> CoordinatesExtractor<'py> {
         expected_size: Option<usize>,
     ) -> PyResult<Self> {
         let extractor = match states {
-            Some(states) => match states.getattr_opt("frame")? {
-                Some(frame) => {
-                    let frame: LocalFrame = frame.extract()
-                        .map_err(|err| {
-                            let why = err.value(py).to_string();
-                            Error::new(TypeError).what("states' frame").why(&why).to_err()
-                        })?;
-                    let extractor = Self::local_extractor(Some(states), kwargs)?;
-                    Self::Local { extractor, frame }
-                },
-                None => {
-                    let extractor = Self::geographic_extractor(Some(states), kwargs)?;
-                    Self::Geographic { extractor }
-                },
+            Some(states) => {
+                if frame.is_explicit() || kwargs.is_some() {
+                    let err = Error::new(TypeError)
+                        .what("coordinates")
+                        .why("unexpected **kwargs")
+                        .to_err();
+                    return Err(err)
+                }
+                match states.getattr_opt("frame")? {
+                    Some(frame) => {
+                        let frame: LocalFrame = frame.extract()
+                            .map_err(|err| {
+                                let why = err.value(py).to_string();
+                                Error::new(TypeError).what("states' frame").why(&why).to_err()
+                            })?;
+                        let extractor = Self::local_extractor(Some(states), kwargs)?;
+                        Self::Local { extractor, frame }
+                    },
+                    None => {
+                        let extractor = Self::geographic_extractor(Some(states), kwargs)?;
+                        Self::Geographic { extractor }
+                    },
+                }
             },
             None => {
                 let frame = match frame {
@@ -653,24 +662,33 @@ impl<'py> PositionExtractor<'py> {
         const DEFAULT_LONGITUDE: f64 = 0.0;
 
         let extractor = match states {
-            Some(states) => match states.getattr_opt("frame")? {
-                Some(frame) => {
-                    let frame: LocalFrame = frame.extract()
-                        .map_err(|err| {
-                            let why = err.value(py).to_string();
-                            Error::new(TypeError).what("states' frame").why(&why).to_err()
-                        })?;
-                    let extractor = Self::local_extractor(Some(states), kwargs)?;
-                    Self::Local { extractor, frame }
-                },
-                None => {
-                    let extractor = Self::geographic_extractor(Some(states), kwargs)?;
-                    Self::Geographic {
-                        extractor,
-                        default_latitude: DEFAULT_LATITUDE,
-                        default_longitude: DEFAULT_LONGITUDE,
-                    }
-                },
+            Some(states) => {
+                if frame.is_explicit() || kwargs.is_some() {
+                    let err = Error::new(TypeError)
+                        .what("position")
+                        .why("unexpected **kwargs")
+                        .to_err();
+                    return Err(err)
+                }
+                match states.getattr_opt("frame")? {
+                    Some(frame) => {
+                        let frame: LocalFrame = frame.extract()
+                            .map_err(|err| {
+                                let why = err.value(py).to_string();
+                                Error::new(TypeError).what("states' frame").why(&why).to_err()
+                            })?;
+                        let extractor = Self::local_extractor(Some(states), kwargs)?;
+                        Self::Local { extractor, frame }
+                    },
+                    None => {
+                        let extractor = Self::geographic_extractor(Some(states), kwargs)?;
+                        Self::Geographic {
+                            extractor,
+                            default_latitude: DEFAULT_LATITUDE,
+                            default_longitude: DEFAULT_LONGITUDE,
+                        }
+                    },
+                }
             },
             None => {
                 let frame = match frame {
@@ -897,6 +915,13 @@ impl<T> Maybe<T> {
         match default {
             Some(default) => Self::always(value, default),
             None => value.into(),
+        }
+    }
+
+    pub fn is_explicit(&self) -> bool {
+        match self {
+            Self::Explicit(_) => true,
+            _ => false,
         }
     }
 }

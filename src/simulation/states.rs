@@ -1465,20 +1465,29 @@ impl<'py> StatesExtractor<'py> {
         frame: Maybe<&LocalFrame>,
     ) -> PyResult<Self> {
         let states = match states {
-            Some(states) => match states.getattr_opt("frame")? {
-                Some(frame) => {
-                    let frame: LocalFrame = frame.extract()
-                        .map_err(|err| {
-                            let why = format!("{}", err);
-                            Error::new(TypeError).what("states' frame").why(&why).to_err()
-                        })?;
-                    let extractor = LocalStates::extract_states(Some(states), kwargs)?;
-                    Self::Local { extractor, frame }
-                },
-                None => {
-                    let extractor = GeographicStates::extract_states(Some(states), kwargs)?;
-                    Self::Geographic { extractor }
-                },
+            Some(states) => {
+                if frame.is_explicit() || kwargs.is_some() {
+                    let err = Error::new(TypeError)
+                        .what("states")
+                        .why("unexpected **kwargs")
+                        .to_err();
+                    return Err(err)
+                }
+                match states.getattr_opt("frame")? {
+                    Some(frame) => {
+                        let frame: LocalFrame = frame.extract()
+                            .map_err(|err| {
+                                let why = format!("{}", err);
+                                Error::new(TypeError).what("states' frame").why(&why).to_err()
+                            })?;
+                        let extractor = LocalStates::extract_states(Some(states), kwargs)?;
+                        Self::Local { extractor, frame }
+                    },
+                    None => {
+                        let extractor = GeographicStates::extract_states(Some(states), kwargs)?;
+                        Self::Geographic { extractor }
+                    },
+                }
             },
             None => {
                 let frame = match frame {
@@ -1587,20 +1596,29 @@ impl AnyStates {
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
         let states = match states {
-            Some(s) => match s.getattr_opt("frame")? { // XXX Require None kwargs & frame?
-                Some(frame) => {
-                    let frame: LocalFrame = frame.extract()
-                        .map_err(|err| {
-                            let why = format!("{}", err);
-                            Error::new(TypeError).what("states' frame").why(&why).to_err()
-                        })?;
-                    let states = LocalStates::new(py, states, Some(frame), None)?;
-                    Self::Local(states)
-                },
-                None => {
-                    let states = GeographicStates::new(py, None, kwargs)?;
-                    Self::Geographic(states)
-                },
+            Some(s) => {
+                if frame.is_explicit() || kwargs.is_some() {
+                    let err = Error::new(TypeError)
+                        .what("states")
+                        .why("unexpected **kwargs")
+                        .to_err();
+                    return Err(err)
+                }
+                match s.getattr_opt("frame")? {
+                    Some(frame) => {
+                        let frame: LocalFrame = frame.extract()
+                            .map_err(|err| {
+                                let why = format!("{}", err);
+                                Error::new(TypeError).what("states' frame").why(&why).to_err()
+                            })?;
+                        let states = LocalStates::new(py, states, Some(frame), None)?;
+                        Self::Local(states)
+                    },
+                    None => {
+                        let states = GeographicStates::new(py, None, kwargs)?;
+                        Self::Geographic(states)
+                    },
+                }
             },
             None => {
                 let frame = match frame {
