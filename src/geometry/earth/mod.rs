@@ -137,6 +137,7 @@ impl EarthGeometry {
         Ok(array)
     }
 
+    /// Performs a detailed tracing of the Earth geometry.
     #[pyo3(
         signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
         text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
@@ -238,6 +239,7 @@ impl EarthGeometry {
         Ok(array)
     }
 
+    /// Performs a tracing step of the Earth geometry.
     #[pyo3(
         name="trace",
         signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),

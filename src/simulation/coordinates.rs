@@ -465,17 +465,6 @@ impl LocalTransformer {
     }
 
     #[inline]
-    pub fn inverse_transform_vector(&self, v: &[f64; 3]) -> [f64; 3] {
-        let mut r = [0.0; 3];
-        for i in 0..3 {
-            for j in 0..3 {
-                r[i] += self.rotation[j][i] * v[j];
-            }
-        }
-        r
-    }
-
-    #[inline]
     pub fn transform_point(&self, p: &[f64; 3]) -> [f64; 3] {
         let mut r = self.translation;
         for i in 0..3 {

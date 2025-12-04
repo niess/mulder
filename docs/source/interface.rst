@@ -44,16 +44,37 @@ Geometry interface
    .. rubric:: Geometry methods
      :heading-level: 4
 
+   .. note::
+
+      The geometry methods below use the `Coordinates interface <States
+      interface_>`_ to specify the coordinates of interest.
+
    .. automethod:: locate
 
-      This method uses the `Position interface <States interface_>`_ to specify
-      the coordinates of the point(s) to locate. It returns the corresponding
-      layer indices. For instance,
+      The method returns the layer index(es) that correspond to the input
+      position(s). For instance,
 
       >>> layer = geometry.locate(latitude=45, altitude=-5.0)
 
    .. automethod:: scan
+
+      The method returns an :py:class:`array <numpy.ndarray>` containing the
+      thicknesses of the layers along the line(s) of sight specified by the
+      input *coordinates*. For instance,
+
+      >>> thickness = geometry.scan(latitude=45, elevation=10)
+      >>> thickness[0]  # doctest: +SKIP
+      3.0
+
    .. automethod:: trace
+
+      The method returns a structured :py:class:`array <numpy.ndarray>`
+      describing the first intersection(s) along the line(s) of sight specified
+      by the input *coordinates*. For instance,
+
+      >>> intersection = geometry.trace(latitude=45, elevation=10)
+      >>> intersection["distance"]  # doctest: +SKIP
+      3.0
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -346,16 +367,47 @@ Geometry interface
 
    .. method:: __new__(data, /, *, frame=None)
 
-      The *data* argument may be a path-string pointing to a C-module file or to
-      a Calzone geometry file. Alternatively, one might provide a
-      :py:class:`calzone.Geometry` object as *data* argument.
+      The *data* argument may be a path-string pointing to a
+      :py:class:`~mulder.Module` file or to a `Calzone geometry
+      <Calzone-Geometry_>`_ file. Alternatively, one might provide a
+      :py:class:`calzone.Geometry` object as *data* argument. For instance, the
+      following loads a local geometry from a `Calzone geometry
+      <Calzone-Geometry_>`_ file.
+
+      >>> geometry = mulder.LocalGeometry("geometry.toml")
+
+      The optional *frame* argument specifies the origin and orientation of the
+      local geometry as a :py:class:`~mulder.LocalFrame` object.
 
    .. rubric:: Geometry methods
      :heading-level: 4
 
    .. automethod:: locate
+
+      The method returns the layer index(es) that correspond to the input
+      position(s). For instance,
+
+      >>> layer = geometry.locate(position=[0, 0, 1])
+
    .. automethod:: scan
+
+      The method returns an :py:class:`array <numpy.ndarray>` containing the
+      thicknesses of the layers along the line(s) of sight specified by the
+      input *coordinates*. For instance,
+
+      >>> thickness = geometry.scan(position=[0, 0, 1], direction=[0, 0, -1])
+      >>> thickness[0]  # doctest: +SKIP
+      1.0
+
    .. automethod:: trace
+
+      The method returns a structured :py:class:`array <numpy.ndarray>`
+      describing the first intersection(s) along the line(s) of sight specified
+      by the input *coordinates*. For instance,
+
+      >>> intersection = geometry.trace(position=[0, 0, 1], direction=[0, 0, -1])
+      >>> intersection["distance"]  # doctest: +SKIP
+      1.0
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -427,7 +479,7 @@ definition has been established, it cannot be modified or removed.
 
       Returns the definition of the composite matching *name*. For instance,
 
-      >>> composite = materials.Composite("HumidRock")  # doctest: +IGNORE
+      >>> composite = materials.Composite("HumidRock")  # doctest: +SKIP
 
    .. method:: all()
 
@@ -447,7 +499,7 @@ definition has been established, it cannot be modified or removed.
 
       The composite is defined by specifying its *composition*, for instance as,
 
-      >>> humid_rock = materials.Composite(
+      >>> humid_rock = materials.Composite.define(
       ...     "HumidRock",
       ...     composition=("Rock", "Water"),
       ... )
@@ -455,7 +507,7 @@ definition has been established, it cannot be modified or removed.
       The mass fractions may also be specified when defining the composite, for
       instance as
 
-      >>> humid_rock = materials.Composite(
+      >>> humid_rock = materials.Composite.define(
       ...     "HumidRock",
       ...     composition={"Rock": 0.95, "Water": 0.05},
       ... )
@@ -581,13 +633,13 @@ definition has been established, it cannot be modified or removed.
       The *composition* argument may be a :py:class:`str`, specifying the
       material chemical composition, as
 
-      >>> ice = materials.Material("Ice", composition="H2O", density=0.92E+03)
+      >>> ice = materials.Material.define("Ice", composition="H2O", density=0.92E+03)
 
       Alternatively, the *composition* argument may be akin to a
       :py:class:`dict` mapping atomic elements or other materials to mass
       fractions. For example, as
 
-      >>> moist_air = materials.Material(
+      >>> moist_air = materials.Material.define(
       ...     "MoistAir",
       ...     composition={"Air": 0.99, "Water": 0.01},
       ...     density=1.2
@@ -655,7 +707,7 @@ Module interface
 
       Loads a Module.
 
-      >>> module = mulder.Module("module.so")  # doctest: +IGNORE
+      >>> module = mulder.Module("module.so")  # doctest: +SKIP
 
    .. rubric:: Methods
      :heading-level: 4
@@ -664,17 +716,17 @@ Module interface
 
       Fetches a module's element to Mulder's global scope. For example,
 
-      >>> H = module.element("G4_H")  # doctest: +IGNORE
+      >>> H = module.element("G4_H")  # doctest: +SKIP
 
    .. automethod:: geometry
 
-      >>> geometry = module.geometry(frame=frame)  # doctest: +IGNORE
+      >>> geometry = module.geometry(frame=frame)  # doctest: +SKIP
 
    .. automethod:: material
 
       Fetches a module's material to Mulder's global scope. For example,
 
-      >>> air = module.material("G4_AIR")  # doctest: +IGNORE
+      >>> air = module.material("G4_AIR")  # doctest: +SKIP
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -832,11 +884,11 @@ tabulated physical properties.
       <mulder.CompiledMaterial>` can be extracted to a :py:class:`dict`, for
       instance as
 
-      >>> compiled = { m.name: m for m in physics.compile() } # doctest: +IGNORE
+      >>> compiled = { m.name: m for m in physics.compile() } # doctest: +SKIP
 
       Alternatively, one may explicit the materials to compile, for example as
 
-      >>> ice, rock = physics.compile("Ice", "Rock") # doctest: +IGNORE
+      >>> ice, rock = physics.compile("Ice", "Rock") # doctest: +SKIP
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -999,7 +1051,7 @@ States objects are used as input to Mulder functions, for instance as follows
 .. doctest::
    :hide:
 
-   >>> def some_state_function(states=None, /, *, **kwargs):
+   >>> def some_state_function(states=None, /, *, frame=None, **kwargs):
    ...     pass
 
 >>> states = mulder.GeographicStates(
@@ -1435,6 +1487,7 @@ these data are immutable.
 .. _ASCII Grid: https://en.wikipedia.org/wiki/Esri_grid
 .. _Bugaev and Shlepin: https://doi.org/10.1103/PhysRevD.67.034027
 .. _Calzone: https://github.com/niess/calzone
+.. _Calzone-Geometry: https://calzone.readthedocs.io/en/latest/geometry.html
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model

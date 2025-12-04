@@ -18,6 +18,10 @@ def initialise_doctest():
         "./dem.asc"
     )
     shutil.copyfile(
+        PREFIX / "tests/assets/geometry.toml",
+        "./geometry.toml"
+    )
+    shutil.copyfile(
         PREFIX / "tests/assets/materials.toml",
         "./materials.toml"
     )

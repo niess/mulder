@@ -171,6 +171,7 @@ impl LocalGeometry {
     }
 
     // XXX sum & grammage mode?
+    /// Performs a detailed tracing of the local geometry.
     #[pyo3(
         signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
         text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
@@ -236,6 +237,7 @@ impl LocalGeometry {
         Ok(array)
     }
 
+    /// Performs a tracing step of the local geometry.
     #[pyo3(
         name="trace",
         signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
