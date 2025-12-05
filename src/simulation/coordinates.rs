@@ -285,8 +285,6 @@ impl LocalFrame {
         Ok(array)
     }
 
-    // XXX add point/vector transforms between frames?
-
     /// The latitude coordinate of the frame origin, in deg.
     #[getter]
     fn get_latitude(&self) -> f64 {

@@ -42,9 +42,7 @@ const NUMBER_OF_NAMES: usize = (Name::Weight as usize) + 1;
 
 enum Kind {
     Float,
-    #[allow(unused)] // XXX needed?
     Int,
-    #[allow(unused)] // XXX needed?
     Vec3,
     MaybeFloat,
     MaybeInt,
@@ -148,7 +146,6 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
         }
     }
 
-    #[allow(unused)] // XXX needed?
     pub fn get_i32(&self, name: Name, i: usize) -> PyResult<i32> {
         let j = self.map[name as usize];
         match &self.data[j] {
@@ -187,7 +184,6 @@ impl<'a, 'py, const N: usize> Extractor<'py, N> {
         }
     }
 
-    #[allow(unused)] // XXX needed?
     pub fn get_vec3(&self, name: Name, i: usize) -> PyResult<[f64; 3]> {
         let j = self.map[name as usize];
         let vec3 = match &self.data[j] {
@@ -262,12 +258,10 @@ impl Field {
         Self { name, kind: Kind::Float }
     }
 
-    #[allow(unused)] // XXX needed?
     pub fn int(name: Name) -> Self {
         Self { name, kind: Kind::Int }
     }
 
-    #[allow(unused)] // XXX needed?
     pub fn vec3(name: Name) -> Self {
         Self { name, kind: Kind::Vec3 }
     }
