@@ -6,7 +6,7 @@ use std::path::Path;
 
 
 pub trait EnsureFile: Sized {
-    fn ensure_file(self, what: &str) -> PyResult<Self>; // XXX Use this trait.
+    fn ensure_file(self, what: &str) -> PyResult<Self>;
 }
 
 impl EnsureFile for &Path {

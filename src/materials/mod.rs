@@ -1,5 +1,7 @@
 use crate::utils::io::PathString;
+use crate::utils::traits::EnsureFile;
 use pyo3::prelude::*;
+use std::path::Path;
 
 pub mod definitions;
 pub mod registry;
@@ -19,6 +21,7 @@ use toml::ToToml;
 #[pyfunction]
 #[pyo3(signature=(path, /))]
 pub fn load(py: Python, path: PathString) -> PyResult<()> {
+    let _ = Path::new(&path.0).ensure_file("path")?;
     let broker = MaterialsBroker::new(py)?;
     broker.load(py, path.0.as_str())
 }

@@ -4,6 +4,7 @@ use crate::simulation::coordinates::LocalFrame;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
+use crate::utils::traits::EnsureFile;
 use indexmap::IndexMap;
 use libloading::Library;
 use pyo3::prelude::*;
@@ -66,6 +67,7 @@ impl Module {
     pub unsafe fn new(py: Python<'_>, path: PathString) -> PyResult<Py<Self>> {
         let path = Path::new(&path.0)
             .canonicalize()?
+            .ensure_file("path")?
             .to_str()
             .ok_or_else(|| Error::new(ValueError).what("path").why(&path.0).to_err())?
             .to_owned();

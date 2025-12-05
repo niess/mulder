@@ -9,6 +9,7 @@ use crate::utils::io::PathString;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::NewArray;
 use crate::utils::ptr::OwnedPtr;
+use crate::utils::traits::EnsureFile;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::types::{PyDict, PyTuple};
@@ -88,6 +89,7 @@ impl LocalGeometry {
     ) -> PyResult<Py<Self>> {
         match data {
             LocalArg::Path(path) => {
+                let _ = Path::new(&path.0).ensure_file("data")?;
                 match Path::new(&path.0).extension().and_then(OsStr::to_str) {
                     Some("json") | Some("toml") | Some("yml") | Some("yaml") => {
                         let geometry = py.import("calzone")?
