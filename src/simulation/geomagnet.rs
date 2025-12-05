@@ -4,6 +4,7 @@ use crate::simulation::coordinates::{LocalFrame, PositionExtractor};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::io::PathString;
+use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::NewArray;
 use crate::utils::traits::EnsureFile;
 use pyo3::prelude::*;
@@ -133,14 +134,14 @@ impl EarthMagnet {
     /// Computes the geomagnetic field value(s) at the specified position(s).
     #[pyo3(
         name="field",
-        signature=(position=None, /, *, frame=None, **kwargs),
-        text_signature="(self, position=None, /, **kwargs)",
+        signature=(position=None, /, *, notify=None, frame=None, **kwargs),
+        text_signature="(self, position=None, /, *, notify=None, **kwargs)",
     )]
     fn py_field<'py>(
         &mut self,
         py: Python<'py>,
         position: Option<&Bound<PyAny>>,
-        // XXX notifier?
+        notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<NewArray<'py, f64>> {
@@ -150,9 +151,14 @@ impl EarthMagnet {
             shape.push(3);
             shape
         };
+        let size = position.size();
         let mut array = NewArray::empty(py, shape)?;
         let fields = array.as_slice_mut();
-        for i in 0..position.size() {
+        let notifier = Notifier::from_arg(notify, size, "computing field");
+        for i in 0..size {
+            const WHY: &str = "while computing field";
+            if (i % 1000) == 0 { error::check_ctrlc(WHY)? }
+
             let ri = position.extract(i)?
                 .into_geographic();
             let mut fi = self.field(
@@ -168,6 +174,7 @@ impl EarthMagnet {
             for j in 0..3 {
                 fields[3 * i + j] = fi[j];
             }
+            notifier.tic();
         }
         Ok(array)
     }
