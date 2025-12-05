@@ -41,9 +41,10 @@ fn main() {
         "deps/turtle/src/deps/tinydir.c",
     ];
 
+    let cstd = if cfg!(windows) { "c11" } else { "c99" };
     cc::Build::new()
         .cpp(false)
-        .std("c99")
+        .std(cstd)
         .includes(c_includes)
         .files(c_sources)
         .define("TURTLE_NO_LD", None)

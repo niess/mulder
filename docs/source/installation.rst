@@ -40,12 +40,6 @@ in-source (under `src/python/mulder
    # Link the resulting binary.
    ln -rs target/release/lib_core.so src/python/mulder/_core.so
 
-.. caution::
-
-   The GNU toolchain must be used on Windows, as MSVC does not support C99. For
-   example, set `CARGO_BUILD_TARGET=x86_64-pc-windows-gnu` for an `x86_64`
-   machine.
-
 
 .. ============================================================================
 .. 
