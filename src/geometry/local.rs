@@ -11,7 +11,6 @@ use crate::utils::numpy::NewArray;
 use crate::utils::ptr::OwnedPtr;
 use crate::utils::traits::EnsureFile;
 use pyo3::prelude::*;
-use pyo3::exceptions::PyNotImplementedError;
 use pyo3::types::{PyDict, PyTuple};
 use std::ffi::OsStr;
 use std::path::Path;
@@ -102,13 +101,17 @@ impl LocalGeometry {
                         }
                         Ok(geometry.unbind())
                     },
-                    Some("dll") | Some("dylib") | Some("mod") | Some("so")  => {
+                    Some("dll") | Some("dylib") | Some("mod") | Some("pyd") | Some("so")  => {
                         let module = unsafe { Module::new(py, path)? }
                             .bind(py)
                             .borrow();
                         module.geometry(py, frame)
                     },
-                    _ => Err(PyNotImplementedError::new_err("")),
+                    ext => {
+                        let why = format!("{}: invalid extension ({:?})", &path.0, ext);
+                        let err = Error::new(TypeError).what("data").why(&why).to_err();
+                        return Err(err)
+                    },
                 }
             },
             LocalArg::Any(obj) => {

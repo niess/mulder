@@ -142,7 +142,7 @@ def test_conversions():
 
     a = mulder.LocalStates(direction=normed((0, 1, 1)))
     b = a.to_geographic()
-    assert_allclose(b.azimuth, 0.0)
+    assert_allclose(b.azimuth, 0.0, atol=1E-07)
     assert_allclose(b.elevation, 45.0)
     b = b.to_local(a.frame)
     assert_allclose(a.direction, b.direction, atol=1E-07)
@@ -150,7 +150,7 @@ def test_conversions():
     a = mulder.LocalStates(direction=normed((1, 1, 0)))
     b = a.to_geographic()
     assert_allclose(b.azimuth, 45.0)
-    assert_allclose(b.elevation, 0.0)
+    assert_allclose(b.elevation, 0.0, atol=1E-07)
     b = b.to_local(a.frame)
     assert_allclose(a.direction, b.direction, atol=1E-07)
 

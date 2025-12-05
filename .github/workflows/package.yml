@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-latest, windows-latest, windows-11-arm]
 
     if: ${{ inputs.wheel }}
     steps:
@@ -51,16 +51,32 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Install the Rust toolchain (Windows-11/arm64)
+      if: ${{ matrix.os == 'windows-11-arm' }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+
     - uses: actions/setup-python@v5
       with:
         python-version: 3.11
 
-    - name: Override toolchain
-      if: ${{ matrix.os }} == 'windows-latest'
-      run: rustup set default-host x86_64-pc-windows-gnu
-
     - name: Build wheels
-      uses: pypa/cibuildwheel@v3.0.0
+      uses: pypa/cibuildwheel@v3.3.0
+
+    - uses: actions/setup-python@v5
+      if: ${{ matrix.os != 'windows-11-arm' }}
+      with:
+        python-version: 3.8
+
+    - name: Test wheel
+      shell: bash
+      run: |
+        echo "Using $(which python)"
+        mkdir test-${{ matrix.os }} && cd test-${{ matrix.os }}
+        export PYTHONPATH="$PWD/packages"
+
+        python -s -m pip install ../wheelhouse/*.whl --target=packages
+        python -s -m pip install calzone pytest --target=packages
+        python -s -m pytest --doctest-glob="*.rst" -v ../tests ../docs/source
 
     - name: Upload artifacts
       if: (github.ref == 'refs/heads/master')

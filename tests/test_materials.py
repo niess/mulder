@@ -117,7 +117,7 @@ def test_dump():
         os.chdir(d)
         materials.dump("materials.toml")
         materials.load("materials.toml")
-    os.chdir(cwd)
+        os.chdir(cwd)  # Must be before tmpdir removal, on Windows.
 
 
 def test_load():

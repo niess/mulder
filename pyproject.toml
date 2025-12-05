@@ -55,5 +55,7 @@ build = "cp38-macosx_*"
 environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
 
 [tool.cibuildwheel.windows]
-build = "cp38-win_amd64"
-environment = { CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu" }
+build = [ "cp39-win_amd64", "cp39-win_arm64" ]
+
+before-all = "python3 -m pip install delvewheel"
+repair-wheel-command = 'delvewheel repair --add-path "%CD%" -w {dest_dir} -v {wheel}'

@@ -14,7 +14,6 @@ mod simulation;
 mod utils;
 
 
-// XXX Patch Turtle for MSVC compat (and update install doc.
 // XXX Non uniform density models?
 
 
