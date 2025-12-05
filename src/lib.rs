@@ -2,7 +2,7 @@ use process_path::get_dylib_path;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::exceptions::PySystemError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // mod pumas;
 mod bindings;
@@ -101,13 +101,18 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 #[allow(non_snake_case)]
 #[pymethods]
 impl Config {
-    /// Default cache path.
+    /// The cache location.
     #[getter]
-    fn get_DEFAULT_CACHE(&self, py: Python) -> PyObject {
-        // XXX Return the actual cache path instead of the default one.
-        utils::cache::default_path()
+    fn get_CACHE(&self, py: Python) -> PyObject {
+        utils::cache::get_path()
             .and_then(|cache| cache.into_pyobject(py).map(|cache| cache.unbind()))
             .unwrap_or_else(|_| py.None())
+    }
+
+    #[setter]
+    fn set_CACHE(&self, value: crate::utils::io::PathString) {
+        let value = PathBuf::from(value.0);
+        utils::cache::set_path(value)
     }
 
     /// Default status for notifications.

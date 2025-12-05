@@ -144,7 +144,7 @@ impl MaterialsSet {
     }
 
     fn delete_dumps(&self, py: Python) -> PyResult<()> {
-        let materials_cache = cache::path()?.join("materials");
+        let materials_cache = cache::get_path()?.join("materials");
         let hash = format!("{:016x}", self.hash(py)?);
         if let Ok(content) = std::fs::read_dir(&materials_cache) {
             // Remove any cached pumas dumps.
@@ -267,7 +267,7 @@ impl CachePath {
     }
 
     pub fn into_path(self) -> PyResult<PathBuf> {
-        let path = cache::path()?.join("materials");
+        let path = cache::get_path()?.join("materials");
         if self.makedirs {
             std::fs::create_dir_all(&path)?;
         }

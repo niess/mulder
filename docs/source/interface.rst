@@ -1444,23 +1444,25 @@ class. For instance, as
 >>> mulder.config.VERSION
 '0.2.2'
 
-The available configuration data are listed below. Apart from :py:data:`NOTIFY`,
-these data are immutable.
+The available configuration data are listed below.
 
-.. data:: DEFAULT_CACHE
+.. data:: CACHE
    :type: ~pathlib.Path
 
-   Default cache path.
+   The cache location.
 
    Mulder uses a caching system to reduce the time taken for some
    time-consuming, yet repetitive tasks, such as the compilation of
-   :py:class:`~mulder.Physics` tables. This data indicates the default location
-   of cached files.
+   :py:class:`~mulder.Physics` tables. This data indicates the location of
+   cached files. For instance, the following changes the cache location
+
+   >>> mulder.config.CACHE = "/tmp/mulder"  # doctest: +SKIP
 
    .. note::
 
-      To change the location of cached files set the :bash:`MULDER_CACHE`
-      environment variable to the desired value.
+      By default, cache files are stored under :bash:`$HOME/.cache/mulder`. This
+      can be overriden by setting the :bash:`MULDER_CACHE` environment variable
+      to the desired location.
 
 .. data:: NOTIFY
    :type: bool
