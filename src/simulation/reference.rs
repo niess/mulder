@@ -353,22 +353,31 @@ impl Table {
     ) -> PyResult<Self> {
         let (ndim, altitude) = match altitude {
             Some(altitude) => match altitude {
-                Altitude::Scalar(altitude) => (2, [ altitude, altitude ]),
-                Altitude::Range(altitude) => (3, [ altitude.0, altitude.1 ]),
+                Altitude::Scalar(altitude) => (3, [ altitude, altitude ]),
+                Altitude::Range(altitude) => (4, [ altitude.0, altitude.1 ]),
             },
-            None => (2, [ Reference::DEFAULT_ALTITUDE, Reference::DEFAULT_ALTITUDE ]),
+            None => (3, [ Reference::DEFAULT_ALTITUDE, Reference::DEFAULT_ALTITUDE ]),
         };
         if array.ndim() != ndim {
             let why = format!("expected a {}d array, found {}d", ndim, array.ndim());
             let err = Error::new(TypeError)
-                .what("grid")
+                .what("array")
                 .why(&why)
                 .to_err();
             return Err(err)
         }
         let shape = {
-            let shape = array.shape();
-            if ndim == 2 { [ 1, shape[0], shape[1] ] } else { shape.try_into().unwrap() }
+            let mut shape = array.shape();
+            let n_p = shape.pop().unwrap();
+            if n_p != 2 {
+                let why = format!("expected a shape (.., 2) array, found (.., {})", n_p);
+                let err = Error::new(TypeError)
+                    .what("array")
+                    .why(&why)
+                    .to_err();
+                return Err(err)
+            }
+            if ndim == 3 { [ 1, shape[0], shape[1] ] } else { shape.try_into().unwrap() }
         };
         let [ n_h, n_c, n_k ] = shape;
         let cos_theta = cos_theta.unwrap_or_else(|| [ 0.0, 1.0 ]);
