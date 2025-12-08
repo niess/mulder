@@ -139,6 +139,7 @@ enum TracingStatus {
 #[derive(FromPyObject)]
 enum ReferenceLike {
     Model(PathString),
+    Number(f64),
     Object(Py<reference::Reference>)
 }
 
@@ -386,6 +387,12 @@ impl Fluxmeter {
         match value {
             ReferenceLike::Model(model) => {
                 let model = reference::ModelArg::Path(model);
+                let reference = reference::Reference::new(Some(model), None)?;
+                self.reference = Py::new(py, reference)?;
+                self.reset();
+            },
+            ReferenceLike::Number(value) => {
+                let model = reference::ModelArg::Number(value);
                 let reference = reference::Reference::new(Some(model), None)?;
                 self.reference = Py::new(py, reference)?;
                 self.reset();

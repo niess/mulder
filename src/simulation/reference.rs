@@ -1,3 +1,4 @@
+use crate::geometry::EarthGeometry;
 use crate::simulation::coordinates::LocalFrame;
 use crate::simulation::states::{ExtractedState, StatesExtractor};
 use crate::utils::convert::{Convert, ParametricModel};
@@ -42,6 +43,7 @@ pub struct Flux {
 }
 
 enum Model {
+    Flat(f64),
     Parametric(ParametricModel),
     Table(Table),
 }
@@ -57,6 +59,7 @@ struct Table {
 #[derive(FromPyObject)]
 pub enum ModelArg<'py> {
     Array(AnyArray<'py, f64>),
+    Number(f64),
     Path(PathString),
 }
 
@@ -72,42 +75,64 @@ impl Reference {
             Some(model) => model,
             None => return  Ok(ParametricModel::default().into()),
         };
+        let extract_kwargs = |varname: &'static str| -> PyResult<_> {
+            match kwargs {
+                Some(kwargs) => {
+                    let mut altitude: Option<Altitude> = None;
+                    let mut range: Option<[f64; 2]> = None;
+                    let mut energy: Option<[f64; 2]> = None;
+                    for (key, value) in kwargs.iter() {
+                        let key: String = key.extract()?;
+                        match key.as_str() {
+                            "altitude" => { altitude = Some(value.extract()?); },
+                            "energy" => { energy = Some(value.extract()?); },
+                            key => if key == varname {
+                                range = Some(value.extract()?);
+                            } else {
+                                let why = format!("invalid keyword argument '{}'", key);
+                                let err = Error::new(TypeError)
+                                    .what("kwargs")
+                                    .why(&why);
+                                return Err(err.to_err())
+                            },
+                        }
+                    }
+                    Ok((energy, range, altitude))
+                },
+
+                None => Ok((None, None, None))
+            }
+        };
         let reference: Self = match model {
             ModelArg::Array(array) => {
-                let missing_energy = || Error::new(TypeError)
-                    .what("reference")
-                    .why("missing energy range")
-                    .to_err();
-                let (energy, cos_theta, altitude) = match kwargs {
-                    Some(kwargs) => {
-                        let mut altitude: Option<Altitude> = None;
-                        let mut cos_theta: Option<[f64; 2]> = None;
-                        let mut energy: Option<[f64; 2]> = None;
-                        for (key, value) in kwargs.iter() {
-                            let key: String = key.extract()?;
-                            match key.as_str() {
-                                "altitude" => { altitude = Some(value.extract()?); },
-                                "cos_theta" => { cos_theta = Some(value.extract()?); },
-                                "energy" => { energy = Some(value.extract()?); },
-                                key => {
-                                    let why = format!("invalid keyword argument '{}'", key);
-                                    let err = Error::new(TypeError)
-                                        .what("kwargs")
-                                        .why(&why);
-                                    return Err(err.to_err())
-                                },
-                            }
-                        }
-                        match energy {
-                            Some(energy) => (energy, cos_theta, altitude),
-                            None => return Err(missing_energy()),
-                        }
+                let (energy, cos_theta, altitude) = extract_kwargs("cos_theta")?;
+                match energy {
+                    Some(energy) => Table::from_array(array, energy, cos_theta, altitude)?.into(),
+                    None => {
+                        let err = Error::new(TypeError)
+                            .what("reference")
+                            .why("missing energy range")
+                            .to_err();
+                        return Err(err)
                     },
-                    None => return Err(missing_energy()),
-                };
-                Table::from_array(array, energy, cos_theta, altitude)?.into()
+                }
+            },
+            ModelArg::Number(value) => {
+                let (energy, elevation, altitude) = extract_kwargs("elevation")?;
+                let model = Model::Flat(value);
+                let energy = energy.unwrap_or([1E-03, 1E+12]).into();
+                let elevation = elevation.unwrap_or([-90.0, 90.0]).into();
+                let altitude = altitude
+                    .unwrap_or(Altitude::Range((EarthGeometry::ZMIN, EarthGeometry::ZMAX)));
+                Self { energy, elevation, altitude, model }
             },
             ModelArg::Path(string) => {
+                if let Some(kwargs) = kwargs {
+                    let key: String = kwargs.keys().get_item(0).unwrap().extract().unwrap();
+                    let why = format!("unexpected '{}' named argument", key);
+                    let err = Error::new(TypeError).what("reference").why(&why).to_err();
+                    return Err(err)
+                }
                 let path = Path::new(string.as_str());
                 match path.extension().and_then(OsStr::to_str) {
                     Some("table") => Table::from_file(path)?.into(),
@@ -187,10 +212,11 @@ impl Reference {
     const DEFAULT_RATIO: f64 = 1.2766;  // Ref: CMS (https://arxiv.org/abs/1005.5332).
 
     pub fn flux(&self, energy: f64, elevation: f64, altitude: f64) -> Flux {
-        match &self.model {
-            Model::Table(table) => table.flux(energy, elevation, altitude)
+        match self.model {
+            Model::Flat(value) => Flux { muon: value, anti: value },
+            Model::Table(ref table) => table.flux(energy, elevation, altitude)
                 .unwrap_or_else(|| Flux::ZERO),
-            Model::Parametric(model) => {
+            Model::Parametric(ref model) => {
                 const RAD: f64 = std::f64::consts::PI / 180.0;
                 let cos_theta = ((90.0 - elevation) * RAD).cos();
                 let value = match model {
@@ -220,6 +246,11 @@ impl From<ParametricModel> for Reference {
     }
 }
 
+fn to_elevation(cos_theta: [f64; 2]) -> (f64, f64) {
+    const DEG: f64 = 180.0 / std::f64::consts::PI;
+    (cos_theta[0].asin() * DEG, cos_theta[1].asin() * DEG)
+}
+
 impl From<Table> for Reference {
     fn from(value: Table) -> Self {
         let altitude = if value.altitude[0] == value.altitude[1] {
@@ -227,8 +258,7 @@ impl From<Table> for Reference {
         } else {
             Altitude::Range((value.altitude[0], value.altitude[1]))
         };
-        const DEG: f64 = 180.0 / std::f64::consts::PI;
-        let elevation = (value.cos_theta[0].asin() * DEG, value.cos_theta[1].asin() * DEG);
+        let elevation = to_elevation(value.cos_theta);
         let energy = (value.energy[0], value.energy[1]);
         let model = Model::Table(value);
         Self { altitude, elevation, energy, model }
