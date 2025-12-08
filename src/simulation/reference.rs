@@ -58,8 +58,8 @@ struct Table {
 
 #[derive(FromPyObject)]
 pub enum ModelArg<'py> {
-    Array(AnyArray<'py, f64>),
     Number(f64),
+    Array(AnyArray<'py, f64>),
     Path(PathString),
 }
 
@@ -213,7 +213,10 @@ impl Reference {
 
     pub fn flux(&self, energy: f64, elevation: f64, altitude: f64) -> Flux {
         match self.model {
-            Model::Flat(value) => Flux { muon: value, anti: value },
+            Model::Flat(value) => Flux {
+                muon: value / (1.0 + Self::DEFAULT_RATIO),
+                anti: value * Self::DEFAULT_RATIO / (1.0 + Self::DEFAULT_RATIO),
+            },
             Model::Table(ref table) => table.flux(energy, elevation, altitude)
                 .unwrap_or_else(|| Flux::ZERO),
             Model::Parametric(ref model) => {
