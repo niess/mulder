@@ -12,6 +12,9 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 
+// XXX MCEq interface?
+// XXX Replace table format with pkl? Or remove.
+
 #[pyclass(frozen, module="mulder")]
 pub struct Reference {
     /// Altitude (range) of the reference flux.
