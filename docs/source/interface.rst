@@ -1397,9 +1397,64 @@ Simulation interface
 
 .. autoclass:: mulder.Reference
 
-   .. method:: __new__(model, /, **kwargs)
+   This class represents a reference model of the muon flux. Typically, this is
+   the opensky flux, i.e the atmospheric muon flux in the absence of any
+   topographic features.
 
-   .. method:: flux(states=None, /, **kwargs)
+   Mulder expresses the reference flux, :math:`\phi(K, \epsilon, z)`, as
+   function of the muon kinetic energy, :math:`K`, and using geographic
+   coordinates, where :math:`\epsilon` is the elevation angle of observation and
+   :math:`z` the altitude. In addition, the contributions of muons
+   (:math:`\phi_-`) and anti-muons (:math:`\phi_+`) are split, as :math:`\phi =
+   \phi_+ + \phi_-`.
+
+   Alternatively, the reference flux might be set as flat, typically :math:`\phi
+   = 1` over a domain in :math:`(K, \epsilon, z)`. This is especially relevant
+   in conjuction with the :py:meth:`Fluxmeter.transport` method, e.g. to
+   generate a sample of reference muons.
+
+   .. method:: __new__(model=None, /, **kwargs)
+
+      Creates a reference model.
+
+      The *model* argument might be,
+
+      - an :class:`array <numpy.ndarray>` containing a tabulation of the
+        reference flux,
+
+      - a :py:class:`str` indicating a parametric model (see
+        :numref:`tab-reference-models`),
+
+      - a :py:class:`~pathlib.Path` to a file containing a tabulated flux model,
+
+      - a :py:class:`float` indicating a flat reference.
+
+      By default, i.e. if *model* is :python:`None`, the parametric model of
+      [GCC+15]_ is used. For instance, as
+
+      >>> reference = mulder.Reference()
+
+      .. _tab-reference-models:
+
+      .. list-table:: Parametric reference models.
+         :width: 75%
+         :widths: auto
+         :header-rows: 1
+
+         * - Name
+           - Reference
+         * - :python:`"GCCLY15"`
+           - [GCC+15]_
+         * - :python:`"Gaisser90"`
+           - [Gai90]_
+
+   .. automethod:: flux
+
+      This method uses the `States interface <States interface_>`_ for
+      specifying the observation state of interest. For instance, using
+      geographic coordinates,
+
+      >>> flux = reference.flux(elevation=30)
 
    .. rubric:: Attributes
      :heading-level: 4

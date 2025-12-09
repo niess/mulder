@@ -17,10 +17,16 @@ References
 .. [BrKl05] W. H. Bragg and R. Kleeman, Philos. Mag. 10, 318
    (1905).
 
-.. [FMBS93] J.M. Fernández-Varea, R. Mayol, J. Baró, F. Salvat, Nucl. Instrum.
+.. [FMBS93] J. M. Fernández-Varea, R. Mayol, J. Baró, F. Salvat, Nucl. Instrum.
    Methods Phys. Res., Sect. B, 73 (1993) 447
    `doi.org/10.1016/0168-583X(93)95827-R
    <https://doi.org/10.1016/0168-583X(93)95827-R>`_.
+
+.. [Gai90] T. K. Gaisser, Cosmic Rays and Particle Physics, Cambridge University
+   Press, ISBN 0-521-33931-6, 1990.
+
+.. [GCC+15] M. Guan, M. Chu, J. Cao, K. Luk, C. Yang, [`arXiv:1509.06176
+   <https://arxiv.org/abs/1509.06176>`_].
 
 .. [NBCL18] V. Niess, A. Barnoud, C. Cârloganu, E. Le Menedeu, Comput.
    Phys. Commun. 229, 54 (2018), `doi:10.1016/j.cpc.2018.04.001

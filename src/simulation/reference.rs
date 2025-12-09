@@ -66,7 +66,7 @@ pub enum ModelArg<'py> {
 #[pymethods]
 impl Reference {
     #[new]
-    #[pyo3(signature=(model, /, **kwargs))]
+    #[pyo3(signature=(model=None, /, **kwargs))]
     pub fn new(
         model: Option<ModelArg>,
         kwargs: Option<&Bound<PyDict>>,
@@ -157,6 +157,7 @@ impl Reference {
         Ok(reference)
     }
 
+    /// Computes the reference flux.
     #[pyo3(
         name="flux",
         signature=(states=None, /, *, frame=None, **kwargs),
