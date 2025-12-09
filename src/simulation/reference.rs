@@ -84,10 +84,10 @@ impl Reference {
                     for (key, value) in kwargs.iter() {
                         let key: String = key.extract()?;
                         match key.as_str() {
-                            "altitude" => { altitude = Some(value.extract()?); },
-                            "energy" => { energy = Some(value.extract()?); },
+                            "altitude" => { altitude = value.extract()?; },
+                            "energy" => { energy = value.extract()?; },
                             key => if key == varname {
-                                range = Some(value.extract()?);
+                                range = value.extract()?;
                             } else {
                                 let why = format!("invalid keyword argument '{}'", key);
                                 let err = Error::new(TypeError)
@@ -392,15 +392,10 @@ impl Table {
             },
             None => (3, [ Reference::DEFAULT_ALTITUDE, Reference::DEFAULT_ALTITUDE ]),
         };
-        if array.ndim() != ndim {
-            let why = format!("expected a {}d array, found {}d", ndim, array.ndim());
-            let err = Error::new(TypeError)
-                .what("array")
-                .why(&why)
-                .to_err();
-            return Err(err)
-        }
-        let shape = {
+        let (shape, is_tagged) = if array.ndim() == ndim - 1 {
+            let shape = array.shape();
+            (shape, false)
+        } else if array.ndim() == ndim {
             let mut shape = array.shape();
             let n_p = shape.pop().unwrap();
             if n_p != 2 {
@@ -411,16 +406,34 @@ impl Table {
                     .to_err();
                 return Err(err)
             }
-            if ndim == 3 { [ 1, shape[0], shape[1] ] } else { shape.try_into().unwrap() }
+            (shape, true)
+        } else {
+            let why = format!("expected a {}d array, found {}d", ndim, array.ndim());
+            let err = Error::new(TypeError)
+                .what("array")
+                .why(&why)
+                .to_err();
+            return Err(err)
         };
+        let shape = if ndim == 3 { [ 1, shape[0], shape[1] ] } else { shape.try_into().unwrap() };
         let [ n_h, n_c, n_k ] = shape;
         let cos_theta = cos_theta.unwrap_or_else(|| [ 0.0, 1.0 ]);
 
-        let n = 2 * n_k * n_c * n_h;
-        let mut data = Vec::<f32>::with_capacity(n);
-        for i in 0..n {
+        let n = n_k * n_c * n_h;
+        let (n_p, r) = if is_tagged {
+            (2, 0.0)
+        } else {
+            (1, 1.0 / (1.0 + Reference::DEFAULT_RATIO))
+        };
+        let mut data = Vec::<f32>::with_capacity(2 * n);
+        for i in 0..(n_p * n) {
             let di = array.get_item(i)?;
-            data.push(di as f32);
+            if is_tagged {
+                data.push(di as f32);
+            } else {
+                data.push((di * r) as f32);
+                data.push((di * (1.0 - r)) as f32);
+            }
         }
 
         Self::check(&energy, &cos_theta)?;

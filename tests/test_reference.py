@@ -53,6 +53,27 @@ def test_flat():
 def test_tabulated():
     """Test tabulated model."""
 
+    ALTITUDE = (-1, 1)
+    TEST_CASES = (
+        ((2, 2), None, 1.0, DEFAULT_RATIO),
+        ((2, 2, 2), None, 2.0, 1.0),
+        ((2, 2, 2), ALTITUDE, 1.0, DEFAULT_RATIO),
+        ((2, 2, 2, 2), ALTITUDE, 2.0, 1.0),
+    )
+
+    for (shape, altitude, expected, ratio) in TEST_CASES:
+        reference = mulder.Reference(
+            numpy.ones(shape),
+            energy=(0.1, 10),
+            altitude=altitude,
+        )
+        f0 = reference.flux()
+        f1 = reference.flux(pid=13)
+        f2 = reference.flux(pid=-13)
+        assert_allclose(f0, expected, atol=1E-07)
+        assert_allclose(f0, f1 + f2, atol=1E-07)
+        assert_allclose(f2 / f1, ratio, atol=1E-04)
+
     energy = numpy.geomspace(1E-03, 1E+12, 151)
     cos_theta = numpy.linspace(0, 1.0, 51)
     X, Y = numpy.meshgrid(energy, cos_theta)
