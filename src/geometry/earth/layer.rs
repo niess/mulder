@@ -14,7 +14,7 @@ use super::{EarthGeometry, grid::{get_shape, parse_xy}};
 /// A layer (or strate) of an Earth geometry.
 #[pyclass(module="mulder")]
 pub struct Layer {
-    /// The layer bulk density, in kg/m3.
+    /// The layer bulk density.
     #[pyo3(get)]
     pub density: Option<f64>,
 

@@ -13,6 +13,44 @@ Moreover, Mulder exhibits some package-level data, as outlined in the
 Geometry interface
 ~~~~~~~~~~~~~~~~~~
 
+To represent an Earth-like geometry, typically described by a Digital Elevation
+Model (`DEM`_), Mulder provides a dedicated :py:class:`~mulder.EarthGeometry`
+object. Alternatively, a `Calzone`_ geometry might be imported as a
+:py:class:`~mulder.LocalGeometry` object. Other use cases might be implemented
+as an external :py:class:`~mulder.Module` (using Mulder's C interface). Mulder
+geometry objects rely on a common model, inherited from `Pumas`_ [Nie22]_,
+described in more details below.
+
+.. topic:: Geometry model
+
+   A geometry is defined as a set of propagation :py:class:`media
+   <mulder.Medium>` (or :py:class:`layers <mulder.Layer>`) differing by their
+   physical properties. The spatial structure of the geometry is determined
+   through two operations (3d-space functions).
+
+   - :py:class:`location <mulder.EarthGeometry.locate>`, which maps a *position*
+     to a medium,
+
+   - :py:class:`tracing <mulder.EarthGeometry.trace>`, which maps a ray
+     (*position* and *direction*) to its first intersection with a medium
+     boundary.
+
+   The physical properties of a :py:class:`medium <mulder.Medium>` are defined
+   by,
+
+   - the name of a constitutive :py:attr:`material <mulder.Layer.material>`,
+     which maps to a :py:class:`~mulder.materials.Material` (or
+     :py:class:`~mulder.materials.Composite`) object specifying the actual
+     medium atomic composition.
+
+   - a bulk :py:attr:`density <mulder.Layer.density>`, that might differ from
+     the material one, e.g., to account for a solid porosity or specific gas T,P
+     conditions.
+
+   The physical properties of media might be modified. However, the **spatial
+   structure** of a geometry instance is expected to be **immutable**.
+
+
 .. autoclass:: mulder.EarthGeometry
 
    This class represents a stratified section of the Earth. The strates (or
@@ -20,6 +58,11 @@ Geometry interface
    assumed to be uniform in composition and density. They are delimited
    vertically, typically by a :py:class:`Grid` of elevation values, forming a
    Digital Elevation Model (`DEM`_).
+
+   .. note::
+
+      Mulder uses `Turtle's <Turtle_>`_ algorithm [NBCM20]_ to efficiently
+      navigate through :py:class:`EarthGeometry` objects.
 
    .. method:: __new__(*layers)
 
@@ -365,6 +408,11 @@ Geometry interface
 
 .. autoclass:: mulder.LocalGeometry
 
+   This class represents a local geometry on the Earth, w.r.t. a
+   :py:class:`~mulder.LocalFrame`. Local geometries can be created by importing
+   a `Calzone geometry <Calzone-Geometry_>`_. Alternatively, they might be
+   implemented in C within a :py:class:`mulder.Module`.
+
    .. method:: __new__(data, /, *, frame=None)
 
       The *data* argument may be a path-string pointing to a
@@ -413,15 +461,39 @@ Geometry interface
      :heading-level: 4
 
    .. autoattribute:: frame
+
+      The geometry reference frame is mutable. For instance,
+
+      >>> geometry.frame.altitude += 10.0
+
    .. autoattribute:: media
+
+      The geometry media form an **immutable** sequence. A medium is identified
+      by its index within this sequence. For instance, the following returns the
+      first medium
+
+      >>> first = geometry.media[0]
 
 ----
 
 .. autoclass:: mulder.Medium
 
+   This class represents a medium of a :py:class:`~mulder.LocalGeometry`,
+   considered to be uniform in composition and density.
+
    .. autoattribute:: density
+
+      The bulk density is expressed in :math:`\mathrm{kg}/\mathrm{m}^3`. If
+      :python:`None`, then the material default density is assumed.
+
    .. autoattribute:: description
+
    .. autoattribute:: material
+
+      This attribute is the name of the material. For instance, the following
+      changes the medium material to water.
+
+      >>> medium.material = "Water"  # doctest: +SKIP
 
 
 Materials interface
@@ -1363,6 +1435,11 @@ Simulation interface
 
 .. autoclass:: mulder.Fluxmeter
 
+   .. note::
+
+      :py:class:`Fluxmeter` objects use the Backward Monte Carlo technique
+      [NBCL18]_ to sample the :py:attr:`reference` muon flux.
+
    .. method:: __new__(*layers, **kwargs)
 
    .. automethod:: flux
@@ -1564,3 +1641,4 @@ The available configuration data are listed below.
 .. _Standard Rock: https://pdg.lbl.gov/2025/AtomicNuclearProperties/standardrock.html
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html
 .. _TOML: https://toml.io
+.. _Turtle: https://github.com/niess/turtle

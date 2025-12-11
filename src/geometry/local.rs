@@ -21,6 +21,7 @@ use super::intersections::{LocalIntersection, IntersectionsArray};
 // External geometry, dynamicaly loaded.
 // ===============================================================================================
 
+/// A local geometry.
 #[pyclass(module="mulder")]
 pub struct LocalGeometry {
     geometry: OwnedPtr<CGeometry>,
@@ -35,6 +36,7 @@ pub struct LocalGeometry {
     pub frame: LocalFrame,
 }
 
+/// A medium of a local geometry.
 #[derive(Debug)]
 #[pyclass(module="mulder")]
 pub struct Medium {
