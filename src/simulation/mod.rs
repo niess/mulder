@@ -34,6 +34,7 @@ use states::{
 };
 
 
+/// A muon fluxmeter.
 #[pyclass(module="mulder")]
 pub struct Fluxmeter {
     geometry: Geometry,

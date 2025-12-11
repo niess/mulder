@@ -464,7 +464,7 @@ described in more details below.
 
       The geometry reference frame is mutable. For instance,
 
-      >>> geometry.frame.altitude += 10.0
+      >>> geometry.frame = mulder.LocalFrame(altitude=10.0)
 
    .. autoattribute:: media
 
@@ -1305,6 +1305,15 @@ variables as named arguments.
 Simulation interface
 ~~~~~~~~~~~~~~~~~~~~
 
+A Mulder simulation is managed using a :py:class:`~mulder.Fluxmeter` object. For
+basic use cases, one might simply invoke the :py:meth:`~mulder.Fluxmeter.flux`
+methods which returns the muon flux for input `observation states <States
+interface_>`_, depending on the :py:class:`~mulder.Fluxmeter` configuration
+(:py:attr:`atmosphere <mulder.Fluxmeter.atmosphere>`, :py:attr:`geometry
+<mulder.Fluxmeter.geometry>`, :py:attr:`reference <mulder.Fluxmeter.reference>`,
+etc.). For more advanced usage, please refer to the
+:py:class:`~mulder.Fluxmeter` documentation.
+
 .. autoclass:: mulder.Atmosphere
 
    An atmospheric medium.
@@ -1435,10 +1444,61 @@ Simulation interface
 
 .. autoclass:: mulder.Fluxmeter
 
+   This class provides a high-level interface for computing the deformation of a
+   muon flux, due to :py:attr:`geometrical <geometry>` features, w.r.t. to
+   an opensky :py:attr:`reference` flux of atmospheric muons. For basic use
+   cases one might simply use the :py:meth:`flux` method. For more advanced
+   usage, the flux computation algorithm is briefly explained below.
+
+   :py:class:`Fluxmeters <mulder.Fluxmeter>` have three :py:attr:`modes
+   <mulder.Fluxmeter.mode>` of operation, *continuous*, *mixed* or *discrete*.
+   In continuous mode, muons follow deterministic trajectories (straight-lines,
+   in the absence of any :py:attr:`geomagnetic <mulder.Fluxmeter.geomagnet>`
+   field) with a deterministic energy-loss obtained within the Continuous
+   Slowing Down Approximation (`CSDA`_). Under these assumptions, the deformed
+   muon flux :math:`\phi_1` for an observation `state <States interface_>`_
+   :math:`S_1` can be expressed as
+
+   .. math::
+      :label: continuous-flux
+
+      \phi_1(S_1) = \omega_c\left(S_0, S_1\right) \phi_0(S_0),
+
+   where :math:`\phi_0` is the :py:attr:`reference` flux, and :math:`S_0` a
+   reference state connected to :math:`S_1`. The factor :math:`\omega_c(S_0,
+   S_1)` is a transport weight depending on the matter distribution, with and
+   without :py:attr:`geometrical <geometry>` features.
+
+   In discrete mode, the muon trajectories and their energy loss are stochastic.
+   As a result, a given observation state :math:`S_1` is connected to multiple
+   reference states :math:`S_{0,i}`. In this case, a Monte Carlo estimate of the
+   deformed flux is obtained as
+
+   .. math::
+      :label: discrete-flux
+
+      \hat{\phi}_{1, N}(S_1) = \frac{1}{N} \sum_{i=1}^N{
+          \omega_d\left(S_{0, i}, S_1\right) \phi_0(S_{0, i})},
+
+   In mixed mode, the muon follow deterministic trajectories but may occur
+   catastrophic energy losses. This approximation is efficient for large targets
+   (:math:`\ge 300\, \mathrm{m}` of rocks), but when muons scattering is
+   irelevant. In mixed mode, eq.\ :eq:`discrete-flux` must be used to estimate
+   the deformed flux.
+
+   The :py:meth:`transport` method of a :py:class:`Fluxmeter` object computes
+   the reference state(s) :math:`S_{0,i}`, and the corresponding transport
+   weight(s) :math:`\omega_c(S_{0,i}, S_1)`, given an observation state
+   :math:`S_1`. The :py:meth:`flux` method further computes the deformed flux
+   :math:`\phi_1(S_1)` using equation\ :eq:`continuous-flux` or
+   :eq:`discrete-flux` depending on the :py:class:`Fluxmeter` :py:attr:`mode`.
+   In stochastic modes, the *event* parameter defines the number :math:`N`
+   of Monte Carlo samples per input observation state.
+
    .. note::
 
       :py:class:`Fluxmeter` objects use the Backward Monte Carlo technique
-      [NBCL18]_ to sample the :py:attr:`reference` muon flux.
+      [NBCL18]_ to sample the :py:attr:`reference` states.
 
    .. method:: __new__(*layers, **kwargs)
 
@@ -1536,7 +1596,19 @@ Simulation interface
    .. rubric:: Attributes
      :heading-level: 4
 
+   .. note::
+
+      :py:class:`~mulder.Reference` objects are immutable, i.e. their support
+      cannot be modified.
+
    .. autoattribute:: altitude
+
+      Depending on the reference *model*, the altitude might be a
+      :py:class:`float` constant or an interval. For instance,
+
+      >>> reference.altitude
+      0.0
+
    .. autoattribute:: elevation
    .. autoattribute:: energy
 
@@ -1624,6 +1696,7 @@ The available configuration data are listed below.
 .. _Calzone-Geometry: https://calzone.readthedocs.io/en/latest/geometry.html
 .. _Clermont-Ferrand: https://en.wikipedia.org/wiki/Clermont-Ferrand
 .. _CRS: https://en.wikipedia.org/wiki/Spatial_reference_system
+.. _CSDA: https://en.wikipedia.org/wiki/Continuous_slowing_down_approximation_range
 .. _DEM: https://en.wikipedia.org/wiki/Digital_elevation_model
 .. _ECEF: https://en.wikipedia.org/wiki/Earth-centered,_Earth-fixed_coordinate_system
 .. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
