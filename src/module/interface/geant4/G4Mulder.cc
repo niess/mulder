@@ -464,24 +464,21 @@ static void tracer_reset(
     tracer->stepSafety = 0.0;
 }
 
-static double tracer_trace(
-    struct mulder_tracer * self,
-    double max_length
-){
+static double tracer_trace(struct mulder_tracer * self) {
     auto tracer = (G4Mulder::Tracer *)self;
 
     G4double safety = 0.0;
     G4double s = tracer->navigator.ComputeStep(
         tracer->currentPosition,
         tracer->currentDirection,
-        max_length * CLHEP::m,
+        DBL_MAX,
         safety
     );
     double step = s / CLHEP::m;
     tracer->stepLength = step;
     tracer->stepSafety = safety / CLHEP::m;
 
-    return (step < max_length) ? step : max_length;
+    return (step < DBL_MAX) ? step : DBL_MAX;
 }
 
 static void tracer_move(
