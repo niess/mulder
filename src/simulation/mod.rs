@@ -878,7 +878,7 @@ extern "C" fn local_geometry(
             _ => unreachable!(),
         }
 
-        *step = tracer.trace(f64::MAX).max(pumas::STEP_MIN);
+        *step = tracer.trace().max(pumas::STEP_MIN);
         *step_ptr = *step;
         if medium_ptr != null_mut() {
             set_medium_ptr();

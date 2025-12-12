@@ -116,7 +116,7 @@ pub struct CTracer {
         extern "C" fn(*mut CTracer, position: CVec3, direction: CVec3)
     >,
     pub trace: Option<
-        extern "C" fn(*mut CTracer, max_length: c_double) -> c_double
+        extern "C" fn(*mut CTracer) -> c_double
     >,
     pub move_: Option<
         extern "C" fn(*mut CTracer, length: c_double)

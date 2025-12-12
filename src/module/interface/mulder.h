@@ -60,41 +60,39 @@ struct mulder_tracer {
     /* Destroys the geometry tracer. */
     void (*destroy)(struct mulder_tracer * self);
 
-    // Locates the medium at the given position. //
+    // XXX Add a locater object?
+    /* Locates the medium at the given position. */
     size_t (*locate)(
         struct mulder_tracer * self,
         struct mulder_vec3 position
     );
 
-    // Resets the tracer for a new run. //
+    /* Resets the tracer for a new run. */
     void (*reset)(
         struct mulder_tracer * self,
         struct mulder_vec3 position,
         struct mulder_vec3 direction
     );
 
-    // Performs a tracing step. //
-    double (*trace)(
-        struct mulder_tracer * self,
-        double max_length
-    );
+    /* Performs a tracing step. */
+    double (*trace)(struct mulder_tracer * self);
 
-    // Updates the tracer position.
+    /* Updates the tracer position. */
     void (*move)(
         struct mulder_tracer * self,
         double length
     );
 
-    // Updates the tracer direction.
+    /* Updates the tracer direction. */
     void (*turn)(
         struct mulder_tracer * self,
         struct mulder_vec3 direction
     );
 
-    // Returns the current medium. //
+    /* Returns the current medium. */
     size_t (*medium)(struct mulder_tracer * self);
 
-    // Returns the current position. //
+    /* Returns the current position. */
     struct mulder_vec3 (*position)(struct mulder_tracer * self);
 };
 

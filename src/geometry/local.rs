@@ -221,12 +221,12 @@ impl LocalGeometry {
             let mut inside = medium < n;
             loop {
                 if medium < n {
-                    let distance = tracer.trace(f64::INFINITY);
+                    let distance = tracer.trace();
                     distances[i * n + medium] += distance;
                     tracer.move_(distance);
                     medium = tracer.medium();
                 } else if !inside {
-                    let distance = tracer.trace(f64::INFINITY);
+                    let distance = tracer.trace();
                     if distance > 0.0 {
                         tracer.move_(distance);
                         medium = tracer.medium();
@@ -285,7 +285,7 @@ impl LocalGeometry {
                 .into_local(&self.frame, transformer.as_ref());
             tracer.reset(ri, ui);
             let before = tracer.medium() as i32;
-            let distance = tracer.trace(f64::INFINITY); // XXX remove max_length?
+            let distance = tracer.trace();
             tracer.move_(distance);
             let after = tracer.medium() as i32;
             let position = tracer.position();
@@ -391,9 +391,9 @@ impl<'a> LocalTracer<'a> {
     }
 
     #[inline]
-    pub fn trace(&self, max_length: f64) -> f64 {
+    pub fn trace(&self) -> f64 {
         let func = unsafe { self.ptr.0.as_ref() }.trace.unwrap();
-        func(self.ptr.0.as_ptr(), max_length)
+        func(self.ptr.0.as_ptr())
     }
 
     #[inline]
