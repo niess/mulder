@@ -19,36 +19,7 @@ object. Alternatively, a `Calzone`_ geometry might be imported as a
 :py:class:`~mulder.LocalGeometry` object. Other use cases might be implemented
 as an external :py:class:`~mulder.Module` (using Mulder's C interface). Mulder
 geometry objects rely on a common model, inherited from `Pumas`_ [Nie22]_,
-described in more details below.
-
-.. topic:: Geometry model
-
-   A geometry is defined as a set of propagation :py:class:`media
-   <mulder.Medium>` (or :py:class:`layers <mulder.Layer>`) differing by their
-   physical properties. The spatial structure of the geometry is determined
-   through two operations (3d-space functions).
-
-   - :py:class:`location <mulder.EarthGeometry.locate>`, which maps a *position*
-     to a medium,
-
-   - :py:class:`tracing <mulder.EarthGeometry.trace>`, which maps a ray
-     (*position* and *direction*) to its first intersection with a medium
-     boundary.
-
-   The physical properties of a :py:class:`medium <mulder.Medium>` are defined
-   by,
-
-   - the name of a constitutive :py:attr:`material <mulder.Layer.material>`,
-     which maps to a :py:class:`~mulder.materials.Material` (or
-     :py:class:`~mulder.materials.Composite`) object specifying the actual
-     medium atomic composition.
-
-   - a bulk :py:attr:`density <mulder.Layer.density>`, that might differ from
-     the material one, e.g., to account for a solid porosity or specific gas T,P
-     conditions.
-
-   The physical properties of media might be modified. However, the **spatial
-   structure** of a geometry instance is expected to be **immutable**.
+which is discussed in the :doc:`Geometry <geometry>` section.
 
 
 .. autoclass:: mulder.EarthGeometry
@@ -495,6 +466,7 @@ described in more details below.
 
       >>> medium.material = "Water"  # doctest: +SKIP
 
+.. _sec-materials-interface:
 
 Materials interface
 ~~~~~~~~~~~~~~~~~~~

@@ -39,6 +39,7 @@ Documentation
    :maxdepth: 2
 
    installation
+   geometry
    interface
    references
 

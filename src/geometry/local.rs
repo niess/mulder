@@ -285,7 +285,7 @@ impl LocalGeometry {
                 .into_local(&self.frame, transformer.as_ref());
             tracer.reset(ri, ui);
             let before = tracer.medium() as i32;
-            let distance = tracer.trace(f64::INFINITY);
+            let distance = tracer.trace(f64::INFINITY); // XXX remove max_length?
             tracer.move_(distance);
             let after = tracer.medium() as i32;
             let position = tracer.position();
