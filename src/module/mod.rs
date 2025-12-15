@@ -15,7 +15,7 @@ use std::sync::RwLock;
 
 mod types;
 
-pub use types::{CGeometry, CMedium, CModule, CTracer, CVec3};
+pub use types::{CGeometry, CLocator, CMedium, CModule, CTracer, CVec3};
 
 
 #[pyclass(module="mulder")]

@@ -34,6 +34,9 @@ struct mulder_geometry {
     /* Destroys the geometry definition. */
     void (*destroy)(struct mulder_geometry * self);
 
+    /* Returns a locator for this geometry. */
+    struct mulder_locator * (*locator)(const struct mulder_geometry * self);
+
     /* Returns the total number of media composing this geometry. */
     size_t (*media_len)(const struct mulder_geometry * self);
 
@@ -44,28 +47,35 @@ struct mulder_geometry {
     );
 
     /* Returns a tracer for this geometry. */
-    struct mulder_tracer * (*tracer)(const struct mulder_geometry * geometry);
+    struct mulder_tracer * (*tracer)(const struct mulder_geometry * self);
 };
 
-
 /* ============================================================================
- *  Geometry tracer interface.
+ *  Geometry locator interface.
  * ============================================================================
  */
 struct mulder_vec3 {
     double x, y, z;
 };
 
+struct mulder_locator {
+    /* Destroys the geometry locator. */
+    void (*destroy)(struct mulder_locator * self);
+
+    /* Locates the medium at the given position. */
+    size_t (*locate)(
+        struct mulder_locator * self,
+        struct mulder_vec3 position
+    );
+};
+
+/* ============================================================================
+ *  Geometry tracer interface.
+ * ============================================================================
+ */
 struct mulder_tracer {
     /* Destroys the geometry tracer. */
     void (*destroy)(struct mulder_tracer * self);
-
-    // XXX Add a locater object?
-    /* Locates the medium at the given position. */
-    size_t (*locate)(
-        struct mulder_tracer * self,
-        struct mulder_vec3 position
-    );
 
     /* Resets the tracer for a new run. */
     void (*reset)(

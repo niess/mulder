@@ -29,6 +29,9 @@ pub struct CGeometry {
     destroy: Option<
         extern "C" fn(*mut CGeometry)
     >,
+    locator: Option<
+        extern "C" fn(*const CGeometry) -> *mut CLocator
+    >,
     media_len: Option<
         extern "C" fn(*const CGeometry) -> usize
     >,
@@ -105,12 +108,19 @@ pub struct CElement {
 }
 
 #[repr(C)]
+pub struct CLocator {
+    destroy: Option<
+        extern "C" fn(*mut CLocator)
+    >,
+    pub locate: Option<
+        extern "C" fn(*mut CLocator, position: CVec3) -> usize
+    >,
+}
+
+#[repr(C)]
 pub struct CTracer {
     destroy: Option<
         extern "C" fn(*mut CTracer)
-    >,
-    pub locate: Option<
-        extern "C" fn(*mut CTracer, position: CVec3) -> usize
     >,
     pub reset: Option<
         extern "C" fn(*mut CTracer, position: CVec3, direction: CVec3)
@@ -157,7 +167,7 @@ macro_rules! impl_destroy {
     }
 }
 
-impl_destroy! { CComponent, CElement, CGeometry, CMaterial, CMedium, CTracer }
+impl_destroy! { CComponent, CElement, CGeometry, CLocator, CMaterial, CMedium, CTracer }
 
 macro_rules! null_pointer_fmt {
     ($($arg:tt)*) => {
@@ -309,6 +319,13 @@ impl OwnedPtr<CGeometry> {
     impl_get_attr!(media_len, usize);
     impl_get_item!(medium, CMedium);
 
+    pub fn locator(&self) -> PyResult<OwnedPtr<CLocator>> {
+        match unsafe { self.0.as_ref() }.locator {
+            Some(func) => OwnedPtr::new(func(self.0.as_ptr())),
+            None => Err(null_pointer_fmt!("CModule::locator")),
+        }
+    }
+
     pub fn tracer(&self) -> PyResult<OwnedPtr<CTracer>> {
         match unsafe { self.0.as_ref() }.tracer {
             Some(func) => OwnedPtr::new(func(self.0.as_ptr())),
@@ -337,6 +354,10 @@ impl OwnedPtr<CElement> {
     impl_get_attr!(Z, c_int);
 }
 
+impl OwnedPtr<CLocator> {
+    impl_is_none!(locate);
+}
+
 impl OwnedPtr<CMedium> {
     impl_get_str_attr!(material);
     impl_get_opt_attr!(density, c_double);
@@ -344,7 +365,6 @@ impl OwnedPtr<CMedium> {
 }
 
 impl OwnedPtr<CTracer> {
-    impl_is_none!(locate);
     impl_is_none!(reset);
     impl_is_none!(trace);
     impl_is_none!(move_);

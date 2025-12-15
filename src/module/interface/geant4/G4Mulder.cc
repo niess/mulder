@@ -63,6 +63,17 @@ namespace G4Mulder {
         const G4VPhysicalVolume * g4Volume;
     };
 
+    struct Locator: public mulder_locator {
+        Locator(const Geometry * definition);
+        ~Locator() {};
+
+        // Geometry data.
+        const Geometry * definition;
+
+        // State data.
+        G4Navigator navigator;
+    };
+
     struct Tracer: public mulder_tracer {
         Tracer(const Geometry * definition);
         ~Tracer();
@@ -152,9 +163,13 @@ static struct mulder_medium * geometry_get_medium(
     return new G4Mulder::Medium(geometry->volumes.at(index));
 }
 
-static size_t geometry_media_len(
-const struct mulder_geometry * self)
-{
+static struct mulder_locator * geometry_locator(
+    const struct mulder_geometry * self) {
+    auto geometry = (G4Mulder::Geometry *)self;
+    return new G4Mulder::Locator(geometry);
+}
+
+static size_t geometry_media_len(const struct mulder_geometry * self) {
     auto geometry = (G4Mulder::Geometry *)self;
     return geometry->volumes.size();
 }
@@ -188,6 +203,7 @@ G4Mulder::Geometry::Geometry(
 {
     // Set interface.
     this->destroy = &geometry_destroy;
+    this->locator = &geometry_locator;
     this->medium = &geometry_get_medium;
     this->media_len = &geometry_media_len;
     this->tracer = &geometry_tracer;
@@ -403,6 +419,44 @@ G4Mulder::Medium::Medium(const G4VPhysicalVolume * volume):
 
 // ============================================================================
 //
+// Implementation of locator object.
+//
+// ============================================================================
+
+static void locator_destroy(struct mulder_locator * self) {
+    auto locator = (G4Mulder::Locator *)self;
+    delete locator;
+}
+
+static size_t locator_locate(
+    struct mulder_locator * self,
+    struct mulder_vec3 position_
+){
+    auto locator = (G4Mulder::Locator *)self;
+
+    auto position = G4ThreeVector(
+        position_.x * CLHEP::m,
+        position_.y * CLHEP::m,
+        position_.z * CLHEP::m
+    );
+    auto volume = locator->navigator.LocateGlobalPointAndSetup(position);
+
+    return locator->definition->GetMediumIndex(volume);
+}
+
+G4Mulder::Locator::Locator(const G4Mulder::Geometry * definition_):
+    definition(definition_) {
+    // Initialise Geant4 navigator.
+    this->navigator.SetWorldVolume(
+        (G4VPhysicalVolume *) definition_->GetWorld());
+
+    // Set C interface.
+    this->destroy = &locator_destroy;
+    this->locate = &locator_locate;
+}
+
+// ============================================================================
+//
 // Implementation of tracer object.
 //
 // ============================================================================
@@ -410,22 +464,6 @@ G4Mulder::Medium::Medium(const G4VPhysicalVolume * volume):
 static void tracer_destroy(struct mulder_tracer * self) {
     auto tracer = (G4Mulder::Tracer *)self;
     delete tracer;
-}
-
-static size_t tracer_locate(
-    struct mulder_tracer * self,
-    struct mulder_vec3 position_
-){
-    auto tracer = (G4Mulder::Tracer *)self;
-
-    auto position = G4ThreeVector(
-        position_.x * CLHEP::m,
-        position_.y * CLHEP::m,
-        position_.z * CLHEP::m
-    );
-    auto volume = tracer->navigator.LocateGlobalPointAndSetup(position);
-
-    return tracer->definition->GetMediumIndex(volume);
 }
 
 static void tracer_reset(
@@ -555,7 +593,6 @@ G4Mulder::Tracer::Tracer(const G4Mulder::Geometry * definition_):
 
     // Set C interface.
     this->destroy = &tracer_destroy;
-    this->locate = &tracer_locate;
     this->reset = &tracer_reset;
     this->trace = &tracer_trace;
     this->move = &tracer_move;

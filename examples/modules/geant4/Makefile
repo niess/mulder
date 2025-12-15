@@ -1,6 +1,6 @@
 G4MULDER_DIR=$(shell python3 -m mulder --prefix)/interface/geant4
 
-CFLAGS= -O0 -g \
+CFLAGS= -O2 -g \
         -I$(G4MULDER_DIR) \
         $(shell geant4-config --cflags)
 

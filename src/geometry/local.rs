@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::materials::{MaterialsSet, MaterialsSubscriber};
-use crate::module::{CGeometry, CMedium, CModule, CTracer, CVec3, Module};
+use crate::module::{CGeometry, CLocator, CMedium, CModule, CTracer, CVec3, Module};
 use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, Maybe, PositionExtractor};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -53,6 +53,12 @@ pub struct Medium {
     pub description: Option<String>,
 
     pub geometry: Option<Py<LocalGeometry>>,
+}
+
+pub struct LocalLocator<'a> {
+    #[allow(dead_code)]
+    definition: &'a LocalGeometry, // for lifetime guarantee.
+    ptr: OwnedPtr<CLocator>,
 }
 
 pub struct LocalTracer<'a> {
@@ -158,7 +164,7 @@ impl LocalGeometry {
         let transformer = position.transformer(&self.frame);
 
         let notifier = Notifier::from_arg(notify, position.size(), "locating position(s)");
-        let tracer = self.tracer()?;
+        let locator = self.locator()?;
 
         let mut array = NewArray::empty(py, position.shape())?;
         let n = array.size();
@@ -170,7 +176,7 @@ impl LocalGeometry {
             let ri = position
                 .extract(i)?
                 .into_local(&self.frame, transformer.as_ref());
-            media[i] = tracer.locate(ri) as i32;
+            media[i] = locator.locate(ri) as i32;
             notifier.tic();
         }
 
@@ -335,6 +341,14 @@ impl LocalGeometry {
         Ok(local_geometry)
     }
 
+    pub fn locator<'a>(&'a self) -> PyResult<LocalLocator<'a>> {
+        let locator = self.geometry.locator()?;
+        if locator.is_none_locate() {
+            return Err(null_pointer_fmt!("LocalLocator::locate"))
+        }
+        Ok(LocalLocator { definition: self, ptr: locator })
+    }
+
     pub fn subscribe(&mut self, py: Python, set: &MaterialsSet) {
         for medium in self.media.bind(py).iter() {
             set.add(medium.downcast::<Medium>().unwrap().borrow().material.as_str());
@@ -352,9 +366,6 @@ impl LocalGeometry {
 
     pub fn tracer<'a>(&'a self) -> PyResult<LocalTracer<'a>> {
         let tracer = self.geometry.tracer()?;
-        if tracer.is_none_locate() {
-            return Err(null_pointer_fmt!("LocalTracer::locate"))
-        }
         if tracer.is_none_reset() {
             return Err(null_pointer_fmt!("LocalTracer::reset"))
         }
@@ -377,13 +388,15 @@ impl LocalGeometry {
     }
 }
 
-impl<'a> LocalTracer<'a> {
+impl<'a> LocalLocator<'a> {
     #[inline]
     pub fn locate(&self, position: [f64; 3]) -> usize {
         let func = unsafe { self.ptr.0.as_ref() }.locate.unwrap();
         func(self.ptr.0.as_ptr(), position.into())
     }
+}
 
+impl<'a> LocalTracer<'a> {
     #[inline]
     pub fn reset(&self, position: [f64; 3], direction: [f64; 3]) {
         let func = unsafe { self.ptr.0.as_ref() }.reset.unwrap();
