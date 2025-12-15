@@ -122,7 +122,7 @@ which is discussed in the :doc:`Geometry <geometry>` section.
    For example, the following will create a new grid offset by :python:`100.0`
    metres w.r.t. the initial one.
 
-   .. doctest:
+   .. doctest::
       :hide:
 
       >>> initial_grid = mulder.Grid("dem.asc")
@@ -219,7 +219,7 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       >>> x, y = np.linspace(-1, 1, 21), np.linspace(-2, 2, 41)
       >>> z = grid.z(x, y)
 
-   .. doctest:
+   .. doctest::
       :hide:
 
       >>> assert z.shape == (41, 21)
@@ -290,7 +290,7 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       >>> lat, lon = np.linspace(-90, 90, 181), np.linspace(-180, 180, 361)
       >>> altitudes = layer.altitude(lat, lon)
 
-   .. doctest:
+   .. doctest::
       :hide:
 
       >>> assert altitudes.shape == (181, 361)
@@ -1417,14 +1417,42 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 
 .. autoclass:: mulder.Fluxmeter
 
-   This class provides a high-level interface for computing the deformation of a
-   muon flux, due to :py:attr:`geometrical <geometry>` features, w.r.t. to an
-   opensky :py:attr:`reference` flux of atmospheric muons. For basic use cases
+   This class provides a high-level interface for computing a local muon flux,
+   resulting from local :py:attr:`geometrical <geometry>` features, w.r.t. to an
+   open-sky :py:attr:`reference` flux of atmospheric muons. For basic use cases
    one might simply use the :py:meth:`flux` method with default settings. For
    more advanced usage, please refer to the :doc:`flux computation <flux>`
    section.
 
    .. method:: __new__(*layers, **kwargs)
+
+      Creates a new fluxmeter.
+
+      The *layers* arguments may specify an :py:class:`~mulder.EarthGeometry`.
+      For instance, the following creates a meter with a 2-layers geometry.
+
+      >>> meter = mulder.Fluxmeter(
+      ...     ("dem.asc", 0.0),
+      ...     -100.0
+      ... )
+
+      Alternatively, the geometry may be explicitly specified as a named
+      argument. For instance, the following creates a meter with a
+      :py:class:`~mulder.LocalGeometry` loaded from a file.
+
+      >>> meter = mulder.Fluxmeter(geometry="geometry.toml")
+
+      Other attributes (see below) may be specified as named arguments, as well.
+      For instance,
+
+      >>> meter = mulder.Fluxmeter(
+      ...     atmosphere = "midlatitude-winter",
+      ...     date = "2025-12-25",                # For geomagnetic field.
+      ...     mode = "mixed",
+      ...     bremsstrahlung = "KKP95",           # For physics model.
+      ...     seed = 123456,                      # For random engine.
+      ...     reference = "Gaisser90",
+      ... )
 
    .. automethod:: flux
    .. automethod:: transport
@@ -1522,8 +1550,8 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 
    .. note::
 
-      :py:class:`~mulder.Reference` objects are immutable, i.e. their support
-      cannot be modified.
+      :py:class:`~mulder.Reference` objects are immutable, i.e. the underlying
+      model or its support cannot be modified.
 
    .. autoattribute:: altitude
 
@@ -1536,7 +1564,14 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
    .. autoattribute:: elevation
    .. autoattribute:: energy
 
+   .. autoattribute:: model
 
+      Depending on how the reference was created, this attribute may be a
+      :py:class:`float`, a :py:class:`~numpy.ndarray` or a :py:class:`str`. For
+      instance,
+
+      >>> reference.model
+      'GCCLY15'
 
 
 Picture interface

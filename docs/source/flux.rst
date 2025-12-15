@@ -60,15 +60,31 @@ The :py:meth:`~mulder.Fluxmeter.transport` method of a
 instance, in continuous mode, the two following code snippets yield the same
 flux,
 
->>> state0 = fluxmeter.transport(state1)
->>> flux1 = state1.weight * fluxmeter.reference.flux(state0)
+.. doctest::
+   :hide:
+
+   >>> meter = mulder.Fluxmeter(50.0)
+   >>> state1 = mulder.GeographicStates(elevation=50)
+
+>>> state0 = meter.transport(state1)
+>>> flux1 = state0.weight * meter.reference.flux(state0)
+
+.. doctest::
+   :hide:
+
+   >>> flux1a = flux1
 
 or directly
 
->>> flux1 = fluxmeter.flux(state1)
+>>> flux1 = meter.flux(state1)
 
-In stochastic modes (mixed or discrete), the *event* parameter defines the number
-:math:`N` of Monte Carlo samples per input observation state.
+.. doctest::
+   :hide:
+
+   >>> assert_allclose(flux1a, flux1)
+
+In stochastic modes (mixed or discrete), the *event* parameter defines the
+number :math:`N` of Monte Carlo samples per input observation state.
 
 
 .. URL links.

@@ -93,6 +93,7 @@ def test_tabulated():
     assert_allclose(reference1.energy, (energy[0], energy[-1]))
     assert_allclose(reference1.elevation, (0.0, 90.0))
     assert reference1.altitude == 0.0
+    assert_allclose(reference1.model, table, atol=1E-07)
 
     TEST_VALUES = [
         (1.5E+00, 47),

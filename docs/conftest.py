@@ -1,6 +1,7 @@
 import mulder
 import mulder.materials as materials
 import numpy
+from numpy.testing import assert_allclose
 from pathlib import Path
 import pytest
 import shutil
@@ -36,6 +37,7 @@ def _docdir(request, doctest_namespace):
         doctest_namespace["materials"] = materials
         doctest_namespace["mulder"] = mulder
         doctest_namespace["np"] = numpy
+        doctest_namespace["assert_allclose"] = assert_allclose
         tmpdir = request.getfixturevalue("tmpdir")
         with tmpdir.as_cwd():
             if not DOCTEST_INITIALISED:

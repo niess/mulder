@@ -153,6 +153,7 @@ enum Particle {
 
 #[pymethods]
 impl Fluxmeter {
+    /// Creates a new fluxmeter.
     #[pyo3(signature=(*layers, **kwargs))]
     #[new]
     pub fn new<'py>(
@@ -520,7 +521,7 @@ impl Fluxmeter {
         Ok(array)
     }
 
-    /// Transport state(s) to the reference flux.
+    /// Transport state(s) to the reference model.
     #[pyo3(
         signature=(states=None, /, *, events=None, notify=None, frame=None, **kwargs),
         text_signature="(self, states=None, /, *, events=None, notify=None, **kwargs)",

@@ -160,6 +160,25 @@ impl Reference {
         Ok(reference)
     }
 
+    /// The reference model.
+    #[getter]
+    fn get_model<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let model = match &self.model {
+            Model::Flat(value) => value.into_pyobject(py)?.into_any(),
+            Model::Parametric(value) => value.into_pyobject(py)?.into_any(),
+            Model::Table(table) => {
+                let shape = match table.shape[0] {
+                    1 => vec![table.shape[1], table.shape[2], 2],
+                    n => vec![n, table.shape[1], table.shape[2], 2],
+                };
+                let array = NewArray::from_data(py, shape, table.data.iter().copied())?
+                    .readonly();
+                array.into_bound().into_any()
+            },
+        };
+        Ok(model)
+    }
+
     /// Computes the reference flux.
     #[pyo3(
         name="flux",
