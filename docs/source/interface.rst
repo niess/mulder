@@ -1461,18 +1461,93 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
       >>> meter = mulder.Fluxmeter(geomagnet=True)
 
    .. automethod:: flux
+
+      This method uses the `States interface`_ for specifying the observation
+      states(s) of interest. For instance, the following computes the local flux
+      at an altitude of 100 m and along an elevation angle of 30 deg.
+
+      >>> flux = meter.flux(altitude=100, elevation=30)
+
+      In mixed or detailed :py:attr:`mode`, the *events* parameter specifies the
+      number of reference states that are generated for each observation state
+      in order to estimate the flux. In these cases, the method returns the flux
+      and error estimates as an :py:class:`~numpy.ndarray`. For instance,
+
+      .. doctest::
+         :hide:
+
+         >>> meter.mode = "mixed"
+         >>> meter.geomagnet = None
+
+      >>> flux, sigma = meter.flux(altitude=100, elevation=30, events=1000)
+
    .. automethod:: transport
+
+      This method uses the `States interface`_ for specifying the observation
+      states(s) of interest. For instance, the following determines the
+      reference state corresponding to an observation altitude of 100 m, along
+      an elevation angle of 30 deg.
+
+      >>> state0 = meter.transport(altitude=100, elevation=30)
+
+      In mixed or detailed :py:attr:`mode`, the *events* parameter specifies the
+      number of reference states that are generated for each observation state.
+      For example, the following returns an :py:class:`~numpy.ndarray`
+      containing a thousand reference states.
+
+      >>> states0 = meter.transport(altitude=100, elevation=30, events=1000)
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: atmosphere
+
+      This attribute is an instance of a :py:class:`mulder.Atmosphere`, which
+      controls the atmosphere properties. For convenience, the atmosphere model
+      can be provided directly when setting this attribute. For example,
+
+      >>> meter.atmosphere = "us-standard"
+
    .. autoattribute:: geomagnet
+
+      This attribute is an instance of a :py:class:`mulder.EarthMagnet`, which
+      controls the geomagnetic field. For convenience, the geomagnetic model can
+      be provided directly when setting this attribute. For example,
+
+      >>> meter.geomagnet = "IGRF14.COF"
+
+      By default, the geomagnetic field is disabled.
+
    .. autoattribute:: geometry
+
+      This attribute is an :py:class:`~mulder.EarthGeometry` or a
+      :py:class:`~mulder.LocalGeometry`. For convenience, local geometry data
+      can be provided directly when setting this attribute. For example,
+
+      >>> meter.geometry = "geometry.toml"
+
    .. autoattribute:: mode
+
+      Possible values are, :python:`"continous"`, :python:`"discrete"` or
+      :python:`"mixed"`. By default, the fluxmeter operates in continuous mode.
+      For instance, the following switches the fluxmeter to discrete mode.
+
+      >>> meter.mode = "discrete"
+
    .. autoattribute:: physics
+
+      This attribute is an instance of a :py:class:`mulder.Physics`, which
+      controls the physics of the muon transport.
+
    .. autoattribute:: random
+
+      This attribute is an instance of a :py:class:`mulder.Random`, which
+      controls the pseudo-randomness of simulated events.
+
    .. autoattribute:: reference
+
+      This attribute is an instance of a :py:class:`mulder.Reference`, which
+      controls the reference model for flux computations.
 
 ----
 

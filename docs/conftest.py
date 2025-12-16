@@ -26,6 +26,10 @@ def initialise_doctest():
         PREFIX / "tests/assets/materials.toml",
         "./materials.toml"
     )
+    shutil.copyfile(
+        Path(mulder.config.PREFIX) / "data/magnet/IGRF14.COF",
+        "./IGRF14.COF"
+    )
     DOCTEST_INITIALISED = True
 
 

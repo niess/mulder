@@ -71,6 +71,18 @@ def test_constructor():
     assert meter.random.seed == 123456
 
 
+def test_attributes():
+    """Test the attributes."""
+
+    meter = mulder.Fluxmeter()
+
+    meter.atmosphere = "midlatitude-winter"
+    assert meter.atmosphere.model == "midlatitude-winter"
+
+    meter.atmosphere = mulder.Atmosphere("midlatitude-winter")
+    assert meter.atmosphere.model == "midlatitude-winter"
+
+
 def test_continuous():
     """Test continuous mode."""
 

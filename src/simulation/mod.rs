@@ -407,7 +407,7 @@ impl Fluxmeter {
         Ok(())
     }
 
-    /// Compute flux estimate(s).
+    /// Compute local flux estimate(s).
     #[pyo3(
         signature=(states=None, /, *, events=None, notify=None, frame=None, **kwargs),
         text_signature="(self, states=None, /, *, events=None, notify=None, **kwargs)",
