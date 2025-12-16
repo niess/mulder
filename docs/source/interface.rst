@@ -1553,15 +1553,51 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 
 .. autoclass:: mulder.Random
 
-   .. method:: __new__(*args, **kwargs)
+   This class manages a cyclic sequence of pseudo-random numbers over the
+   interval :math:`(0, 1)`. These numbers are exposed as a stream of
+   :py:class:`floats <float>`. The sequence is fully determined by the
+   :py:attr:`seed` attribute, while the :py:attr:`index` attribute indicates the
+   stream state.
+
+   .. note::
+
+      A `Permuted Congruential Generator <WikipediaPCG_>`_ (PCG) is used (namely
+      `Mcg128Xsl64`_), which has excellent performances for Monte Carlo
+      applications.
+
+   .. method:: __new__(seed=None, *, index=None)
+
+      Creates a new pseudo-random stream.
+
+      If *seed* is :python:`None`, then a random value is picked using the
+      system entropy. Otherwise, the specified :py:attr:`seed` value is used.
+      For instance,
+
+      >>> prng = mulder.Random(123456789)
 
    .. automethod:: uniform01
+
+      If *shape* is :python:`None`, then a single number is returned. Otherwise,
+      a :external:py:class:`numpy.ndarray` is returned, with the given *shape*.
+      For instance, the following returns the next 100 pseudo-random
+      numbers from the stream.
+
+      >>> rns = prng.uniform01(100)
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: index
+
+      This property can be modified, resulting in consuming or rewinding the
+      pseudo-random stream. For instance, the following resets the stream.
+
+      >>> prng.index = 0
+
    .. autoattribute:: seed
+
+      The property fully determines (and identifies) the pseudo-random sequence.
+      Note that modifying the seed also resets the stream to index :python:`0`.
 
 ----
 
@@ -1744,9 +1780,10 @@ The available configuration data are listed below.
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
 .. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
+.. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
 .. _Kokoulin: https://doi.org/10.1016/S0920-5632(98)00475-7
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
-.. _ISO_8601: https://en.wikipedia.org/wiki/ISO_8601
+.. _Mcg128Xsl64: https://docs.rs/rand_pcg/latest/rand_pcg/struct.Mcg128Xsl64.html#
 .. _PDG: https://pdg.lbl.gov/2025/AtomicNuclearProperties/index.html
 .. _Pumas: https://github.com/niess/pumas
 .. _PROPOSAL: https://github.com/tudo-astroparticlephysics/PROPOSAL
@@ -1755,3 +1792,4 @@ The available configuration data are listed below.
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html
 .. _TOML: https://toml.io
 .. _Turtle: https://github.com/niess/turtle
+.. _WikipediaPCG: https://en.wikipedia.org/wiki/Permuted_congruential_generator

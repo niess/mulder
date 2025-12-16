@@ -18,10 +18,10 @@ use rand_pcg::Pcg64Mcg;
 #[pyclass(module = "mulder")]
 pub struct Random {
     rng: Pcg64Mcg,
-    /// Prng stream index.
+    /// The PRNG stream index.
     #[pyo3(get)]
     index: u128,
-    /// Prng initial seed.
+    /// The PRNG initial seed.
     #[pyo3(get)]
     seed: u128,
 }
@@ -60,6 +60,7 @@ impl Random {
     }
 
     /// Generate pseudo-random number(s) uniformly distributed over (0,1).
+    #[pyo3(signature=(shape=None, /))]
     fn uniform01(
         &mut self,
         py: Python,
