@@ -1454,6 +1454,12 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
       ...     reference = "Gaisser90",
       ... )
 
+      Note that specifying a *date* enables the geomagnetic field, which is
+      disabled by default. Alternatively, the geomagnetic field might also be
+      enabled as,
+
+      >>> meter = mulder.Fluxmeter(geomagnet=True)
+
    .. automethod:: flux
    .. automethod:: transport
 

@@ -75,6 +75,7 @@ def test_continuous():
     """Test continuous mode."""
 
     meter = mulder.Fluxmeter(0.0)
+    assert meter.mode == "continuous"
 
     s1 = dict(altitude=-30.0, elevation=70.0)
     s0 = meter.transport(**s1)
@@ -83,3 +84,31 @@ def test_continuous():
     f1a = meter.reference.flux(s0) * s0.weight
     f1b = meter.flux(**s1)
     assert_allclose(f1a, f1b)
+
+    meter = mulder.Fluxmeter(0.0, geomagnet=True)
+
+    s1a = dict(altitude=-30.0, elevation=70.0, pid=13)
+    s0a = meter.transport(**s1a)
+    s1b = dict(altitude=-30.0, elevation=70.0, pid=-13)
+    s0b = meter.transport(**s1b)
+    f1a = meter.reference.flux(s0a) * s0a.weight + \
+          meter.reference.flux(s0b) * s0b.weight
+    f1b = meter.flux(**s1)
+    assert_allclose(f1a, f1b)
+
+
+def test_stochastic():
+    """Test stochastic modes."""
+
+    for mode in ("discrete", "mixed"):
+        meter = mulder.Fluxmeter(0.0, mode=mode, seed=123456)
+        assert meter.mode == mode
+
+        s1 = dict(altitude=-30.0, elevation=70.0)
+        N = 1000
+        s0 = meter.transport(**s1, events=N)
+        assert_allclose(s0.altitude, meter.reference.altitude)
+
+        f1a = sum(meter.reference.flux(s0) * s0.weight) / N
+        f1b, s1b = meter.flux(**s1, events=N)
+        assert_allclose(f1a, f1b, rtol=5E-02)
