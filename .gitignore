@@ -13,3 +13,7 @@
 # Ignore python bytecode objects.
 *.pyo
 *.pyc
+
+# Ignore temporary data.
+*.avi
+*.pkl
