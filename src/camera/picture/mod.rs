@@ -23,7 +23,7 @@ pub use materials::{default_materials, OpticalProperties};
 
 const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
-#[pyclass(module="mulder.picture")]
+#[pyclass(module="mulder.picture", name="Picture")]
 pub struct RawPicture {
     pub(super) transform: Transform,
     pub layer: i32,
@@ -115,6 +115,7 @@ impl RawPicture {
         self.pixels.bind(py).as_any().get_item("layer")
     }
 
+    /// The materials mapping.
     #[getter]
     fn get_materials<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         PyTuple::new(
@@ -153,6 +154,7 @@ impl RawPicture {
         Ok(())
     }
 
+    /// Converts the picture to a colour image.
     #[pyo3(signature=(/, *, atmosphere=true, exposure=None, lights=None, materials=None, notify=None))]
     fn develop<'py>(
         &self,
@@ -293,6 +295,8 @@ impl RawPicture {
         Ok(array)
     }
 
+    /// Returns the pixels' normal directions.
+    // XXX specify a frame?
     fn normal<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
@@ -315,6 +319,8 @@ impl RawPicture {
         Ok(normal_array)
     }
 
+    /// Returns the pixels' view directions.
+    // XXX specify a frame?
     fn view<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
         let data = self.pixels.bind(py);
         let mut shape = data.shape();

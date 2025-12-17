@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plot
 from matplotlib import animation
 import mulder
-from mulder.picture import materials, SunLight
+from mulder.picture import Camera, materials, SunLight
 import numpy
 from pathlib import Path
 import pickle
@@ -17,8 +17,8 @@ if raw_path.exists():
 else:
     geometry = mulder.EarthGeometry(0.0)
     LOCATION = { "latitude": -45.0, "longitude": 3.0, "altitude": 0.5 }
-    camera = mulder.Camera(**LOCATION, azimuth=89.5, elevation=1.0,
-                           resolution = (768, 1024), fov = 6)
+    camera =Camera(**LOCATION, azimuth=89.5, elevation=1.0,
+                   resolution = (768, 1024), fov = 6)
     raw = camera.shoot(geometry)
     with raw_path.open("wb") as f:
         pickle.dump(raw, f)

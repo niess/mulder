@@ -10,7 +10,7 @@ use pyo3::types::PyDict;
 
 pub mod picture;
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture")]
 pub struct Camera {
     /// The camera latitude coordinate, in degrees.
     #[pyo3(get)]
@@ -47,7 +47,7 @@ pub struct Camera {
     pixels: Option<Py<PixelsCoordinates>>,
 }
 
-#[pyclass(module="mulder")]
+#[pyclass(module="mulder.picture", name="Pixels")]
 pub struct PixelsCoordinates {
     /// The pixels latitude coordinate, in degrees.
     #[pyo3(get)]
@@ -102,8 +102,10 @@ struct Transform {
 
 #[pymethods]
 impl Camera {
-    #[new] // XXX Hide resolution, etc. under kwargs.
+    /// Creates a new camera.
+    #[new]
     #[pyo3(signature=(coordinates=None, /, *, resolution=None, fov=None, ratio=None, **kwargs))]
+    #[pyo3(text_signature="(coordinates=None, /, **kwargs)")]
     fn new(
         coordinates: Option<&Bound<PyAny>>,
         resolution: Option<[usize; 2]>,
@@ -163,6 +165,7 @@ impl Camera {
         self.set_fov(value)
     }
 
+    /// The pixels coordinates.
     #[getter]
     fn get_pixels<'py>(&mut self, py: Python<'py>) -> PyResult<Py<PixelsCoordinates>> {
         if self.pixels.is_none() {
@@ -397,6 +400,7 @@ impl Camera {
 #[pymethods]
 impl PixelsCoordinates {
     /// The pixels coordinates wrapped by a dict.
+    // XXX Use a SimpleNamespace and hide other attributes.
     #[getter]
     fn get_coordinates<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);

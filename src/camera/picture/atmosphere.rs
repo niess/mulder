@@ -23,12 +23,13 @@ const PI: f64 = std::f64::consts::PI;
 const HALF_PI: f64 = 0.5 * PI;
 
 /// Optical properties of the atmosphere.
-#[pyclass(module="mulder.picture")]
+#[pyclass(module="mulder.picture", name="Atmosphere")]
 pub struct SkyProperties;
 
 #[pymethods]
 impl SkyProperties {
     #[pyo3(signature=(picture, *lights))]
+    #[pyo3(text_signature="(cls, picture, *lights)")]
     #[classmethod]
     fn aerial_view<'py>(
         cls: &Bound<'py, PyType>,
@@ -94,6 +95,7 @@ impl SkyProperties {
 
     #[classmethod]
     #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
+    #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
     fn ambient_light<'py>(
         cls: &Bound<'py, PyType>,
         lights: &Bound<'py, PyTuple>,
@@ -167,6 +169,7 @@ impl SkyProperties {
     }
 
     #[classmethod]
+    #[pyo3(text_signature="(cls)")]
     fn multiple_scattering<'py>(cls: &Bound<'py, PyType>) -> PyResult<Namespace<'py>> {
         let py = cls.py();
 
@@ -202,6 +205,7 @@ impl SkyProperties {
 
     #[classmethod]
     #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
+    #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
     fn sky_view<'py>(
         cls: &Bound<'py, PyType>,
         lights: &Bound<'py, PyTuple>,
@@ -261,6 +265,7 @@ impl SkyProperties {
     }
 
     #[pyo3(signature=(elevation, /, *, altitude=None))]
+    #[pyo3(text_signature="(cls, elevation, /, *, altitude=None)")]
     #[classmethod]
     fn transmittance<'py>(
         _cls: &Bound<'py, PyType>,

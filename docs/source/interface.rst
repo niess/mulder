@@ -1725,9 +1725,31 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 Picture interface
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: mulder.Camera
+.. autoclass:: mulder.picture.AmbientLight
+
+   .. method:: __new__(intensity=None, colour=None)
+
+      Creates an ambient light source.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: colour
+   .. autoattribute:: intensity
+
+.. autoclass:: mulder.picture.Atmosphere
+
+   .. automethod:: aerial_view
+   .. automethod:: ambient_light
+   .. automethod:: multiple_scattering
+   .. automethod:: sky_view
+   .. automethod:: transmittance
+
+.. autoclass:: mulder.picture.Camera
 
    .. method:: __new__(coordinates=None, /, **kwargs)
+
+      Creates an new camera.
 
    .. automethod:: shoot
 
@@ -1744,6 +1766,100 @@ Picture interface
    .. autoattribute:: pixels
    .. autoattribute:: ratio
    .. autoattribute:: resolution
+
+.. autoclass:: mulder.picture.ColourMap
+
+   .. method:: __new__(coordinates=None, /, **kwargs)
+
+      Creates an new colour mapping.
+
+.. autoclass:: mulder.picture.DirectionalLight
+
+   .. method:: __new__(azimuth, elevation, *, colour=None, intensity=None)
+
+      Creates a directional light source.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: azimuth
+   .. autoattribute:: colour
+   .. autoattribute:: elevation
+   .. autoattribute:: intensity
+
+.. autoclass:: mulder.picture.Material
+
+   .. method:: __new__(**kwargs)
+
+      Creates an optical material.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: colour
+   .. autoattribute:: metallic
+   .. autoattribute:: roughness
+   .. autoattribute:: reflectance
+
+.. autoclass:: mulder.picture.Picture
+
+   .. automethod:: develop
+   .. automethod:: normal
+   .. automethod:: view
+
+   .. rubric:: Coordinates attributes
+     :heading-level: 4
+
+   .. autoattribute:: altitude
+   .. autoattribute:: azimuth
+   .. autoattribute:: elevation
+   .. autoattribute:: latitude
+   .. autoattribute:: longitude
+
+   .. rubric:: Intersections attributes
+     :heading-level: 4
+
+   .. autoattribute:: altitudes
+   .. autoattribute:: distances
+   .. autoattribute:: layers
+   .. autoattribute:: materials
+
+.. autoclass:: mulder.picture.Pixels
+
+   .. rubric:: Position attributes
+     :heading-level: 4
+
+   .. autoattribute:: altitude
+   .. autoattribute:: latitude
+   .. autoattribute:: longitude
+
+   .. rubric:: Pixel attributes
+     :heading-level: 4
+
+   .. autoattribute:: azimuth
+   .. autoattribute:: coordinates
+   .. autoattribute:: elevation
+   .. autoattribute:: u
+   .. autoattribute:: v
+
+   .. rubric:: Screen attributes
+     :heading-level: 4
+
+   .. autoattribute:: ratio
+   .. autoattribute:: resolution
+
+.. autoclass:: mulder.picture.SunLight
+
+   .. method:: __new__(intensity=None, colour=None)
+
+      Creates a sun light source.
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: colour
+   .. autoattribute:: datetime
+   .. autoattribute:: intensity
 
 
 Configuration data

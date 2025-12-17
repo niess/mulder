@@ -106,6 +106,7 @@ pub struct ResolvedLight {
 
 #[pymethods]
 impl AmbientLight {
+    /// Creates an ambient light source.
     #[new]
     #[pyo3(signature=(intensity=None, colour=None))]
     fn new(intensity: Option<f64>, colour: Option<StandardRgb>) -> Self {
@@ -133,6 +134,7 @@ impl Default for AmbientLight {
 
 #[pymethods]
 impl DirectionalLight {
+    /// Creates a directional light source.
     #[new]
     #[pyo3(signature=(azimuth, elevation, *, colour=None, intensity=None))]
     fn new(

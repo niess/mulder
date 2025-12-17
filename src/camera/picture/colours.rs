@@ -182,6 +182,7 @@ impl MaterialColour {
 
 #[pymethods]
 impl ColourMap {
+    /// Creates a new colour map.
     #[pyo3(signature=(data, /))]
     #[new]
     pub fn new(mut data: Vec<(f64, StandardRgb)>) -> Self {
@@ -189,6 +190,9 @@ impl ColourMap {
         data.dedup_by(|a, b| a.0 == b.0);
         Self { data }
     }
+
+    // XXX implement mapping function.
+    // XXX implement data attribute?
 }
 
 impl ColourMap {

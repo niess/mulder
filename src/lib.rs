@@ -52,7 +52,6 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     utils::numpy::initialise(py)?;
 
     // Register class object(s).
-    module.add_class::<camera::Camera>()?;
     module.add_class::<geometry::earth::EarthGeometry>()?;
     module.add_class::<geometry::earth::Grid>()?;
     module.add_class::<geometry::earth::Layer>()?;
@@ -86,10 +85,12 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     let picture = PyModule::new(py, "picture")?;
     picture.add("materials", camera::picture::default_materials(py)?)?;
     picture.add_class::<camera::picture::AmbientLight>()?;
+    picture.add_class::<camera::Camera>()?;
     picture.add_class::<camera::picture::ColourMap>()?;
     picture.add_class::<camera::picture::DirectionalLight>()?;
     picture.add_class::<camera::picture::OpticalProperties>()?;
     picture.add_class::<camera::picture::RawPicture>()?;
+    picture.add_class::<camera::PixelsCoordinates>()?;
     picture.add_class::<camera::picture::SkyProperties>()?;
     picture.add_class::<camera::picture::SunLight>()?;
     module.add_submodule(&picture)?;
