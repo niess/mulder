@@ -4,9 +4,9 @@ Mulder
 
 ----
 
-Mulder is a Python package that calculates local variations in the flux of
-atmospheric muons caused by a local geometry, e.g. a topography depicted
-by a Digital Elevation Model (`DEM`_).
+Mulder is a Python package that calculates variations in the flux of atmospheric
+muons caused by a geometry of interest, e.g. a topography depicted by a Digital
+Elevation Model (`DEM`_).
 
 The primary component of Mulder is a fluxmeter, which serves as a muons probe.
 The level of detail of fluxmeters is adjustable, ranging from a rapid continuous
@@ -16,7 +16,7 @@ Carlo, that delivers discrete atmospheric muons.
 .. note::
 
    Mulder only simulates the transport of atmospheric muons, taking into account
-   the local geometry surrounding the fluxmeter. Mulder does not simulate muon
+   the geometry surrounding the fluxmeter. Mulder does not simulate muon
    production by cosmic rays. Instead, a reference spectrum of atmospheric muons
    is used as input, providing the open-sky flux, i.e. the flux in the absence
    of any ground or other obstacles than the Earth atmosphere.

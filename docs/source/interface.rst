@@ -758,7 +758,8 @@ Module interface
 
    .. automethod:: element
 
-      Fetches a module's element to Mulder's global scope. For example,
+      This method explictly maps the element *symbol* to its module definition.
+      For example,
 
       >>> H = module.element("G4_H")  # doctest: +SKIP
 
@@ -768,7 +769,8 @@ Module interface
 
    .. automethod:: material
 
-      Fetches a module's material to Mulder's global scope. For example,
+      This method explictly maps the material *name* to its module definition.
+      For example,
 
       >>> air = module.material("G4_AIR")  # doctest: +SKIP
 
@@ -1417,12 +1419,11 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 
 .. autoclass:: mulder.Fluxmeter
 
-   This class provides a high-level interface for computing a local muon flux,
-   resulting from local :py:attr:`geometrical <geometry>` features, w.r.t. to an
-   open-sky :py:attr:`reference` flux of atmospheric muons. For basic use cases
-   one might simply use the :py:meth:`flux` method with default settings. For
-   more advanced usage, please refer to the :doc:`flux computation <flux>`
-   section.
+   This class provides a high-level interface for computing alterations in the
+   flux of atmospheric muons, due to :py:attr:`geometrical <geometry>` features,
+   w.r.t. to an open-sky :py:attr:`reference` model. For basic use cases one
+   might simply use the :py:meth:`flux` method with default settings. For more
+   advanced usage, please refer to the :doc:`flux computation <flux>` section.
 
    .. method:: __new__(*layers, **kwargs)
 
@@ -1463,7 +1464,7 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
    .. automethod:: flux
 
       This method uses the `States interface`_ for specifying the observation
-      states(s) of interest. For instance, the following computes the local flux
+      states(s) of interest. For instance, the following computes the flux
       at an altitude of 100 m and along an elevation angle of 30 deg.
 
       >>> flux = meter.flux(altitude=100, elevation=30)

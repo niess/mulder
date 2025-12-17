@@ -355,7 +355,7 @@ impl Fluxmeter {
         Ok(())
     }
 
-    /// The local geometry.
+    /// The surrounding geometry.
     #[getter]
     fn get_geometry(&mut self, py: Python) -> PyObject {
         match &self.geometry {
@@ -407,7 +407,7 @@ impl Fluxmeter {
         Ok(())
     }
 
-    /// Compute local flux estimate(s).
+    /// Compute flux estimate(s).
     #[pyo3(
         signature=(states=None, /, *, events=None, notify=None, frame=None, **kwargs),
         text_signature="(self, states=None, /, *, events=None, notify=None, **kwargs)",

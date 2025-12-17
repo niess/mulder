@@ -1,18 +1,17 @@
 Flux computation
 ================
 
-Mulder's primary intent is to compute (simulate) local variations (absorption,
-scattering) in the flux of atmospheric muons caused by a local geometry of
-interest. For this purpose, Mulder offers a :py:class:`~mulder.Fluxmeter`
-object, which may be regarded as an ideal muon probe. :py:class:`Flumeters
-<mulder.Fluxmeter>` may be operated in three modes, `continuous <Continuous
-mode>`_, `mixed <Mixed mode>`_ or `discrete <Discrete mode>`_, as described
-below.
+Mulder's primary intent is to compute (simulate) alterations (absorption,
+scattering) in the flux of atmospheric muons caused by a geometry of interest.
+For this purpose, Mulder offers a :py:class:`~mulder.Fluxmeter` object, which
+may be regarded as an ideal muon probe. :py:class:`Flumeters <mulder.Fluxmeter>`
+may be operated in three modes, `continuous <Continuous mode>`_, `mixed <Mixed
+mode>`_ or `discrete <Discrete mode>`_, as described below.
 
 .. note::
 
    :py:class:`~mulder.Fluxmeter` objects use the Backward Monte Carlo technique
-   [NBCL18]_ to compute the local muon flux.
+   [NBCL18]_ to compute the altered muon flux.
 
 
 Continuous mode
@@ -40,8 +39,8 @@ lines trajectories.
    the total flux.
 
 Let us denote :math:`\phi_0` the open-sky reference flux, i.e. the flux of
-atmospheric muons in the absence of any local geometry. Under the continuous
-assumption, the local muon flux, :math:`\phi_1`, can be related to
+atmospheric muons in the absence of any geometry. Under the continuous
+assumption, the altered muon flux, :math:`\phi_1`, can be related to
 :math:`\phi_0` as follows
 
 .. math::
@@ -53,13 +52,13 @@ where :math:`S_1` denotes the observation :ref:`state <sec-states-interface>`,
 and where :math:`S_0` is a reference state, connected to :math:`S_1` by
 transport equations. The factor :math:`\omega_c(S_0, S_1)` is a transport weight
 depending on the matter distribution along the muon trajectory, with and without
-the local geometry.
+the geometry.
 
 The :py:meth:`~mulder.Fluxmeter.transport` method of a
 :py:class:`~mulder.Fluxmeter` object returns the reference state, :math:`S_0`,
 and the corresponding transport weight, :math:`\omega_c(S_0, S_1)`, given an
 observation state, :math:`S_1`. The :py:meth:`~mulder.Fluxmeter.flux` method
-directly computes the local flux, :math:`\phi_1(S_1)`, using equation
+directly computes the flux :math:`\phi_1(S_1)` using equation
 :eq:`continuous-flux`, in continuous mode. Thus, the two following code snippets
 yield the same flux,
 
@@ -93,7 +92,7 @@ The discrete mode is the most realistic but also the most CPU-intensive option.
 In discrete mode, the muon trajectory and the energy loss are stochastic.
 Therefore, a given observation state, :math:`S_1`, is associated with several
 reference states, :math:`S_{0,i}`. In this case, a Monte Carlo estimate of the
-local flux is obtained as
+altered flux is obtained as
 
 .. math::
    :label: discrete-flux
@@ -124,7 +123,7 @@ reference states, from which the flux is estimated using equation
    >>> assert states0.size == N
    >>> flux1a = flux1
 
-The same local flux could have been estimated directly as,
+The same flux could have been estimated directly as,
 
 >>> flux1, sigma1 = meter.flux(state1, events=N)
 
@@ -134,8 +133,8 @@ The same local flux could have been estimated directly as,
    >>> assert_allclose(flux1a, flux1, rtol=5E-02)
 
 Note that in the discrete case, the :py:meth:`~mulder.Fluxmeter.flux` method
-also returns an error estimate (:python:`sigma1`) on the local flux, determined
-from the sample variance.
+also returns an error estimate (:python:`sigma1`) on the flux, determined from
+the sample variance.
 
 
 Mixed mode
@@ -145,7 +144,7 @@ The mixed mode represents a compromise between the continuous and discrete
 cases. In mixed mode, the muon trajectory is still deterministic, but stochastic
 energy losses may occur. This approximation is efficient for large geometries
 (more than 300\ m of rocks) in cases where muon scattering can be disregarded.
-In mixed mode, the local flux is estimated using eq. :eq:`discrete-flux`. The
+In mixed mode, the altered flux is estimated using eq. :eq:`discrete-flux`. The
 mixed and discrete modes share the same interface.
 
 
