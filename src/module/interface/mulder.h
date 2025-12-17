@@ -9,20 +9,21 @@ extern "C" {
 
 
 /* ============================================================================
- *  C module interface.
+ *  Module interface.
  * ============================================================================
  */
 struct mulder_module {
-    /* Returns an element definition */
+    /* Returns an element definition. */
     struct mulder_element * (*element)(const char * symbol);
 
     /* Returns a geometry definition. */
     struct mulder_geometry * (*geometry)(void);
 
-    /* Returns a material definition */
+    /* Returns a material definition. */
     struct mulder_material * (*material)(const char * name);
 };
 
+/* Module entry point. */
 struct mulder_module mulder_initialise(void);
 
 

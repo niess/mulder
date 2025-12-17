@@ -1,6 +1,8 @@
 Geometry definition
 ===================
 
+.. _sec-geometry-model:
+
 Geometry Model
 ~~~~~~~~~~~~~~
 

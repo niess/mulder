@@ -382,7 +382,8 @@ which is discussed in the :doc:`Geometry <geometry>` section.
    This class represents a local geometry on the Earth, w.r.t. a
    :py:class:`~mulder.LocalFrame`. Local geometries can be created by importing
    a `Calzone geometry <Calzone-Geometry_>`_. Alternatively, they might be
-   implemented in C within a :py:class:`mulder.Module`.
+   implemented using an external software, typically in C/C++, wrapped within a
+   :py:class:`mulder.Module`.
 
    .. method:: __new__(data, /, *, frame=None)
 
@@ -742,14 +743,26 @@ definition has been established, it cannot be modified or removed.
 
    >>> materials.load("materials.toml")
 
+.. _sec-module-interface:
+
 Module interface
 ~~~~~~~~~~~~~~~~
 
+External software may be interfaced with Mulder as external modules. For further
+information, please refer to the :doc:`External modules <modules>` section.
+
 .. autoclass:: mulder.Module
+
+   This class provides an interface to an external module, typically implemented
+   in C/C++. External modules may extend Mulder functionalities with new
+   materials and geometries.
 
    .. method:: __new__(path, /)
 
       Loads a Module.
+
+      The *path* argument must refer to a shared library containing the module
+      implementation. For instance, on a Linux system,
 
       >>> module = mulder.Module("module.so")  # doctest: +SKIP
 
@@ -765,7 +778,13 @@ Module interface
 
    .. automethod:: geometry
 
-      >>> geometry = module.geometry(frame=frame)  # doctest: +SKIP
+      The external geometry is returned as a :py:class:`~mulder.LocalGeometry`
+      object, for example as,
+
+      >>> geometry = module.geometry()  # doctest: +SKIP
+
+      Optionally, a :py:class:`~mulder.LocalFrame` may be specified using the
+      *frame* named argument.
 
    .. automethod:: material
 
@@ -777,8 +796,19 @@ Module interface
    .. rubric:: Attributes
      :heading-level: 4
 
+   .. note:: :py:class:`Module` attributes are :underline:`immutable`.
+
    .. autoattribute:: path
+
+      The absolute *path* to the shared library containing the module
+      implementation. This path also serves as a unique identifier for the
+      module during runtime.
+
    .. autoattribute:: ptr
+
+      A :py:class:`ctypes.c_void_p` pointing to the initialised module, i.e. to
+      the :clang:`struct mulder_module` object obtained upon calling the
+      :clang:`mulder_initialise()` entry point function.
 
 
 Physics interface

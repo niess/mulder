@@ -42,6 +42,7 @@ Documentation
    geometry
    flux
    interface
+   modules
    references
 
 

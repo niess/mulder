@@ -33,6 +33,10 @@ rst_prolog = """
     :language: bash
     :class: highlight
 
+.. role:: clang(code)
+    :language: c
+    :class: highlight
+
 .. role:: python(code)
     :language: python
     :class: highlight

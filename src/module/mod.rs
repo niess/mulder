@@ -132,7 +132,7 @@ impl Module {
             .transpose()
     }
 
-    /// Creates a new geometry.
+    /// Creates an external geometry.
     #[pyo3(signature=(*, frame=None))]
     pub fn geometry(
         &self,
