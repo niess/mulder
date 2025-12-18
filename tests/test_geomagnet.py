@@ -45,6 +45,8 @@ def test_field():
     field1 = geomagnet.field(state1)
 
     # Transform the latter field to the former local frame.
+    state1.azimuth = 0.0
+    state1.elevation = 0.0
     frame1 = mulder.LocalFrame(state1)
     field1 = frame1.transform(field1, destination=frame0, mode="vector")
 

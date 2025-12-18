@@ -700,10 +700,8 @@ impl TaggedGeographicState {
         let state = Self {
             pid: states.get_i32_opt(Name::Pid, index)?.unwrap_or(Particle::Muon.pid()),
             energy: states.get_f64_opt(Name::Energy, index)?.unwrap_or(1.0),
-            latitude: states.get_f64_opt(Name::Latitude, index)?
-                .unwrap_or(LocalFrame::DEFAULT_LATITUDE),
-            longitude: states.get_f64_opt(Name::Longitude, index)?
-                .unwrap_or(LocalFrame::DEFAULT_LONGITUDE),
+            latitude: states.get_f64_opt(Name::Latitude, index)?.unwrap_or(0.0),
+            longitude: states.get_f64_opt(Name::Longitude, index)?.unwrap_or(0.0),
             altitude: states.get_f64_opt(Name::Altitude, index)?.unwrap_or(0.0),
             azimuth: states.get_f64_opt(Name::Azimuth, index)?.unwrap_or(0.0),
             elevation: states.get_f64_opt(Name::Elevation, index)?.unwrap_or(0.0),
@@ -750,10 +748,8 @@ impl UntaggedGeographicState {
     fn from_extractor(states: &Extractor<8>, index: usize) -> PyResult<Self> {
         let state = Self {
             energy: states.get_f64_opt(Name::Energy, index)?.unwrap_or(1.0),
-            latitude: states.get_f64_opt(Name::Latitude, index)?
-                .unwrap_or(LocalFrame::DEFAULT_LATITUDE),
-            longitude: states.get_f64_opt(Name::Longitude, index)?
-                .unwrap_or(LocalFrame::DEFAULT_LONGITUDE),
+            latitude: states.get_f64_opt(Name::Latitude, index)?.unwrap_or(0.0),
+            longitude: states.get_f64_opt(Name::Longitude, index)?.unwrap_or(0.0),
             altitude: states.get_f64_opt(Name::Altitude, index)?.unwrap_or(0.0),
             azimuth: states.get_f64_opt(Name::Azimuth, index)?.unwrap_or(0.0),
             elevation: states.get_f64_opt(Name::Elevation, index)?.unwrap_or(0.0),
@@ -1355,7 +1351,7 @@ impl TaggedLocalState {
             position: states.get_vec3_opt(Name::Position, index)?
                 .unwrap_or_else(|| [0.0; 3]),
             direction: states.get_vec3_opt(Name::Direction, index)?
-                .unwrap_or_else(|| [0.0, 0.0, 1.0]),
+                .unwrap_or_else(|| [0.0, 1.0, 0.0]),
             weight: states.get_f64_opt(Name::Weight, index)?.unwrap_or(1.0),
         };
         Ok(state)
@@ -1395,7 +1391,7 @@ impl UntaggedLocalState {
             position: states.get_vec3_opt(Name::Position, index)?
                 .unwrap_or_else(|| [0.0; 3]),
             direction: states.get_vec3_opt(Name::Direction, index)?
-                .unwrap_or_else(|| [0.0, 0.0, 1.0]),
+                .unwrap_or_else(|| [0.0, 1.0, 0.0]),
             weight: states.get_f64_opt(Name::Weight, index)?.unwrap_or(1.0),
         };
         Ok(state)

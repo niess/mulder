@@ -338,15 +338,21 @@ which is discussed in the :doc:`Geometry <geometry>` section.
    Earth. Optionnaly, the frame can be inclined (w.r.t. the vertical) or
    declined (w.r.t. the geographic north).
 
-   .. method:: __new__(position=None, /, *, declination=None, inclination=None, **kwargs)
+   .. note:: :py:class:`LocalFrame` instances are :underline:`immutable`.
+
+   .. method:: __new__(coordinates=None, /, **kwargs)
 
       Creates a new Earth-local reference-frame.
 
-      The *position* argument specifies the frame origin, using the `Position
-      interface <States interface_>`_. For example, the following defines a
-      local frame close to `Clermont-Ferrand`_, France.
+      The *coordinates* argument specifies the origin position and the y-axis
+      direction, using the `Coordinates interface <States interface_>`_. For
+      example, the following defines a local frame close to `Clermont-Ferrand`_,
+      France.
 
       >>> frame = mulder.LocalFrame(latitude=45.8, longitude=3.1)
+
+      If no direction is specified, then local frames are East-North-Upward
+      (ENU) oriented by default.
 
    .. automethod:: transform
 
@@ -364,16 +370,28 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
       >>> ex = frame0.transform((1, 0, 0), destination=frame1, mode="vector")
 
-   .. rubric:: Attributes
+   .. rubric:: Position attributes
      :heading-level: 4
 
-   .. note:: :py:class:`LocalFrame` instances are :underline:`immutable`.
+   .. note::
+
+      The :py:attr:`latitude`, :py:attr:`longitude` and :py:attr:`altitude`
+      attributes refer to the origin position.
 
    .. autoattribute:: altitude
-   .. autoattribute:: declination
    .. autoattribute:: latitude
    .. autoattribute:: longitude
-   .. autoattribute:: inclination
+
+   .. rubric:: Direction attributes
+     :heading-level: 4
+
+   .. note::
+
+      The :py:attr:`azimuth` and :py:attr:`elevation` attributes refer to
+      the y-axis direction.
+
+   .. autoattribute:: azimuth
+   .. autoattribute:: elevation
 
 ----
 
@@ -1749,7 +1767,7 @@ Picture interface
 
    .. method:: __new__(coordinates=None, /, **kwargs)
 
-      Creates an new camera.
+      Creates a new camera.
 
    .. automethod:: shoot
 

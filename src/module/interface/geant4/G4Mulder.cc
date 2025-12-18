@@ -585,7 +585,7 @@ G4Mulder::Tracer::Tracer(const G4Mulder::Geometry * definition_):
     this->history = this->navigator.CreateTouchableHistory();
 
     // Initialise internal data.
-    this->currentDirection = G4ThreeVector(0.0, 0.0, 1.0);
+    this->currentDirection = G4ThreeVector(0.0, 1.0, 0.0);
     this->currentIndex = 0;
     this->currentPosition = G4ThreeVector(0.0, 0.0, 0.0);
     this->stepLength = 0.0;

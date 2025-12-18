@@ -27,13 +27,13 @@ pub struct HorizontalCoordinates {
 pub struct LocalFrame {
     pub origin: GeographicCoordinates,
 
-    /// The frame declination angle (w.r.t. the geographic north), in deg.
+    /// The frame azimuth angle (w.r.t. the geographic north), in deg.
     #[pyo3(get)]
-    pub declination: f64,
+    pub azimuth: f64,
 
-    /// The frame inclination angle (w.r.t. the local vertical), in deg.
+    /// The frame elevation angle (w.r.t. the local vertical), in deg.
     #[pyo3(get)]
-    pub inclination: f64,
+    pub elevation: f64,
 
     pub rotation: [[f64; 3]; 3],
     pub translation: [f64; 3],
@@ -57,8 +57,6 @@ pub enum CoordinatesExtractor<'py> {
 pub enum PositionExtractor<'py> {
     Geographic {
         extractor: Extractor<'py, 3>,
-        default_latitude: f64,
-        default_longitude: f64,
     },
     Local {
         extractor: Extractor<'py, 1>,
@@ -161,32 +159,20 @@ impl_dtype!(
 impl LocalFrame {
     #[new]
     #[pyo3(
-        signature=(position=None, /, *, declination=None, inclination=None, frame=None, **kwargs),
-        text_signature="(position=None, /, *, declination=None, inclination=None, **kwargs)",
+        signature=(coordinates=None, /, *, frame=None, **kwargs),
+        text_signature="(coordinates=None, /, **kwargs)",
     )]
     fn py_new(
         py: Python,
-        position: Option<&Bound<PyAny>>,
-        declination: Option<f64>,
-        inclination: Option<f64>,
+        coordinates: Option<&Bound<PyAny>>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
-        let position = PositionExtractor::new(
-            py, position, kwargs, frame.as_ref().into(), Some(1)
-        )?
-            .with_default_latitude(Self::DEFAULT_LATITUDE)
-            .with_default_longitude(Self::DEFAULT_LONGITUDE);
-        let position = position.extract(0)?;
-        let origin = match position {
-            ExtractedPosition::Geographic { position } => position,
-            ExtractedPosition::Local { position, frame } => {
-                frame.to_geographic_position(&position)
-            },
-        };
-        let declination = declination.unwrap_or(0.0);
-        let inclination = inclination.unwrap_or(0.0);
-        let frame = Self::new(origin, declination, inclination);
+        let coordinates = CoordinatesExtractor::new(
+            py, coordinates, kwargs, frame.as_ref().into(), Some(1)
+        )?;
+        let (origin, direction) = coordinates.extract(0)?.into_geographic();
+        let frame = Self::new(origin, direction.azimuth, direction.elevation);
         Ok(frame)
     }
 
@@ -196,15 +182,15 @@ impl LocalFrame {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { origin, declination, inclination, rotation, translation } = self;
+        let Self { origin, azimuth, elevation, rotation, translation } = self;
         let GeographicCoordinates { latitude, longitude, altitude } = origin;
 
         let state = PyDict::new(py);
         state.set_item("latitude", latitude)?;
         state.set_item("longitude", longitude)?;
         state.set_item("altitude", altitude)?;
-        state.set_item("declination", declination)?;
-        state.set_item("inclination", inclination)?;
+        state.set_item("azimuth", azimuth)?;
+        state.set_item("elevation", elevation)?;
         state.set_item("rotation", rotation)?;
         state.set_item("translation", translation)?;
         Ok(state)
@@ -218,8 +204,8 @@ impl LocalFrame {
         };
         *self = Self { // This ensures that no field is omitted.
             origin,
-            declination: state.get_item("declination")?.unwrap().extract()?,
-            inclination: state.get_item("inclination")?.unwrap().extract()?,
+            azimuth: state.get_item("azimuth")?.unwrap().extract()?,
+            elevation: state.get_item("elevation")?.unwrap().extract()?,
             rotation: state.get_item("rotation")?.unwrap().extract()?,
             translation: state.get_item("translation")?.unwrap().extract()?,
         };
@@ -233,11 +219,11 @@ impl LocalFrame {
         if self.origin.altitude != 0.0 {
             args.push(format!("{}", self.origin.altitude));
         }
-        if self.declination != 0.0 {
-            args.push(format!("declination={}", self.declination));
+        if self.azimuth != 0.0 {
+            args.push(format!("azimuth={}", self.azimuth));
         }
-        if self.inclination != 0.0 {
-            args.push(format!("inclination={}", self.declination));
+        if self.elevation != 0.0 {
+            args.push(format!("elevation={}", self.elevation));
         }
         let args = args.join(", ");
         format!("LocalFrame({})", args)
@@ -305,9 +291,6 @@ impl LocalFrame {
 }
 
 impl LocalFrame {
-    pub const DEFAULT_LATITUDE: f64 = 45.0;
-    pub const DEFAULT_LONGITUDE: f64 = 0.0;
-
     pub fn from_ecef_direction(&self, ecef: &[f64; 3]) -> [f64; 3] {
         let mut enu = [0.0; 3];
         for i in 0..3 {
@@ -391,14 +374,14 @@ impl LocalFrame {
         HorizontalCoordinates::from_ecef(&ecef, &self.origin)
     }
 
-    pub fn new(origin: GeographicCoordinates, declination: f64, inclination: f64) -> Self {
+    pub fn new(origin: GeographicCoordinates, azimuth: f64, elevation: f64) -> Self {
         // Compute transform from ECEF to ENU.
         let mut rotation = [[0.0; 3]; 3];
         unsafe {
             turtle::ecef_from_horizontal(
                  origin.latitude,
                  origin.longitude,
-                 90.0 + declination,
+                 90.0 + azimuth,
                  0.0,
                  rotation[0].as_mut_ptr(),
             );
@@ -406,30 +389,30 @@ impl LocalFrame {
             turtle::ecef_from_horizontal(
                 origin.latitude,
                 origin.longitude,
-                declination,
-                -inclination,
+                azimuth,
+                elevation,
                 rotation[1].as_mut_ptr(),
             );
 
             turtle::ecef_from_horizontal(
                 origin.latitude,
                 origin.longitude,
-                declination,
-                90.0 - inclination,
+                azimuth,
+                90.0 + elevation,
                 rotation[2].as_mut_ptr(),
             );
         }
 
         let translation = origin.to_ecef();
-        Self { rotation, translation, origin, declination, inclination }
+        Self { rotation, translation, origin, azimuth, elevation }
     }
 }
 
 impl Default for LocalFrame {
     fn default() -> Self {
         let origin = GeographicCoordinates {
-            latitude: Self::DEFAULT_LATITUDE,
-            longitude: Self::DEFAULT_LONGITUDE,
+            latitude: 0.0,
+            longitude: 0.0,
             altitude: 0.0
         };
         Self::new(origin, 0.0, 0.0)
@@ -590,7 +573,7 @@ impl<'py> CoordinatesExtractor<'py> {
                 let position = extractor.get_vec3_opt(Name::Position, index)?
                     .unwrap_or([0.0; 3]);
                 let direction = extractor.get_vec3_opt(Name::Direction, index)?
-                    .unwrap_or([0.0, 0.0, 1.0]);
+                    .unwrap_or([0.0, 1.0, 0.0]);
                 ExtractedCoordinates::Local { position, direction, frame }
             },
         };
@@ -681,9 +664,6 @@ impl<'py> PositionExtractor<'py> {
         frame: Maybe<&LocalFrame>,
         expected_size: Option<usize>,
     ) -> PyResult<Self> {
-        const DEFAULT_LATITUDE: f64 = 0.0;
-        const DEFAULT_LONGITUDE: f64 = 0.0;
-
         let extractor = match states {
             Some(states) => {
                 if frame.is_explicit() || kwargs.is_some() {
@@ -705,11 +685,7 @@ impl<'py> PositionExtractor<'py> {
                     },
                     None => {
                         let extractor = Self::geographic_extractor(Some(states), kwargs)?;
-                        Self::Geographic {
-                            extractor,
-                            default_latitude: DEFAULT_LATITUDE,
-                            default_longitude: DEFAULT_LONGITUDE,
-                        }
+                        Self::Geographic { extractor }
                     },
                 }
             },
@@ -742,11 +718,7 @@ impl<'py> PositionExtractor<'py> {
                             }
                         }
                         let extractor = Self::geographic_extractor(None, kwargs)?;
-                        Self::Geographic {
-                            extractor,
-                            default_latitude: DEFAULT_LATITUDE,
-                            default_longitude: DEFAULT_LONGITUDE,
-                        }
+                        Self::Geographic { extractor }
                     },
                 }
             },
@@ -768,12 +740,12 @@ impl<'py> PositionExtractor<'py> {
 
     pub fn extract<'a>(&'a self, index: usize) -> PyResult<ExtractedPosition<'a>> {
         let extracted = match self {
-            Self::Geographic { extractor, default_latitude, default_longitude } => {
+            Self::Geographic { extractor } => {
                 let position = GeographicCoordinates {
                     latitude: extractor.get_f64_opt(Name::Latitude, index)?
-                        .unwrap_or(*default_latitude),
+                        .unwrap_or(0.0),
                     longitude: extractor.get_f64_opt(Name::Longitude, index)?
-                        .unwrap_or(*default_longitude),
+                        .unwrap_or(0.0),
                     altitude: extractor.get_f64_opt(Name::Altitude, index)?
                         .unwrap_or(0.0),
                 };
@@ -842,26 +814,6 @@ impl<'py> PositionExtractor<'py> {
                 }
             },
         }
-    }
-
-    pub fn with_default_latitude(mut self, value: f64) -> Self {
-        match &mut self {
-            Self::Geographic { default_latitude, .. } => {
-                *default_latitude = value;
-            }
-            _ => (),
-        }
-        self
-    }
-
-    pub fn with_default_longitude(mut self, value: f64) -> Self {
-        match &mut self {
-            Self::Geographic { default_longitude, .. } => {
-                *default_longitude = value;
-            }
-            _ => (),
-        }
-        self
     }
 }
 

@@ -93,11 +93,11 @@ def test_local():
     # Test constructor & attributes.
     geometry = mulder.LocalGeometry(PREFIX / "assets/geometry.toml")
 
-    assert geometry.frame.latitude == 45
+    assert geometry.frame.latitude == 0
     assert geometry.frame.longitude == 0
     assert geometry.frame.altitude == 0
-    assert geometry.frame.declination == 0
-    assert geometry.frame.inclination == 0
+    assert geometry.frame.azimuth == 0
+    assert geometry.frame.elevation == 0
 
     assert len(geometry.media) == 2
     assert geometry.media[0].material == "G4_AIR"

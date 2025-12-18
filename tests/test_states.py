@@ -132,7 +132,7 @@ def test_conversions():
 
     a = mulder.LocalStates(energy=(1, 2, 3), direction=normed((1, 0, 1)))
     b = a.to_geographic()
-    assert_allclose(b.latitude, 45.0)
+    assert_allclose(b.latitude, 0.0)
     assert_allclose(b.longitude, 0.0)
     assert_allclose(b.altitude, 0.0, atol=1E-07)
     assert_allclose(b.azimuth, 90.0)
@@ -158,8 +158,8 @@ def test_conversions():
         latitude=-33,
         longitude=68,
         altitude=102,
-        declination=28,
-        inclination=-15,
+        azimuth=28,
+        elevation=-15,
     )
     a = mulder.LocalStates(
         frame=frame,
