@@ -354,6 +354,13 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       If no direction is specified, then local frames are East-North-Upward
       (ENU) oriented by default.
 
+   .. automethod:: camera
+
+      .. note::
+
+         The *focal* and *fov* arguments cannot be specified simultaneously
+         since these two quantities are directly related.
+
    .. automethod:: transform
 
       The quantity, *q*, is transformed from the *self* :py:class:`LocalFrame`
@@ -1765,22 +1772,17 @@ Picture interface
 
 .. autoclass:: mulder.picture.Camera
 
-   .. method:: __new__(coordinates=None, /, **kwargs)
-
-      Creates a new camera.
-
    .. automethod:: shoot
 
    .. rubric:: Attributes
      :heading-level: 4
 
-   .. autoattribute:: altitude
-   .. autoattribute:: azimuth
-   .. autoattribute:: elevation
-   .. autoattribute:: focal_length
+   .. autoattribute:: frame
+   .. autoattribute:: focal
+
+      The focal length is normalised to the screen width, and thus unit-less.
+
    .. autoattribute:: fov
-   .. autoattribute:: latitude
-   .. autoattribute:: longitude
    .. autoattribute:: pixels
    .. autoattribute:: ratio
    .. autoattribute:: resolution
@@ -1844,14 +1846,7 @@ Picture interface
 
 .. autoclass:: mulder.picture.Pixels
 
-   .. rubric:: Position attributes
-     :heading-level: 4
-
-   .. autoattribute:: altitude
-   .. autoattribute:: latitude
-   .. autoattribute:: longitude
-
-   .. rubric:: Pixel attributes
+   .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: azimuth
@@ -1859,12 +1854,6 @@ Picture interface
    .. autoattribute:: elevation
    .. autoattribute:: u
    .. autoattribute:: v
-
-   .. rubric:: Screen attributes
-     :heading-level: 4
-
-   .. autoattribute:: ratio
-   .. autoattribute:: resolution
 
 .. autoclass:: mulder.picture.SunLight
 

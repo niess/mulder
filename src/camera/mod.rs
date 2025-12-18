@@ -2,35 +2,18 @@ use crate::geometry::earth::{EarthGeometry, Layer};
 use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
-use crate::utils::extract::{Field, Extractor, Name};
 use crate::utils::notify::{Notifier, NotifyArg};
+use crate::utils::namespace::Namespace;
 use crate::utils::numpy::{NewArray, PyArray};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 pub mod picture;
 
 #[pyclass(module="mulder.picture")]
 pub struct Camera {
-    /// The camera latitude coordinate, in degrees.
+    /// The camera reference frame.
     #[pyo3(get)]
-    latitude: f64,
-
-    /// The camera longitude coordinate, in degrees.
-    #[pyo3(get)]
-    longitude: f64,
-
-    /// The camera altitude coordinate, in m.
-    #[pyo3(get)]
-    altitude: f64,
-
-    /// The camera azimuth direction, in degrees.
-    #[pyo3(get)]
-    azimuth: f64,
-
-    /// The camera elevation direction, in degrees.
-    #[pyo3(get)]
-    elevation: f64,
+    frame: LocalFrame,
 
     /// The camera horizontal field-of-view, in degrees.
     #[pyo3(get)]
@@ -49,17 +32,7 @@ pub struct Camera {
 
 #[pyclass(module="mulder.picture", name="Pixels")]
 pub struct PixelsCoordinates {
-    /// The pixels latitude coordinate, in degrees.
-    #[pyo3(get)]
-    latitude: f64,
-
-    /// The pixels longitude coordinate, in degrees.
-    #[pyo3(get)]
-    longitude: f64,
-
-    /// The pixels altitude coordinate, in m.
-    #[pyo3(get)]
-    altitude: f64,
+    origin: GeographicCoordinates,
 
     /// The pixels azimuth direction, in degrees.
     #[pyo3(get)]
@@ -76,14 +49,6 @@ pub struct PixelsCoordinates {
     /// The pixels v coordinates.
     #[pyo3(get)]
     v: Py<PyArray<f64>>,
-
-    /// The screen ratio (width / height).
-    #[pyo3(get)]
-    ratio: f64,
-
-    /// The screen resolution (height, width).
-    #[pyo3(get)]
-    resolution: (usize, usize),
 }
 
 struct Iter {
@@ -102,70 +67,13 @@ struct Transform {
 
 #[pymethods]
 impl Camera {
-    /// Creates a new camera.
-    #[new]
-    #[pyo3(signature=(coordinates=None, /, *, resolution=None, fov=None, ratio=None, **kwargs))]
-    #[pyo3(text_signature="(coordinates=None, /, **kwargs)")]
-    fn new(
-        coordinates: Option<&Bound<PyAny>>,
-        resolution: Option<[usize; 2]>,
-        fov: Option<f64>,
-        ratio: Option<f64>,
-        kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<Self> {
-        let coordinates = Extractor::from_args(
-            [
-                Field::float(Name::Latitude),
-                Field::float(Name::Longitude),
-                Field::float(Name::Altitude),
-                Field::float(Name::Azimuth),
-                Field::float(Name::Elevation),
-            ],
-            coordinates,
-            kwargs,
-        )?;
-
-        if coordinates.size() != 1 {
-            let why = format!("expected a scalar, found size = {}", coordinates.size());
-            let err = Error::new(TypeError)
-                .what("camera coordinates")
-                .why(&why)
-                .to_err();
-            return Err(err)
-        }
-
-        let latitude = coordinates.get_f64(Name::Latitude, 0)?;
-        let longitude = coordinates.get_f64(Name::Longitude, 0)?;
-        let altitude = coordinates.get_f64(Name::Altitude, 0)?;
-        let azimuth = coordinates.get_f64(Name::Azimuth, 0)?;
-        let elevation = coordinates.get_f64(Name::Elevation, 0)?;
-
-        let resolution = resolution.unwrap_or_else(|| [90, 120]);
-        let resolution = Self::checked_resolution(resolution)?;
-        let ratio = ratio.unwrap_or_else(||
-            (resolution.width() as f64) / (resolution.height() as f64)
-        );
-        let fov = fov.unwrap_or_else(|| 60.0);
-        let pixels = None;
-
-        Ok(Self {
-            latitude, longitude, altitude, azimuth, elevation, resolution, fov, ratio, pixels,
-        })
-    }
-
     /// The camera focal length.
     #[getter]
-    fn get_focal_length(&self) -> f64 {
+    fn get_focal(&self) -> f64 {
         self.focal_length()
     }
 
-    #[setter]
-    fn set_focal_length(&mut self, value: f64) {
-        let value = Self::compute_fov(value);
-        self.set_fov(value)
-    }
-
-    /// The pixels coordinates.
+    /// The camera pixels.
     #[getter]
     fn get_pixels<'py>(&mut self, py: Python<'py>) -> PyResult<Py<PixelsCoordinates>> {
         if self.pixels.is_none() {
@@ -173,72 +81,6 @@ impl Camera {
             self.pixels = Some(Py::new(py, pixels)?);
         };
         Ok(self.pixels.as_ref().unwrap().clone_ref(py))
-    }
-
-    #[setter]
-    fn set_latitude(&mut self, value: f64) {
-        if value != self.latitude {
-            self.latitude = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_longitude(&mut self, value: f64) {
-        if value != self.longitude {
-            self.longitude = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_altitude(&mut self, value: f64) {
-        if value != self.altitude {
-            self.altitude = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_azimuth(&mut self, value: f64) {
-        if value != self.azimuth {
-            self.azimuth = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_elevation(&mut self, value: f64) {
-        if value != self.elevation {
-            self.elevation = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_fov(&mut self, value: f64) {
-        if value != self.fov {
-            self.fov = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_ratio(&mut self, value: f64) {
-        if value != self.ratio {
-            self.ratio = value;
-            self.pixels = None;
-        }
-    }
-
-    #[setter]
-    fn set_resolution(&mut self, value: [usize; 2]) -> PyResult<()> {
-        let value = Self::checked_resolution(value)?;
-        if value != self.resolution {
-            self.resolution = value;
-            self.pixels = None;
-        }
-        Ok(())
     }
 
     #[pyo3(signature=(geometry, /, *, notify=None))]
@@ -341,6 +183,36 @@ impl Camera {
 }
 
 impl Camera {
+    pub fn new(
+        frame: &LocalFrame,
+        resolution: Option<[usize; 2]>,
+        focal: Option<f64>,
+        fov: Option<f64>,
+        ratio: Option<f64>,
+    ) -> PyResult<Self> {
+        let resolution = resolution.unwrap_or_else(|| [90, 120]);
+        let resolution = Self::checked_resolution(resolution)?;
+        let ratio = ratio.unwrap_or_else(||
+            (resolution.width() as f64) / (resolution.height() as f64)
+        );
+        if fov.is_some() && focal.is_some() {
+            let err = Error::new(TypeError)
+                .what("arguments")
+                .why("cannot set 'focal' and 'fov'")
+                .to_err();
+            return Err(err)
+        }
+        let fov = fov
+            .or_else(|| focal.map(|focal| Self::compute_fov(focal)))
+            .unwrap_or_else(|| 60.0);
+        let pixels = None;
+        let frame = frame.clone();
+
+        Ok(Self { frame, resolution, fov, ratio, pixels })
+    }
+}
+
+impl Camera {
     const DEG: f64 = std::f64::consts::PI / 180.0;
 
     fn checked_resolution(resolution: [usize; 2]) -> PyResult<(usize, usize)> {
@@ -370,27 +242,18 @@ impl Camera {
         }
     }
 
-    fn local_frame(&self) -> LocalFrame {
-        let origin = GeographicCoordinates {
-            latitude: self.latitude,
-            longitude: self.longitude,
-            altitude: self.altitude,
-        };
-        LocalFrame::new(origin, self.azimuth, -self.elevation)
-    }
-
     #[inline]
     fn position(&self) -> GeographicCoordinates {
         GeographicCoordinates {
-            latitude: self.latitude,
-            longitude: self.longitude,
-            altitude: self.altitude,
+            latitude: self.frame.origin.latitude,
+            longitude: self.frame.origin.longitude,
+            altitude: self.frame.origin.altitude,
         }
     }
 
     fn transform(&self) -> Transform {
         Transform {
-            frame: self.local_frame(),
+            frame: self.frame.clone(),
             ratio: self.ratio,
             f: self.focal_length(),
         }
@@ -399,17 +262,16 @@ impl Camera {
 
 #[pymethods]
 impl PixelsCoordinates {
-    /// The pixels coordinates wrapped by a dict.
-    // XXX Use a SimpleNamespace and hide other attributes.
+    /// The pixels geographic coordinates.
     #[getter]
-    fn get_coordinates<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let dict = PyDict::new(py);
-        dict.set_item("latitude", self.latitude)?;
-        dict.set_item("longitude", self.longitude)?;
-        dict.set_item("altitude", self.altitude)?;
-        dict.set_item("azimuth", self.azimuth.clone_ref(py))?;
-        dict.set_item("elevation", self.elevation.clone_ref(py))?;
-        Ok(dict)
+    fn get_coordinates<'py>(&self, py: Python<'py>) -> PyResult<Namespace<'py>> {
+        Namespace::new(py, [
+            ("latitude", self.origin.latitude.into_pyobject(py)?.into_any()),
+            ("longitude", self.origin.latitude.into_pyobject(py)?.into_any()),
+            ("altitude", self.origin.latitude.into_pyobject(py)?.into_any()),
+            ("azimuth", self.azimuth.clone_ref(py).into_bound(py).into_any()),
+            ("elevation", self.elevation.clone_ref(py).into_bound(py).into_any()),
+        ])
     }
 }
 
@@ -437,17 +299,13 @@ impl PixelsCoordinates {
             elevation[i] = direction.elevation;
         }
 
-        let latitude = camera.latitude;
-        let longitude = camera.longitude;
-        let altitude = camera.altitude;
+        let origin = camera.frame.origin.clone();
         let azimuth = az_array.into_bound().unbind();
         let elevation = el_array.into_bound().unbind();
         let u = u_array.into_bound().unbind();
         let v = v_array.into_bound().unbind();
-        let ratio = camera.ratio;
-        let resolution = (camera.resolution.height(), camera.resolution.width());
 
-        Ok(Self { latitude, longitude, altitude, azimuth, elevation, u, v, ratio, resolution })
+        Ok(Self { origin, azimuth, elevation, u, v })
     }
 }
 

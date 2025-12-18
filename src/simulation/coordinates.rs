@@ -1,4 +1,5 @@
 use crate::bindings::turtle;
+use crate::camera::Camera;
 use crate::utils::convert::TransformMode;
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::TypeError;
@@ -227,6 +228,17 @@ impl LocalFrame {
         }
         let args = args.join(", ");
         format!("LocalFrame({})", args)
+    }
+
+    /// Spawns a new camera.
+    #[pyo3(signature=(resolution=None, /, *, focal=None, fov=None, ratio=None))]
+    fn camera(&self,
+        resolution: Option<[usize; 2]>,
+        focal: Option<f64>,
+        fov: Option<f64>,
+        ratio: Option<f64>,
+    ) -> PyResult<Camera> {
+        Camera::new(self, resolution, focal, fov, ratio)
     }
 
     /// Transforms point(s) or vector(s) to another local frame.
