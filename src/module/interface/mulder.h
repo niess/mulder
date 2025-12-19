@@ -124,6 +124,12 @@ struct mulder_medium {
 
     /* Optionaly, returns a brief description of this geometry medium. */
     const char * (*description)(const struct mulder_medium * self);
+
+    /* Optionaly, returns the surface normal. */
+    mulder_vec3 (*normal)(
+        const struct mulder_medium * self,
+        struct mulder_vec3 position
+    );
 };
 
 

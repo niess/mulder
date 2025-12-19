@@ -57,6 +57,9 @@ pub struct CMedium {
     description: Option<extern "C" fn(
         *const CMedium) -> *const c_char
     >,
+    normal: Option<extern "C" fn(
+        *const CMedium, CVec3) -> CVec3
+    >,
 }
 
 #[repr(C)]
@@ -362,6 +365,14 @@ impl OwnedPtr<CMedium> {
     impl_get_str_attr!(material);
     impl_get_opt_attr!(density, c_double);
     impl_get_opt_str!(description);
+
+    pub fn normal(&self, position: [f64; 3]) -> Option<[f64; 3]> {
+        unsafe { self.0.as_ref() }.normal
+            .map(|func| {
+                let normal = func(self.0.as_ptr(), position.into());
+                normal.into()
+            })
+    }
 }
 
 impl OwnedPtr<CTracer> {
@@ -371,4 +382,16 @@ impl OwnedPtr<CTracer> {
     impl_is_none!(turn);
     impl_is_none!(medium);
     impl_is_none!(position);
+}
+
+impl From<[f64; 3]> for CVec3 {
+    fn from(value: [f64; 3]) -> Self {
+        Self { x: value[0], y: value[1], z: value[2] }
+    }
+}
+
+impl From<CVec3> for [f64; 3] {
+    fn from(value: CVec3) -> Self {
+        [ value.x, value.y, value.z ]
+    }
 }

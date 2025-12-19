@@ -83,6 +83,7 @@ impl Camera {
         Ok(self.pixels.as_ref().unwrap().clone_ref(py))
     }
 
+    // XXX implement local case & document.
     #[pyo3(signature=(geometry, /, *, notify=None))]
     fn shoot<'py>(
         &mut self,

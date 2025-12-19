@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::materials::{MaterialsSet, MaterialsSubscriber};
-use crate::module::{CGeometry, CLocator, CMedium, CModule, CTracer, CVec3, Module};
+use crate::module::{CGeometry, CLocator, CMedium, CModule, CTracer, Module};
 use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, Maybe, PositionExtractor};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -37,7 +37,6 @@ pub struct LocalGeometry {
 }
 
 /// A medium of a local geometry.
-#[derive(Debug)]
 #[pyclass(module="mulder")]
 pub struct Medium {
     /// The medium constitutive material.
@@ -52,6 +51,7 @@ pub struct Medium {
     #[pyo3(get, set)]
     pub description: Option<String>,
 
+    ptr: OwnedPtr<CMedium>,
     pub geometry: Option<Py<LocalGeometry>>,
 }
 
@@ -434,18 +434,6 @@ impl<'a> LocalTracer<'a> {
     }
 }
 
-impl From<[f64; 3]> for CVec3 {
-    fn from(value: [f64; 3]) -> Self {
-        Self { x: value[0], y: value[1], z: value[2] }
-    }
-}
-
-impl From<CVec3> for [f64; 3] {
-    fn from(value: CVec3) -> Self {
-        [ value.x, value.y, value.z ]
-    }
-}
-
 #[pymethods]
 impl Medium {
     fn __repr__(&self) -> String {
@@ -472,16 +460,72 @@ impl Medium {
             self.material = value.to_owned();
         }
     }
+
+    /// Computes the surface normal(s).
+    #[pyo3(
+        name="normal",
+        signature=(position=None, /, *, notify=None, frame=None, **kwargs),
+        text_signature="(self, position=None, /, *, notify=None, **kwargs)",
+    )]
+    fn py_normal<'py>(
+        &self,
+        py: Python<'py>,
+        position: Option<&Bound<PyAny>>, // XXX raise error if array?
+        notify: Option<NotifyArg>,
+        frame: Option<LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let geometry = self.geometry.as_ref().unwrap().bind(py).borrow();
+        let frame = Maybe::always(frame.as_ref(), &geometry.frame);
+        let position = PositionExtractor::new(
+            py, position, kwargs, frame, None
+        )?;
+        let size = position.size();
+        let shape = {
+            let mut shape = position.shape();
+            shape.push(3);
+            shape
+        };
+        let transformer = position.transformer(&geometry.frame);
+
+        let notifier = Notifier::from_arg(notify, size, "computing normal(s)");
+
+        let mut array = NewArray::zeros(py, shape)?;
+        let normals = array.as_slice_mut();
+        for i in 0..size {
+            const WHY: &str = "while computing normal(s)";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let ri = position
+                .extract(i)?
+                .into_local(&geometry.frame, transformer.as_ref());
+            if let Some(ni) = self.normal(ri) {
+                for j in 0..3 {
+                    normals[3 * i + j] = ni[j];
+                }
+            }
+            notifier.tic();
+        }
+
+        Ok(array)
+    }
+}
+
+impl Medium {
+    #[inline]
+    pub fn normal(&self, position: [f64; 3]) -> Option<[f64; 3]> {
+        self.ptr.normal(position)
+    }
 }
 
 impl TryFrom<OwnedPtr<CMedium>> for Medium {
     type Error = PyErr;
 
-    fn try_from(value: OwnedPtr<CMedium>) -> PyResult<Self> {
-        let material = value.material()?;
-        let density = value.density();
-        let description = value.description()?;
+    fn try_from(ptr: OwnedPtr<CMedium>) -> PyResult<Self> {
+        let material = ptr.material()?;
+        let density = ptr.density();
+        let description = ptr.description()?;
         let geometry = None;
-        Ok(Self { material, density, description, geometry })
+        Ok(Self { material, density, description, ptr, geometry })
     }
 }

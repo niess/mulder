@@ -1,4 +1,5 @@
 // Geant4 interface.
+#include "G4AffineTransform.hh"
 #include "G4Navigator.hh"
 #include "G4NistManager.hh"
 #include "G4Material.hh"
@@ -61,6 +62,7 @@ namespace G4Mulder {
         ~Medium() {};
 
         const G4VPhysicalVolume * g4Volume;
+        G4AffineTransform transform;
     };
 
     struct Locator: public mulder_locator {
@@ -407,6 +409,23 @@ static const char * medium_description(
     return medium->g4Volume->GetName().c_str();
 }
 
+static mulder_vec3 medium_normal(
+    const struct mulder_medium * self,
+    mulder_vec3 position_
+){
+    auto medium = (G4Mulder::Medium *)self;
+    G4ThreeVector position(
+        position_.x * CLHEP::m,
+        position_.y * CLHEP::m,
+        position_.z * CLHEP::m
+    );
+    auto local = medium->transform.InverseTransformPoint(position);
+    auto normal = medium->g4Volume->GetLogicalVolume()->GetSolid()
+        ->SurfaceNormal(local);
+    auto global = medium->transform.TransformAxis(normal);
+    return { global.x(), global.y(), global.z() };
+}
+
 G4Mulder::Medium::Medium(const G4VPhysicalVolume * volume):
     g4Volume(volume)
 {
@@ -415,6 +434,12 @@ G4Mulder::Medium::Medium(const G4VPhysicalVolume * volume):
     this->material = &medium_material;
     this->density = nullptr;
     this->description = &medium_description;
+    this->normal = &medium_normal;
+
+    // Compute transform.
+    this->transform = G4AffineTransform(
+        volume->GetRotation(), volume->GetTranslation()
+    );
 }
 
 // ============================================================================

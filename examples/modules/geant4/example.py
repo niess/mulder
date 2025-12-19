@@ -53,6 +53,7 @@ print(materials.Element("G4_O"))
 
 geometry = mod.geometry()
 print(geometry.media)
+print(geometry.media[1].normal(position=[0, 0, -1E+03]))
 print(geometry.locate(position=[0, 0, 1.0]))
 print(geometry.trace(position=[0, 0, 1.0], direction=[0, 0, 1.0]))
 

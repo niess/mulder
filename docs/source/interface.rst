@@ -478,6 +478,11 @@ which is discussed in the :doc:`Geometry <geometry>` section.
    This class represents a medium of a :py:class:`~mulder.LocalGeometry`,
    considered to be uniform in composition and density.
 
+   .. automethod:: normal
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
    .. autoattribute:: density
 
       The bulk density is expressed in :math:`\mathrm{kg}/\mathrm{m}^3`. If
