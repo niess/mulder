@@ -1,4 +1,6 @@
-use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{
+    GeographicCoordinates, HorizontalCoordinates, LocalFrame, LocalTransformer,
+};
 use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
@@ -26,21 +28,18 @@ const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 #[pyclass(module="mulder.picture", name="Picture")]
 pub struct RawPicture {
     pub(super) transform: Transform,
-    pub layer: i32,
-
-    /// The layers' materials.
-    #[pyo3(set)]
-    pub materials: Vec<String>,
-
-    /// The pixels data.
-    #[pyo3(get)]
+    pub medium: i32,
     pub pixels: Py<PyArray<PictureData>>,
+
+    /// The materials mapping.
+    #[pyo3(set)]
+    pub materials: Vec<String>, // XXX List / simplify interface?
 }
 
 #[repr(C)]
 #[derive(Clone)]
 pub struct PictureData {
-    pub layer: i32,
+    pub medium: i32,
     pub altitude: f32,
     pub distance: f32,
     pub normal: [f32; 2],
@@ -49,7 +48,7 @@ pub struct PictureData {
 impl_dtype!(
     PictureData,
     [
-        ("layer",    "i4"),
+        ("medium",   "i4"),
         ("altitude", "f4"),
         ("distance", "f4"),
         ("normal",   "2f4"),
@@ -61,58 +60,34 @@ impl RawPicture {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
         let transform = Default::default();
-        let layer = 0;
+        let medium = 0;
         let materials = Vec::new();
         let pixels = NewArray::zeros(py, [])?.into_bound().unbind();
-        Ok(Self { transform, layer, materials, pixels })
+        Ok(Self { transform, medium, materials, pixels })
     }
 
-    /// The picture latitude coordinate, in degrees.
+    /// The altitude at intersections.
     #[getter]
-    pub fn get_latitude(&self) -> f64 {
-        self.position().latitude
-    }
-
-    /// The picture longitude coordinate, in degrees.
-    #[getter]
-    pub fn get_longitude(&self) -> f64 {
-        self.position().longitude
-    }
-
-    /// The picture altitude coordinate, in m.
-    #[getter]
-    pub fn get_altitude(&self) -> f64 {
-        self.position().altitude
-    }
-
-    /// The shot azimuth direction, in deg.
-    #[getter]
-    pub fn get_azimuth(&self) -> f64 {
-        self.transform.direction(0.5, 0.5).azimuth
-    }
-
-    /// The shot elevation direction, in deg.
-    #[getter]
-    pub fn get_elevation(&self) -> f64 {
-        self.transform.direction(0.5, 0.5).elevation
-    }
-
-    /// The altitudes at intersections.
-    #[getter]
-    fn get_altitudes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    fn get_altitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.pixels.bind(py).as_any().get_item("altitude")
     }
 
-    /// The distances to intersections.
+    /// The distance to intersections.
     #[getter]
-    fn get_distances<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    fn get_distance<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.pixels.bind(py).as_any().get_item("distance")
     }
 
-    /// The visible layers.
+    /// The picture reference frame.
     #[getter]
-    fn get_layers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.pixels.bind(py).as_any().get_item("layer")
+    fn get_frame(&self) -> LocalFrame {
+        self.transform.frame.clone()
+    }
+
+    /// The visible media indices.
+    #[getter]
+    fn get_medium<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.pixels.bind(py).as_any().get_item("medium")
     }
 
     /// The materials mapping.
@@ -126,14 +101,14 @@ impl RawPicture {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { transform, layer, materials, pixels } = self;
+        let Self { transform, medium, materials, pixels } = self;
         let Transform { frame, ratio, f } = transform;
 
         let state = PyDict::new(py);
         state.set_item("frame", frame.clone())?;
         state.set_item("ratio", ratio)?;
         state.set_item("f", f)?;
-        state.set_item("layer", layer)?;
+        state.set_item("medium", medium)?;
         state.set_item("materials", materials)?;
         state.set_item("pixels", pixels)?;
         Ok(state)
@@ -147,16 +122,16 @@ impl RawPicture {
         };
         *self = Self { // This ensures that no field is omitted.
             transform,
-            layer: state.get_item("layer")?.unwrap().extract()?,
+            medium: state.get_item("medium")?.unwrap().extract()?,
             materials: state.get_item("materials")?.unwrap().extract()?,
             pixels: state.get_item("pixels")?.unwrap().extract()?,
         };
         Ok(())
     }
 
-    /// Converts the picture to a colour image.
+    /// Renders the picture as a colour image.
     #[pyo3(signature=(/, *, atmosphere=true, exposure=None, lights=None, materials=None, notify=None))]
-    fn develop<'py>(
+    fn render<'py>(
         &self,
         py: Python<'py>,
         atmosphere: Option<bool>,
@@ -188,7 +163,7 @@ impl RawPicture {
 
         // Resolve lights.
         let lights = lights
-            .unwrap_or_else(|| if self.layer as usize == materials.len() {
+            .unwrap_or_else(|| if self.medium as usize == materials.len() {
                 lights::Lights::SUN
             } else {
                 lights::Lights::DIRECTIONAL
@@ -219,7 +194,7 @@ impl RawPicture {
         // Instanciate the atmosphere.
         let atmosphere = if
             atmosphere &&
-            (self.layer as usize == materials.len()) &&
+            (self.medium as usize == materials.len()) && // XXX local case?
             (directionals.len() > 0) 
         {
             Some(atmosphere::Atmosphere::new(self, &directionals))
@@ -243,7 +218,7 @@ impl RawPicture {
 
         let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
         for i in 0..data.size() {
-            let PictureData { layer, normal, altitude, distance } = data.get_item(i)?;
+            let PictureData { medium, normal, altitude, distance } = data.get_item(i)?;
             let unpack = |v: [f32; 2]| {
                 HorizontalCoordinates { azimuth: v[0] as f64, elevation: v[1] as f64 }
             };
@@ -256,18 +231,18 @@ impl RawPicture {
             let view = direction
                 .to_ecef(self.position());
             let view = core::array::from_fn(|i| -view[i]);
-            let hdr = if layer < 0 {
+            let hdr = if medium < 0 {
                 vec3::Vec3::ZERO
-            } else if (layer as usize) < materials.len() {
+            } else if (medium as usize) < materials.len() {
                 let material = materials
-                    .get(layer as usize)
+                    .get(medium as usize)
                     .ok_or_else(|| {
                         let why = format!(
                             "expected a value in [0, {}], found '{}'",
                             materials.len(),
-                            layer,
+                            medium,
                         );
-                        Error::new(ValueError).what("layer index").why(&why).to_err()
+                        Error::new(ValueError).what("medium index").why(&why).to_err()
                     })?;
                 pbr::illuminate(
                     u, v, altitude as f64, distance as f64, normal_ecef, normal, view,
@@ -296,21 +271,37 @@ impl RawPicture {
     }
 
     /// Returns the pixels' normal directions.
-    // XXX specify a frame?
-    fn normal<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
+    // XXX Geocentric case?
+    #[pyo3(signature=(frame=None,))]
+    fn normal<'py>(
+        &self,
+        py: Python<'py>,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<NewArray<'py, f32>> {
+        let frame = frame.as_ref().unwrap_or_else(|| &self.transform.frame);
+        let transformer = if frame.eq(&self.transform.frame) {
+            None
+        } else {
+            Some(LocalTransformer::new(&self.transform.frame, frame))
+        };
+
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
         shape.push(3);
         let mut normal_array = NewArray::empty(py, shape)?;
         let normal = normal_array.as_slice_mut();
 
+        const DEG: f64 = std::f64::consts::PI / 180.0;
         for i in 0..data.size() {
             let di = data.get_item(i)?;
-            let n = HorizontalCoordinates {
-                azimuth: di.normal[0] as f64,
-                elevation: di.normal[1] as f64,
-            };
-            let n = n.to_ecef(self.position());
+            let theta = (90.0 - (di.normal[1] as f64)) * DEG;
+            let phi = (90.0 - (di.normal[0] as f64)) * DEG;
+            let (st, ct) = theta.sin_cos();
+            let (sp, cp) = phi.sin_cos();
+            let mut n = [ st * cp, st * sp, ct ];
+            if let Some(transformer) = &transformer {
+                n = transformer.transform_vector(&n);
+            }
             for j in 0..3 {
                 normal[3 * i + j] = n[j] as f32;
             }
@@ -320,8 +311,20 @@ impl RawPicture {
     }
 
     /// Returns the pixels' view directions.
-    // XXX specify a frame?
-    fn view<'py>(&self, py: Python<'py>) -> PyResult<NewArray<'py, f32>> {
+    // XXX Geocentric case?
+    #[pyo3(signature=(frame=None,))]
+    fn view<'py>(
+        &self,
+        py: Python<'py>,
+        frame: Option<LocalFrame>,
+    ) -> PyResult<NewArray<'py, f32>> {
+        let frame = frame.as_ref().unwrap_or_else(|| &self.transform.frame);
+        let transformer = if frame.eq(&self.transform.frame) {
+            None
+        } else {
+            Some(LocalTransformer::new(&self.transform.frame, frame))
+        };
+
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
         let (nv, nu) = (shape[0], shape[1]);
@@ -329,15 +332,21 @@ impl RawPicture {
         let mut view_array = NewArray::empty(py, shape)?;
         let view = view_array.as_slice_mut();
 
+        const DEG: f64 = std::f64::consts::PI / 180.0;
         for i in 0..data.size() {
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
             let direction = self.transform.direction(u, v);
-            let v = direction
-                .to_ecef(self.position());
-            let v: [f32; 3] = core::array::from_fn(|i| -v[i] as f32);
+            let theta = (90.0 - direction.elevation) * DEG;
+            let phi = (90.0 - direction.azimuth) * DEG;
+            let (st, ct) = theta.sin_cos();
+            let (sp, cp) = phi.sin_cos();
+            let mut v = [ st * cp, st * sp, ct ];
+            if let Some(transformer) = &transformer {
+                v = transformer.transform_vector(&v);
+            }
             for j in 0..3 {
-                view[3 * i + j] = v[j];
+                view[3 * i + j] = v[j] as f32;
             }
         }
 

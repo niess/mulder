@@ -187,3 +187,6 @@ def test_local():
 
     d = geometry.scan(position=[0, 0, -996], direction=[0, 0, 1], frame=frame)
     assert_allclose(d, [1000, 995])
+
+    n = geometry.media[0].normal(position=[0, 0, 1000])
+    assert_allclose(n, [0, 0, 1])

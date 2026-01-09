@@ -356,6 +356,9 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: camera
 
+      See the :py:class:`~mulder.picture.Camera` object documentation for
+      further details.
+
       .. note::
 
          The *focal* and *fov* arguments cannot be specified simultaneously
@@ -1828,25 +1831,17 @@ Picture interface
 
 .. autoclass:: mulder.picture.Picture
 
-   .. automethod:: develop
    .. automethod:: normal
+   .. automethod:: render
    .. automethod:: view
 
-   .. rubric:: Coordinates attributes
+   .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: altitude
-   .. autoattribute:: azimuth
-   .. autoattribute:: elevation
-   .. autoattribute:: latitude
-   .. autoattribute:: longitude
-
-   .. rubric:: Intersections attributes
-     :heading-level: 4
-
-   .. autoattribute:: altitudes
-   .. autoattribute:: distances
-   .. autoattribute:: layers
+   .. autoattribute:: distance
+   .. autoattribute:: frame
+   .. autoattribute:: medium
    .. autoattribute:: materials
 
 .. autoclass:: mulder.picture.Pixels

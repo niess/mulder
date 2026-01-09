@@ -1,4 +1,6 @@
+use crate::geometry::{Geometry, GeometryArg};
 use crate::geometry::earth::{EarthGeometry, Layer};
+use crate::geometry::local::{LocalGeometry, Medium};
 use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
@@ -83,103 +85,25 @@ impl Camera {
         Ok(self.pixels.as_ref().unwrap().clone_ref(py))
     }
 
-    // XXX implement local case & document.
+    // XXX Document.
     #[pyo3(signature=(geometry, /, *, notify=None))]
     fn shoot<'py>(
         &mut self,
         py: Python<'py>,
-        geometry: &mut EarthGeometry,
+        geometry: GeometryArg<'py>,
         notify: Option<NotifyArg>,
     ) -> PyResult<picture::RawPicture> {
-        let nu = self.resolution.width();
-        let nv = self.resolution.height();
-        let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
-        let picture = array.as_slice_mut();
-
-        let mut stepper = geometry.stepper(py)?;
-        let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
-
-        let layers: Vec<_> = geometry.layers.bind(py).iter().map(
-            |layer| layer.downcast::<Layer>().unwrap().borrow()
-        ).collect();
-        let data: Vec<_> = layers.iter().map(
-            |layer| layer.get_data_ref(py)
-        ).collect();
-
-        let into_usize = |i: i32| -> usize {
-            if i >= 0 { i as usize } else { usize::MAX }
-        };
-
-        let normalised = |mut v: [f64; 3]| -> [f64; 3] {
-            let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-            if r2 > f64::EPSILON {
-                let r = r2.sqrt();
-                v[0] /= r;
-                v[1] /= r;
-                v[2] /= r;
-                v
-            } else {
-                [0.0; 3]
-            }
-        };
-
-        stepper.reset();
-        let camera_layer = stepper.locate(self.position())?;
-
-        for (i, direction) in self.iter().enumerate() {
-            const WHY: &str = "while shooting geometry";
-            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
-
-            stepper.reset();
-
-            let air_layer = layers.len() as i32;
-            let (intersection, index) = stepper.trace(self.position(), direction)?;
-            let (backface, layer) = if intersection.after == camera_layer {
-                (false, -1)
-            } else if (camera_layer < air_layer) && (intersection.after == air_layer) {
-                (true, intersection.before)
-            } else {
-                (false, intersection.after)
-            };
-            let altitude = intersection.altitude as f32;
-            let distance = intersection.distance as f32;
-            let normal = if (layer < air_layer) && (layer >= 0) {
-                let normal = match data.get(into_usize(layer)) {
-                    Some(data) => match data.get(into_usize(index)) {
-                        Some(data) => {
-                            let n = normalised(data.gradient(
-                                intersection.latitude,
-                                intersection.longitude,
-                                intersection.altitude,
-                            ));
-                            if backface { [ -n[0], -n[1], -n[2] ] } else { n }
-                        },
-                        None => [0.0; 3],
-                    }
-                    None => [0.0; 3],
-                };
-                normal
-            } else {
-                [0.0; 3]
-            };
-            let pack = |v: [f64; 3]| -> [f32; 2] {
-                let v = HorizontalCoordinates::from_ecef(&v, &self.position());
-                [v.azimuth as f32, v.elevation as f32]
-            };
-            let normal = pack(normal);
-            picture[i] = picture::PictureData { layer, altitude, distance, normal };
-            notifier.tic();
+        let geometry = geometry.into_geometry(py)?;
+        match geometry {
+            Geometry::Earth(geometry) => {
+                let mut geometry = geometry.bind(py).borrow_mut();
+                self.shoot_earth(py, &mut geometry, notify)
+            },
+            Geometry::Local(geometry) => {
+                let mut geometry = geometry.bind(py).borrow_mut();
+                self.shoot_local(py, &mut geometry, notify)
+            },
         }
-        let pixels = array.into_bound().unbind();
-
-        let materials: Vec<_> = geometry.layers.bind(py).iter()
-            .map(|layer| layer.downcast::<Layer>().unwrap().borrow().material.clone())
-            .collect();
-
-        let transform = self.transform();
-
-        let picture = picture::RawPicture { transform, layer: camera_layer, materials, pixels };
-        Ok(picture)
     }
 }
 
@@ -210,6 +134,197 @@ impl Camera {
         let frame = frame.clone();
 
         Ok(Self { frame, resolution, fov, ratio, pixels })
+    }
+
+    fn shoot_earth<'py>(
+        &mut self,
+        py: Python<'py>,
+        geometry: &mut EarthGeometry,
+        notify: Option<NotifyArg>,
+    ) -> PyResult<picture::RawPicture> {
+        let nu = self.resolution.width();
+        let nv = self.resolution.height();
+        let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
+        let picture = array.as_slice_mut();
+
+        let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
+
+        let mut stepper = geometry.stepper(py)?;
+        let layers: Vec<_> = geometry.layers.bind(py).iter().map(
+            |layer| layer.downcast::<Layer>().unwrap().borrow()
+        ).collect();
+        let data: Vec<_> = layers.iter().map(
+            |layer| layer.get_data_ref(py)
+        ).collect();
+
+        let into_usize = |i: i32| -> usize {
+            if i >= 0 { i as usize } else { usize::MAX }
+        };
+
+        let normalised = |mut v: [f64; 3]| -> [f64; 3] {
+            let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+            if r2 > f64::EPSILON {
+                let r = r2.sqrt();
+                v[0] /= r;
+                v[1] /= r;
+                v[2] /= r;
+                v
+            } else {
+                [0.0; 3]
+            }
+        };
+
+        let camera_layer = stepper.locate(self.position())?;
+
+        for (i, direction) in self.iter().enumerate() {
+            const WHY: &str = "while shooting geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let air_layer = layers.len() as i32;
+            stepper.reset();
+            let (intersection, data_index) = stepper.trace(self.position(), direction)?;
+            let (backface, layer) = if intersection.after == camera_layer {
+                (false, -1)
+            } else if intersection.after < camera_layer {
+                (true, intersection.before)
+            } else {
+                (false, intersection.after)
+            };
+            let altitude = intersection.altitude as f32;
+            let distance = intersection.distance as f32;
+            let normal = if (layer < air_layer) && (layer >= 0) {
+                let normal = match data.get(into_usize(layer)) {
+                    Some(data) => match data.get(into_usize(data_index)) {
+                        Some(data) => {
+                            let n = normalised(data.gradient(
+                                intersection.latitude,
+                                intersection.longitude,
+                                intersection.altitude,
+                            ));
+                            if backface { [ -n[0], -n[1], -n[2] ] } else { n }
+                        },
+                        None => [0.0; 3],
+                    }
+                    None => [0.0; 3],
+                };
+                normal
+            } else {
+                [0.0; 3]
+            };
+            let pack = |v: [f64; 3]| -> [f32; 2] {
+                let v = HorizontalCoordinates::from_ecef(&v, &self.position());
+                [v.azimuth as f32, v.elevation as f32]
+            };
+            let normal = pack(normal);
+            picture[i] = picture::PictureData { medium: layer, altitude, distance, normal };
+            notifier.tic();
+        }
+        let pixels = array.into_bound().unbind();
+
+        let materials: Vec<_> = geometry.layers.bind(py).iter()
+            .map(|layer| layer.downcast::<Layer>().unwrap().borrow().material.clone())
+            .collect();
+
+        let transform = self.transform();
+
+        let picture = picture::RawPicture { transform, medium: camera_layer, materials, pixels };
+        Ok(picture)
+    }
+
+    fn shoot_local<'py>(
+        &mut self,
+        py: Python<'py>,
+        geometry: &mut LocalGeometry,
+        notify: Option<NotifyArg>,
+    ) -> PyResult<picture::RawPicture> {
+        let nu = self.resolution.width();
+        let nv = self.resolution.height();
+        let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
+        let picture = array.as_slice_mut();
+
+        let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
+
+        let normalised = |mut v: [f64; 3]| -> [f64; 3] {
+            let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+            if r2 > f64::EPSILON {
+                let r = r2.sqrt();
+                v[0] /= r;
+                v[1] /= r;
+                v[2] /= r;
+                v
+            } else {
+                [0.0; 3]
+            }
+        };
+
+        let locator = geometry.locator()?;
+        let frame = &geometry.frame;
+        let camera_position = self.position();
+        let r0 = frame.from_ecef_position(camera_position.to_ecef());
+        let camera_medium = locator.locate(r0);
+        drop(locator);
+
+        let media: Vec<_> = geometry.media.bind(py).iter().map(
+            |medium| medium.downcast::<Medium>().unwrap().borrow()
+        ).collect();
+        let tracer = geometry.tracer()?;
+
+        for (i, direction) in self.iter().enumerate() {
+            const WHY: &str = "while shooting geometry";
+            if (i % 100) == 0 { error::check_ctrlc(WHY)? }
+
+            let outer_medium = media.len();
+            let ui = frame.from_ecef_direction(&direction.to_ecef(&camera_position));
+            tracer.reset(r0, ui);
+            let distance = tracer.trace();
+            tracer.move_(distance);
+            let after = tracer.medium();
+            let ri = tracer.position();
+            let GeographicCoordinates { altitude, .. } = frame.to_geographic_position(&ri);
+
+            let (backface, medium) = if (after == outer_medium) || (after <= camera_medium) {
+                (true, camera_medium)
+            } else {
+                (false, after)
+            };
+            let altitude = altitude as f32;
+            let distance = distance as f32;
+            let normal = if medium < outer_medium {
+                let normal = match media.get(medium) {
+                    Some(medium) => match medium.normal(ri) {
+                        Some(normal) => {
+                            let normal = frame.to_ecef_direction(&normal);
+                            let n = normalised(normal);
+                            if backface { [ -n[0], -n[1], -n[2] ] } else { n }
+                        },
+                        None => [0.0; 3],
+                    }
+                    None => [0.0; 3],
+                };
+                normal
+            } else {
+                [0.0; 3]
+            };
+            let pack = |v: [f64; 3]| -> [f32; 2] {
+                let v = HorizontalCoordinates::from_ecef(&v, &camera_position);
+                [v.azimuth as f32, v.elevation as f32]
+            };
+            let normal = pack(normal);
+            let medium = medium as i32;
+            picture[i] = picture::PictureData { medium, altitude, distance, normal };
+            notifier.tic();
+        }
+        let pixels = array.into_bound().unbind();
+
+        let materials: Vec<_> = media.iter()
+            .map(|medium| medium.material.clone())
+            .collect();
+
+        let transform = self.transform();
+
+        let medium = camera_medium as i32;
+        let picture = picture::RawPicture { transform, medium, materials, pixels };
+        Ok(picture)
     }
 }
 
