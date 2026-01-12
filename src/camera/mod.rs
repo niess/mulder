@@ -185,7 +185,7 @@ impl Camera {
             let (intersection, data_index) = stepper.trace(self.position(), direction)?;
             let (backface, layer) = if intersection.after == camera_layer {
                 (false, -1)
-            } else if intersection.after < camera_layer {
+            } else if intersection.after > camera_layer {
                 (true, intersection.before)
             } else {
                 (false, intersection.after)

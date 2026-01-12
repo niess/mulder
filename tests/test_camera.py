@@ -1,5 +1,10 @@
 import mulder
+import numpy
 from numpy.testing import assert_allclose
+from pathlib import Path
+
+
+PREFIX = Path(__file__).parent
 
 
 def test_camera():
@@ -21,6 +26,33 @@ def test_camera():
     assert camera.ratio == 16 / 9
     assert camera.resolution == (18, 32)
     assert_allclose(camera.focal, 1.732051, atol=1E-05)
+
+
+def test_picture():
+    """Test picture object."""
+
+    geometry = mulder.EarthGeometry(0)
+    frame = mulder.LocalFrame(altitude=1)
+    camera = frame.camera((9, 13))
+    picture = camera.shoot(geometry)
+    assert picture.frame == frame
+    assert picture.medium.shape == (9, 13)
+    expected = numpy.full((9, 13), 0, dtype="i4")
+    expected[4:,:] = 1
+    assert_allclose(picture.medium, expected)
+    expected = numpy.full((9, 13), 0, dtype="i4")
+    expected[4:,:] = 120E+03
+    assert_allclose(picture.altitude, expected, atol=1E-04)
+
+    geometry = mulder.LocalGeometry(PREFIX / "assets/geometry.toml")
+    frame = mulder.LocalFrame(altitude=1)
+    camera = frame.camera((9, 13))
+    picture = camera.shoot(geometry)
+    assert picture.frame == frame
+    assert picture.medium.shape == (9, 13)
+    expected = numpy.full((9, 13), 1, dtype="i4")
+    expected[4:,:] = 0
+    assert_allclose(picture.medium, expected)
 
 
 def test_pixels():
