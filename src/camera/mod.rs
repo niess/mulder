@@ -174,25 +174,23 @@ impl Camera {
             }
         };
 
-        let camera_layer = stepper.locate(self.position())?;
+        let camera_medium = stepper.locate(self.position())?;
+        let atmosphere_medium = stepper.layers as i32;
 
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while shooting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            let air_layer = layers.len() as i32;
             stepper.reset();
             let (intersection, data_index) = stepper.trace(self.position(), direction)?;
-            let (backface, layer) = if intersection.after == camera_layer {
-                (false, -1)
-            } else if intersection.after > camera_layer {
-                (true, intersection.before)
+            let (backface, layer) = if intersection.after >= camera_medium {
+                (true, camera_medium)
             } else {
                 (false, intersection.after)
             };
             let altitude = intersection.altitude as f32;
             let distance = intersection.distance as f32;
-            let normal = if (layer < air_layer) && (layer >= 0) {
+            let normal = if (layer < atmosphere_medium) && (layer >= 0) {
                 let normal = match data.get(into_usize(layer)) {
                     Some(data) => match data.get(into_usize(data_index)) {
                         Some(data) => {
@@ -226,10 +224,9 @@ impl Camera {
             .collect();
 
         let transform = self.transform();
-        let atmosphere_medium = materials.len() as i32;
 
         let picture = picture::RawPicture {
-            transform, atmosphere_medium, camera_medium: camera_layer, materials, pixels,
+            transform, atmosphere_medium, camera_medium, materials, pixels,
         };
         Ok(picture)
     }

@@ -11,7 +11,6 @@ use crate::utils::ptr::{Destroy, OwnedPtr};
 use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use std::ffi::c_int;
 use std::ptr::{NonNull, null, null_mut};
 use super::intersections::{GeographicIntersection, IntersectionsArray};
 
@@ -25,6 +24,7 @@ pub use layer::Layer;
 
 
 // XXX Allow for any geoid?
+// XXX Optimise, lateral bounds?
 
 /// A stratified Earth geometry.
 #[pyclass(module="mulder")]
@@ -285,15 +285,6 @@ impl EarthGeometry {
     }
 }
 
-#[inline]
-fn layer_index(stepper_index: c_int) -> c_int {
-    if stepper_index >= 1 {
-        stepper_index - 1
-    } else {
-        stepper_index
-    }
-}
-
 impl EarthGeometry {
     // Height of the bottom layer, in m.
     pub const ZMIN: f64 = -11E+03;
@@ -392,7 +383,7 @@ impl EarthGeometryStepper {
             },
             None::<&str>,
         )?;
-        Ok(layer_index(index[0]))
+        Ok(index[0] - 1)
     }
 
     pub fn trace(
@@ -458,8 +449,8 @@ impl EarthGeometryStepper {
         };
         Ok((
             GeographicIntersection {
-                before: layer_index(start_layer),
-                after: layer_index(index[0]),
+                before: start_layer - 1,
+                after: index[0] - 1,
                 latitude: position.latitude,
                 longitude: position.longitude,
                 altitude: position.altitude,

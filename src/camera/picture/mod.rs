@@ -1,8 +1,6 @@
 use crate::simulation::coordinates::{
     GeographicCoordinates, HorizontalCoordinates, LocalFrame, LocalTransformer,
 };
-use crate::utils::error::Error;
-use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{ArrayMethods, NewArray, impl_dtype, PyArray};
 use pyo3::prelude::*;
@@ -173,11 +171,11 @@ impl RawPicture {
             Some(atmosphere) => match atmosphere {
                 AtmosphereArg::Flag(atmosphere) => match atmosphere {
                     true => self.atmosphere_medium,
-                    false => -1,
+                    false => -2,
                 },
                 AtmosphereArg::Index(atmosphere) => atmosphere,
             },
-            None => -1,
+            None => -2,
         };
         let lights = lights
             .unwrap_or_else(|| if self.camera_medium == atmosphere_medium {
@@ -248,32 +246,23 @@ impl RawPicture {
             let view = direction
                 .to_ecef(self.position());
             let view = core::array::from_fn(|i| -view[i]);
-            let hdr = if medium < 0 {
-                vec3::Vec3::ZERO
-            } else if medium != atmosphere_medium {
-                let material = materials
-                    .get(medium as usize)
-                    .ok_or_else(|| {
-                        let why = format!(
-                            "expected a value in [0, {}], found '{}'",
-                            materials.len(),
-                            medium,
-                        );
-                        Error::new(ValueError).what("medium index").why(&why).to_err()
-                    })?;
-                pbr::illuminate(
-                    u, v, altitude as f64, distance as f64, normal_ecef, normal, view,
-                    ambient, &directionals, material, atmosphere.as_ref(),
-                )
-            } else {
+            let hdr = if atmosphere.is_some() && medium == atmosphere_medium {
                 match &atmosphere {
                     Some(atmosphere) => {
                         let sky = atmosphere.sky_view(&direction);
                         let sun = atmosphere.sun_view(direction.elevation, &view);
                         (sky + sun) * DEFAULT_EXPOSURE
                     },
-                    None => vec3::Vec3::ZERO,
+                    None => unreachable!(),
                 }
+            } else if (medium >= 0) && (medium < materials.len() as i32) {
+                let material = materials.get(medium as usize).unwrap();
+                pbr::illuminate(
+                    u, v, altitude as f64, distance as f64, normal_ecef, normal, view,
+                    ambient, &directionals, material, atmosphere.as_ref(),
+                )
+            } else {
+                vec3::Vec3::ZERO
             };
             let srgb = colours::StandardRgb::from(hdr * exposure_compensation);
 
