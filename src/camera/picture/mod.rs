@@ -5,7 +5,6 @@ use crate::utils::error::Error;
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::{ArrayMethods, NewArray, impl_dtype, PyArray};
-use indexmap::IndexMap;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use super::Transform;
@@ -140,27 +139,27 @@ impl RawPicture {
     }
 
     /// Renders the picture as a colour image.
-    #[pyo3(signature=(/, *, atmosphere=None, exposure=None, lights=None, materials=None, notify=None))]
+    #[pyo3(signature=(/, *, atmosphere=None, exposure=None, lights=None, notify=None))]
     fn render<'py>(
         &self,
         py: Python<'py>,
         atmosphere: Option<AtmosphereArg>,
         exposure: Option<f64>,
         lights: Option<lights::Lights>,
-        materials: Option<IndexMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
         // Resolve materials.
-        let materials = match materials {
-            Some(materials) => materials,
-            None => Self::default_materials(py)?.extract()?,
-        };
+        let materials = Self::materials(py)?;
         let materials = {
             let mut properties = Vec::new();
             for material in self.materials.iter() {
                 let property = materials
-                    .get(material)
-                    .map(|material| materials::MaterialData::from(material))
+                    .get_item(material)?
+                    .map(|material| {
+                        let material: OpticalProperties = material.extract()?;
+                        Ok::<_, PyErr>(materials::MaterialData::from(&material))
+                    })
+                    .transpose()?
                     .unwrap_or_else(|| materials::MaterialData::from(
                         &OpticalProperties::default()
                     ));
@@ -372,8 +371,11 @@ impl RawPicture {
 
 impl RawPicture {
     #[inline]
-    fn default_materials(py: Python) -> PyResult<Bound<PyAny>> {
-        py.import("mulder.picture")?.getattr("materials")
+    fn materials(py: Python) -> PyResult<Bound<PyDict>> {
+        let materials = py.import("mulder.picture")?
+            .getattr("MATERIALS")?
+            .downcast_into::<PyDict>()?;
+        Ok(materials)
     }
 
     #[inline]

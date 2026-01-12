@@ -33,13 +33,13 @@ pub struct OpticalProperties {
     #[pyo3(get, set)]
     pub metallic: bool,
 
-    /// Surface roughness, in [0, 1].
-    #[pyo3(get, set)]
-    pub roughness: f64,
-
     /// Specular intensity for non-metals, in [0, 1].
     #[pyo3(get, set)]
     pub reflectance: f64,
+
+    /// Surface roughness, in [0, 1].
+    #[pyo3(get, set)]
+    pub roughness: f64,
 }
 
 pub struct MaterialData {
@@ -50,13 +50,38 @@ pub struct MaterialData {
     pub reflectance: f64,
 }
 
+#[pymethods]
+impl OpticalProperties {
+    #[new]
+    #[pyo3(signature=(*, colour=None, metallic=None, reflectance=None, roughness=None))]
+    fn new(
+        colour: Option<MaterialColour>,
+        metallic: Option<bool>,
+        reflectance: Option<f64>,
+        roughness: Option<f64>,
+    ) -> Self {
+        let colour = colour.unwrap_or(Self::DEFAULT_COLOUR);
+        let metallic = metallic.unwrap_or(Self::DEFAULT_METALLIC);
+        let reflectance = reflectance.unwrap_or(Self::DEFAULT_REFLECTANCE);
+        let roughness = roughness.unwrap_or(Self::DEFAULT_ROUGHNESS);
+        Self { colour, metallic, reflectance, roughness }
+    }
+}
+
+impl OpticalProperties {
+    const DEFAULT_COLOUR: MaterialColour = MaterialColour::WHITE;
+    const DEFAULT_METALLIC: bool = false;
+    const DEFAULT_REFLECTANCE: f64 = 0.5;
+    const DEFAULT_ROUGHNESS: f64 = 0.0;
+}
+
 impl Default for OpticalProperties {
     fn default() -> Self {
         Self {
-            colour: MaterialColour::WHITE,
-            metallic: false,
-            roughness: 0.0,
-            reflectance: 0.5,
+            colour: Self::DEFAULT_COLOUR,
+            metallic: Self::DEFAULT_METALLIC,
+            reflectance: Self::DEFAULT_REFLECTANCE,
+            roughness: Self::DEFAULT_ROUGHNESS,
         }
     }
 }

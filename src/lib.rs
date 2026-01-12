@@ -83,7 +83,7 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
 
     // Set the picture submodule.
     let picture = PyModule::new(py, "picture")?;
-    picture.add("materials", camera::picture::default_materials(py)?)?;
+    picture.add("MATERIALS", camera::picture::default_materials(py)?)?;
     picture.add_class::<camera::picture::AmbientLight>()?;
     picture.add_class::<camera::Camera>()?;
     picture.add_class::<camera::picture::ColourMap>()?;

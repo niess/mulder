@@ -1817,7 +1817,7 @@ Picture interface
 
 .. autoclass:: mulder.picture.Material
 
-   .. method:: __new__(**kwargs)
+   .. method:: __new__(*, colour=None, metallic=None, reflectance=None, roughness=None)
 
       Creates an optical material.
 
@@ -1826,8 +1826,16 @@ Picture interface
 
    .. autoattribute:: colour
    .. autoattribute:: metallic
-   .. autoattribute:: roughness
    .. autoattribute:: reflectance
+   .. autoattribute:: roughness
+
+
+.. module:: mulder.picture
+
+.. data:: MATERIALS
+   :type: dict
+
+   Optical properties of materials.
 
 .. autoclass:: mulder.picture.Picture
 
@@ -1879,6 +1887,8 @@ class. For instance, as
 '0.3.1'
 
 The available configuration data are listed below.
+
+.. module:: mulder.config
 
 .. data:: CACHE
    :type: ~pathlib.Path
