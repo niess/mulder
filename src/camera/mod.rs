@@ -226,8 +226,11 @@ impl Camera {
             .collect();
 
         let transform = self.transform();
+        let atmosphere_medium = materials.len() as i32;
 
-        let picture = picture::RawPicture { transform, medium: camera_layer, materials, pixels };
+        let picture = picture::RawPicture {
+            transform, atmosphere_medium, camera_medium: camera_layer, materials, pixels,
+        };
         Ok(picture)
     }
 
@@ -322,8 +325,11 @@ impl Camera {
 
         let transform = self.transform();
 
-        let medium = camera_medium as i32;
-        let picture = picture::RawPicture { transform, medium, materials, pixels };
+        let atmosphere_medium = 0;
+        let camera_medium = camera_medium as i32;
+        let picture = picture::RawPicture {
+            transform, atmosphere_medium, camera_medium, materials, pixels,
+        };
         Ok(picture)
     }
 }

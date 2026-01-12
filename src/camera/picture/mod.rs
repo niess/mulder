@@ -28,7 +28,8 @@ const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 #[pyclass(module="mulder.picture", name="Picture")]
 pub struct RawPicture {
     pub(super) transform: Transform,
-    pub medium: i32,
+    pub atmosphere_medium: i32,
+    pub camera_medium: i32,
     pub pixels: Py<PyArray<PictureData>>,
 
     /// The materials mapping.
@@ -43,6 +44,12 @@ pub struct PictureData {
     pub altitude: f32,
     pub distance: f32,
     pub normal: [f32; 2],
+}
+
+#[derive(FromPyObject)]
+enum AtmosphereArg {
+    Flag(bool),
+    Index(i32),
 }
 
 impl_dtype!(
@@ -60,10 +67,11 @@ impl RawPicture {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
         let transform = Default::default();
-        let medium = 0;
+        let atmosphere_medium = 0;
+        let camera_medium = 0;
         let materials = Vec::new();
         let pixels = NewArray::zeros(py, [])?.into_bound().unbind();
-        Ok(Self { transform, medium, materials, pixels })
+        Ok(Self { transform, atmosphere_medium, camera_medium, materials, pixels })
     }
 
     /// The altitude at intersections.
@@ -101,14 +109,15 @@ impl RawPicture {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { transform, medium, materials, pixels } = self;
+        let Self { transform, atmosphere_medium, camera_medium, materials, pixels } = self;
         let Transform { frame, ratio, f } = transform;
 
         let state = PyDict::new(py);
         state.set_item("frame", frame.clone())?;
         state.set_item("ratio", ratio)?;
         state.set_item("f", f)?;
-        state.set_item("medium", medium)?;
+        state.set_item("atmosphere_medium", atmosphere_medium)?;
+        state.set_item("camera_medium", camera_medium)?;
         state.set_item("materials", materials)?;
         state.set_item("pixels", pixels)?;
         Ok(state)
@@ -122,7 +131,8 @@ impl RawPicture {
         };
         *self = Self { // This ensures that no field is omitted.
             transform,
-            medium: state.get_item("medium")?.unwrap().extract()?,
+            atmosphere_medium: state.get_item("atmosphere_medium")?.unwrap().extract()?,
+            camera_medium: state.get_item("camera_medium")?.unwrap().extract()?,
             materials: state.get_item("materials")?.unwrap().extract()?,
             pixels: state.get_item("pixels")?.unwrap().extract()?,
         };
@@ -130,18 +140,16 @@ impl RawPicture {
     }
 
     /// Renders the picture as a colour image.
-    #[pyo3(signature=(/, *, atmosphere=true, exposure=None, lights=None, materials=None, notify=None))]
+    #[pyo3(signature=(/, *, atmosphere=None, exposure=None, lights=None, materials=None, notify=None))]
     fn render<'py>(
         &self,
         py: Python<'py>,
-        atmosphere: Option<bool>,
+        atmosphere: Option<AtmosphereArg>,
         exposure: Option<f64>,
         lights: Option<lights::Lights>,
         materials: Option<IndexMap<String, OpticalProperties>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
-        let atmosphere = atmosphere.unwrap_or(true);
-
         // Resolve materials.
         let materials = match materials {
             Some(materials) => materials,
@@ -162,8 +170,18 @@ impl RawPicture {
         };
 
         // Resolve lights.
+        let atmosphere_medium = match atmosphere {
+            Some(atmosphere) => match atmosphere {
+                AtmosphereArg::Flag(atmosphere) => match atmosphere {
+                    true => self.atmosphere_medium,
+                    false => -1,
+                },
+                AtmosphereArg::Index(atmosphere) => atmosphere,
+            },
+            None => -1,
+        };
         let lights = lights
-            .unwrap_or_else(|| if self.medium as usize == materials.len() {
+            .unwrap_or_else(|| if self.camera_medium == atmosphere_medium {
                 lights::Lights::SUN
             } else {
                 lights::Lights::DIRECTIONAL
@@ -193,9 +211,9 @@ impl RawPicture {
 
         // Instanciate the atmosphere.
         let atmosphere = if
-            atmosphere &&
-            (self.medium as usize == materials.len()) && // XXX local case?
-            (directionals.len() > 0) 
+            (atmosphere_medium >= 0) &&
+            (self.camera_medium == atmosphere_medium) &&
+            (directionals.len() > 0)
         {
             Some(atmosphere::Atmosphere::new(self, &directionals))
         } else {
@@ -233,7 +251,7 @@ impl RawPicture {
             let view = core::array::from_fn(|i| -view[i]);
             let hdr = if medium < 0 {
                 vec3::Vec3::ZERO
-            } else if (medium as usize) < materials.len() {
+            } else if medium != atmosphere_medium {
                 let material = materials
                     .get(medium as usize)
                     .ok_or_else(|| {
@@ -271,7 +289,6 @@ impl RawPicture {
     }
 
     /// Returns the pixels' normal directions.
-    // XXX Geocentric case?
     #[pyo3(signature=(frame=None,))]
     fn normal<'py>(
         &self,
@@ -311,7 +328,6 @@ impl RawPicture {
     }
 
     /// Returns the pixels' view directions.
-    // XXX Geocentric case?
     #[pyo3(signature=(frame=None,))]
     fn view<'py>(
         &self,

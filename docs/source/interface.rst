@@ -630,7 +630,7 @@ definition has been established, it cannot be modified or removed.
       `PDG`_. Furthermore, Mulder provides a fictitious :python:`Rk`
       (:math:`Z=11, A=22`) element to represent `standard rock`_.
 
-   .. method:: __new__(symbol, /, **kwargs)
+   .. method:: __new__(symbol, /)
 
       Gets an atomic element definition.
 
@@ -686,7 +686,7 @@ definition has been established, it cannot be modified or removed.
       Mulder provides default definitions for the :python:`Air`, :python:`Rock`
       and :python:`Water` materials.
 
-   .. method:: __new__(name, /, **kwargs)
+   .. method:: __new__(name, /)
 
       Gets a material definition.
 
