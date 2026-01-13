@@ -22,6 +22,7 @@ pub use materials::{default_materials, OpticalProperties};
 
 const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
+/// A geometry picture.
 #[pyclass(module="mulder.picture", name="Picture")]
 pub struct RawPicture {
     pub(super) transform: Transform,
@@ -71,19 +72,19 @@ impl RawPicture {
         Ok(Self { transform, atmosphere_medium, camera_medium, materials, pixels })
     }
 
-    /// The altitude at intersections.
+    /// The altitude at intersections, in meters.
     #[getter]
     fn get_altitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.pixels.bind(py).as_any().get_item("altitude")
     }
 
-    /// The distance to intersections.
+    /// The distance to intersections, in meters.
     #[getter]
     fn get_distance<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.pixels.bind(py).as_any().get_item("distance")
     }
 
-    /// The picture reference frame.
+    /// The camera reference frame.
     #[getter]
     fn get_frame(&self) -> LocalFrame {
         self.transform.frame.clone()
@@ -136,7 +137,7 @@ impl RawPicture {
         Ok(())
     }
 
-    /// Renders the picture as a colour image.
+    /// Renders the picture as a digital image.
     #[pyo3(signature=(/, *, atmosphere=None, exposure=None, lights=None, notify=None))]
     fn render<'py>(
         &self,
@@ -271,7 +272,7 @@ impl RawPicture {
         Ok(array)
     }
 
-    /// Returns the pixels' normal directions.
+    /// Returns the surface normal at intersections.
     #[pyo3(signature=(frame=None,))]
     fn normal<'py>(
         &self,
@@ -297,7 +298,7 @@ impl RawPicture {
         Ok(normal_array)
     }
 
-    /// Returns the pixels' view directions.
+    /// Returns the view directions.
     #[pyo3(signature=(frame=None,))]
     fn view<'py>(
         &self,

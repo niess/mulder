@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 
 pub mod picture;
 
+/// A camera model.
 #[pyclass(module="mulder.picture")]
 pub struct Camera {
     /// The camera reference frame.
@@ -32,6 +33,7 @@ pub struct Camera {
     pixels: Option<Py<PixelsCoordinates>>,
 }
 
+/// A set of camera pixels.
 #[pyclass(module="mulder.picture", name="Pixels")]
 pub struct PixelsCoordinates {
     origin: GeographicCoordinates,
@@ -85,7 +87,7 @@ impl Camera {
         Ok(self.pixels.as_ref().unwrap().clone_ref(py))
     }
 
-    // XXX Document.
+    /// Shoot a geometry.
     #[pyo3(signature=(geometry, /, *, notify=None))]
     fn shoot<'py>(
         &mut self,

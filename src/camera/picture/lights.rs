@@ -52,11 +52,11 @@ pub struct DirectionalLight {
     #[pyo3(get, set)]
     pub intensity: f64,
 
-    /// The light azimuth direction, in deg.
+    /// The source azimuth direction, in deg.
     #[pyo3(get, set)]
     pub azimuth: f64,
 
-    /// The light elevation direction, in deg.
+    /// The source elevation direction, in deg.
     #[pyo3(get, set)]
     pub elevation: f64,
 }

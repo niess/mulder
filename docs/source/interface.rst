@@ -1758,11 +1758,66 @@ etc.). For more advanced usage, please refer to the :doc:`flux computation
 Picture interface
 ~~~~~~~~~~~~~~~~~
 
+Mulder ray-tracing algorithms may be used in order to visualise a geometry
+(e.g., as a cross-check). For this purpose, Mulder provides a
+:py:class:`~mulder.picture.Camera` object from which a raw
+:py:class:`~mulder.picture.Picture` of the geometry might be taken. Raw pictures
+might then be illuminated to generate a digital image of the geometry.
+
+.. important::
+
+   Mulder ray-tracing algorithms are designed for particles transport. They are
+   suboptimal for graphic applications.
+
+.. _sec-light-sources:
+
+.. rubric:: Light sources
+   :heading-level: 4
+
+Light sources may be any instance of :py:class:`~mulder.picture.AmbientLight`,
+:py:class:`~mulder.picture.DirectionalLight`, or
+:py:class:`~mulder.picture.SunLight`. A superposition of several light sources
+might also be defined as a sequence, for example
+
+>>> lights = (
+...     mulder.AmbientLight(intensity=0.1),
+...     mulder.DirectionalLight(elevation=15),
+... )
+
+The lights *intensity* defines the source relative power on a linear scale, the
+default value being :python:`1`. By default, light sources are white.
+
+.. _sec-colours:
+
+.. rubric:: Colours
+   :heading-level: 4
+
+Mulder uses the `sRGB`_ colour space to specify colours, as a triplet of values
+within :math:`[0, 1]`. For instance, the following defines purple as a full
+mixture of red and blue.
+
+>>> purple = (1, 0, 1)
+
+Alternatively, string-encoded matplotlib :py:mod:`colours <matplotlib.colors>`
+might be used. For instance,
+
+>>> colour1 = "skyblue"
+>>> colour2 = "#87CEEB"
+
 .. autoclass:: mulder.picture.AmbientLight
 
-   .. method:: __new__(intensity=None, colour=None)
+   .. method:: __new__(*, colour=None, intensity=None)
 
       Creates an ambient light source.
+
+      Ambient light sources provide a uniform illumination, which while
+      convenient, might be counter-intuitive in some situations. For instance,
+      the following creates a dim goldy ambient light source,
+
+      >>> light = mulder.picture.AmbientLight(colour="gold", intensity=0.1)
+
+      See the :ref:`Light sources <sec-light-sources>` and :ref:`Colours
+      <sec-colours>` sections for further details.
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -1772,7 +1827,20 @@ Picture interface
 
 .. autoclass:: mulder.picture.Atmosphere
 
+   The atmosphere rendering is done following the Physically Based Rendering
+   (`PBR`_) model of [Hil20]_, adapted to Mulder. The atmosphere properties are
+   set according to the Earth, and are immutable. Please refer to [Hil20]_
+   for further information.
+
+   .. note::
+
+      This class is singleton. All methods below are class methods.
+
    .. automethod:: aerial_view
+
+      The aerial light is computed over the input *picture*, which must be an
+      instance of :py:class:`~mulder.picture.Picture`.
+
    .. automethod:: ambient_light
    .. automethod:: multiple_scattering
    .. automethod:: sky_view
@@ -1780,32 +1848,92 @@ Picture interface
 
 .. autoclass:: mulder.picture.Camera
 
+   This class represents a digital camera. :py:class:`~mulder.picture.Camera`
+   objects are spawned using the :py:meth:`~mulder.LocalFrame.camera` method of
+   a :py:class:`~mulder.LocalFrame`, which defines the camera position and
+   orientation. For instance, as
+
+   >>> camera = mulder                            \
+   ...     .LocalFrame(elevation=15, altitude=1)  \
+   ...     .camera()
+
+   The camera defines a 2d grid of line of sights, accessible as the
+   :py:attr:`pixels` attribute. A :py:class:`~mulder.picture.Picture` of a
+   `geometry <Geometry interface_>`_ may be taken with the :py:meth:`shoot`
+   method.
+
    .. automethod:: shoot
+
+      This method encodes a `geometry <Geometry interface_>`_ of interest as a
+      raw :py:class:`~mulder.picture.Picture`, using photographic projection.
+      For instance,
+
+      >>> picture = camera.shoot(geometry)
 
    .. rubric:: Attributes
      :heading-level: 4
 
+   .. note:: :py:class:`Camera` instances are :underline:`immutable`.
+
    .. autoattribute:: frame
+
+      The reference frame defines the camera position and orientation (i.e., the
+      pointing direction). For instance, the following camera points towards the
+      geographic north,
+
+      >>> camera.frame.azimuth
+      0.0
+
    .. autoattribute:: focal
 
       The focal length is normalised to the screen width, and thus unit-less.
+      The focal length determines the field-of-view (:py:attr:`fov`) of the
+      camera.
 
    .. autoattribute:: fov
+
+      The field-of-view is in a bijective mapping with the camera
+      :py:attr:`focal` length.
+
    .. autoattribute:: pixels
+
+      The pixels matrix is exposed as a :py:class:`~mulder.picture.Pixels`
+      object. For instance, the line of sights along individual pixels may be
+      iterated through as,
+
+      >>> for ray in camera.pixels.coordinates():
+      ...     pass
+
    .. autoattribute:: ratio
+
+      If not explicitly specified, the screen ratio is determined from the
+      camera :py:attr:`resolution` assuming square pixels. Typical screen ratio
+      values are :math:`4/3` or :math:`16/9`.
+
    .. autoattribute:: resolution
 
 .. autoclass:: mulder.picture.ColourMap
 
-   .. method:: __new__(coordinates=None, /, **kwargs)
+   .. method:: __new__(data, /)
 
       Creates an new colour mapping.
 
+
 .. autoclass:: mulder.picture.DirectionalLight
 
-   .. method:: __new__(azimuth, elevation, *, colour=None, intensity=None)
+   .. method:: __new__(azimuth=None, elevation=None, *, colour=None, intensity=None)
 
       Creates a directional light source.
+
+      Directional lights model a distant source, providing a locally flat
+      illumination oriented along the source direction. For instance, the
+      following creates a remote light source located along the south, at an
+      elevation angle of 15 deg.
+
+      >>> light = mulder.picture.DirectionalLight(azimuth=180, elevation=15)
+
+      See the :ref:`Light sources <sec-light-sources>` and :ref:`Colours
+      <sec-colours>` sections for further details.
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -1817,57 +1945,197 @@ Picture interface
 
 .. autoclass:: mulder.picture.Material
 
+      This class defines the optical properties of a material. Please refer to
+      the `Filament`_ documentation for detailled explanations.
+
    .. method:: __new__(*, colour=None, metallic=None, reflectance=None, roughness=None)
 
-      Creates an optical material.
+      Creates a new set of optical properties.
+
+      See the attributes below for the meaning of arguments.
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: colour
+
+      See the :ref:`Colours <sec-colours>` section for instructions on defining
+      a colour. In addition, a :py:class:`~mulder.picture.ColourMap` object
+      might be provided, instead of a fix value.
+
    .. autoattribute:: metallic
+
+      Smooth metalic surfaces behave as mirrors, whereas dielectric surfaces are
+      diffusive.
+
    .. autoattribute:: reflectance
+
+      Fresnel reflectance at normal incidence for dielectric materials. This
+      attribute is ignored for metals.
+
    .. autoattribute:: roughness
 
+      Perceived smoothness (0.0) or roughness (1.0) of the material surface.
+      Smooth surfaces exhibit sharp reflections.
 
 .. module:: mulder.picture
 
 .. data:: MATERIALS
    :type: dict
 
-   Optical properties of materials.
+   The optical properties of materials.
+
+   This variable maps the material names to their optical properties, using a
+   :py:class:`dict` object. For instance, the following modifies the colour of
+   rocks.
+
+   >>> mulder.picture.MATERIALS["Rock"].colour = "saddlebrown"
+
+   Additional materials might be defined, for example as
+
+   >>> mulder.picture.MATERIALS["Ice"] = mulder.picture.Material(
+   ...     metallic = True,
+   ...     roughness = 0.1,
+   ... )
 
 .. autoclass:: mulder.picture.Picture
 
+   Picture objects are generated with the
+   :py:meth:`~mulder.picture.Camera.shoot` method of a
+   :py:class:`~mulder.picture.Camera` object, e.g. as
+
+   >>> picture = camera.shoot(geometry)
+
+   A picture object encodes the first :py:attr:`media <medium>` observed along
+   the lines of sight of the camera, as well as the corresponding surface
+   :py:attr:`normals <normal>` at intersection points. This information may be
+   :py:meth:`rendered <render>` as a digital image by applying a lighting model.
+
    .. automethod:: normal
+
+      The normal vectors are returned as a numpy :py:class:`~numpy.ndarray` of
+      shape :python:`(height, width, 3)`. The coordinates are given in the
+      :py:class:`~mulder.LocalFrame` provided as *frame* argument. If the latter
+      argument is ommitted, then the camera frame is assumed.
+
    .. automethod:: render
+
+      The picture rendering is done following the Physically Based Rendering
+      (`PBR`_) model of `Filament`_, adapted to Mulder.
+
+      A lighting model may be specified by providing one, or more, instances of
+      :py:class:`~mulder.picture.AmbientLight`,
+      :py:class:`~mulder.picture.DirectionalLight`, or
+      :py:class:`~mulder.picture.SunLight`, as *lights* argument. For
+      instance, as
+
+      >>> image = picture.render(lights=mulder.SunLight())
+
+      If the *atmosphere* argument is set to :python:`True`, then the sky is
+      rendered following [Hil20]_. For more advanced usage, the *atmosphere*
+      argument might also specify the index of the atmosphere medium.
+
+      The picture exposure might be modified with the *exposure* argument, using
+      stops units (i.e. a base 2 logarithmic scale), where the value :python:`0`
+      corresponds to the default exposure. For instance, the following reduces
+      the picture exposure by a factor of 2,
+
+      >>> image = picture.render(exposure=-1)
+
    .. automethod:: view
+
+      The view vectors indicate the direction of the camera line-of-sights.
+      These directions are returned as a numpy :py:class:`~numpy.ndarray` of
+      shape :python:`(height, width, 3)`. The coordinates are given in the
+      :py:class:`~mulder.LocalFrame` provided as *frame* argument. If the latter
+      argument is ommitted, then the camera frame is assumed.
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: altitude
+
+      This attribute is a mutable :py:class:`~numpy.ndarray` of shape
+      :python:`(height, width)`.
+
    .. autoattribute:: distance
+
+      This attribute is a mutable :py:class:`~numpy.ndarray` of shape
+      :python:`(height, width)`.
+
    .. autoattribute:: frame
+
    .. autoattribute:: medium
+
+      This attribute is a mutable :py:class:`~numpy.ndarray`, of shape
+      :python:`(height, width)`, containing the visible media indices. See the
+      :ref:`Geometry model <sec-geometry-model>` section for further
+      information.
+
    .. autoattribute:: materials
 
+      This attribute defines the mapping between media and materials, as a
+      sequence of material names. For instance, the following
+
+      >>> picture.materials
+      ('Rock', 'Water')
+
+      indicates that the first medium, of index :python:`0` is composed of rock
+      and the second (index :python:`1`) of water. This mapping might be
+      redefined, for instance as
+
+      >>> picture.materials = ('Limestone', 'Ice')
+
 .. autoclass:: mulder.picture.Pixels
+
+   Instances of this class are obtained as
+   :py:attr:`~mulder.picture.Camera.pixels` attribute of a
+   :py:class:`~mulder.picture.Camera` object.
+
+   The camera pixels define a mapping between screen coordinates :math:`(u, v)`
+   and line of sights.
 
    .. rubric:: Attributes
      :heading-level: 4
 
    .. autoattribute:: azimuth
+
    .. autoattribute:: coordinates
+
+      .. note::
+
+         The pixels coordinates might be provided as input to Mulder functions
+         using the `Coordinates interface`_, in order to iterate over the lines
+         of sight defined by the camera pixels.
+
    .. autoattribute:: elevation
+
    .. autoattribute:: u
+
+      This attribute represents the screen horizontal coordinates within
+      :math:`[0, 1]`.
+
    .. autoattribute:: v
+
+      This attribute represents the screen vertical coordinates within
+      :math:`[0, 1]`.
 
 .. autoclass:: mulder.picture.SunLight
 
-   .. method:: __new__(intensity=None, colour=None)
+   .. method:: __new__(*, colour=None, datetime=None, intensity=None)
 
       Creates a sun light source.
+
+      This class models the Sun lighting, which is a particular case of
+      :py:class:`DirectionalLight` whose orientation is specified by the
+      *datetime* argument. The latter might be provided as a
+      :py:class:`~datetime.datetime` object, or as an `ISO 8601 <ISO_8601_>`_
+      string. For instance, as
+
+      >>> light = mulder.picture.SunLight(datetime="2025-06-21 13:00:00")
+
+      See the :ref:`Light sources <sec-light-sources>` and :ref:`Colours
+      <sec-colours>` sections for further details.
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -1941,6 +2209,7 @@ The available configuration data are listed below.
 .. _ECEF: https://en.wikipedia.org/wiki/Earth-centered,_Earth-fixed_coordinate_system
 .. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
 .. _EPSG: https://epsg.io/
+.. _Filament: https://google.github.io/filament/Filament.md.html
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
 .. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x
@@ -1948,9 +2217,11 @@ The available configuration data are listed below.
 .. _Kokoulin: https://doi.org/10.1016/S0920-5632(98)00475-7
 .. _LTP: https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
 .. _Mcg128Xsl64: https://docs.rs/rand_pcg/latest/rand_pcg/struct.Mcg128Xsl64.html#
+.. _PBR: https://en.wikipedia.org/wiki/Physically_based_rendering
 .. _PDG: https://pdg.lbl.gov/2025/AtomicNuclearProperties/index.html
 .. _Pumas: https://github.com/niess/pumas
 .. _PROPOSAL: https://github.com/tudo-astroparticlephysics/PROPOSAL
+.. _sRGB: https://en.wikipedia.org/wiki/SRGB
 .. _SRTMGL1.003: https://doi.org/10.5067/MEASURES/SRTM/SRTMGL1.003
 .. _Standard Rock: https://pdg.lbl.gov/2025/AtomicNuclearProperties/standardrock.html
 .. _Structured arrays: https://numpy.org/doc/stable/user/basics.rec.html

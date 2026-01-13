@@ -28,6 +28,9 @@ References
 .. [GCC+15] M. Guan, M. Chu, J. Cao, K. Luk, C. Yang, [`arXiv:1509.06176
    <https://arxiv.org/abs/1509.06176>`_].
 
+.. [Hil20] S. Hillaire, Comput. Graph. Forum 39 (2020), 13-22
+   `doi.org/10.1111/cgf.14050 <https://doi.org/10.1111/cgf.14050>`_.
+
 .. [NBCL18] V. Niess, A. Barnoud, C. Cârloganu, E. Le Menedeu, Comput.
    Phys. Commun. 229, 54 (2018), `doi:10.1016/j.cpc.2018.04.001
    <https://doi.org/10.1016/j.cpc.2018.04.001>`_ [`arXiv:1705.05636

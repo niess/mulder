@@ -28,6 +28,7 @@ pub struct SkyProperties;
 
 #[pymethods]
 impl SkyProperties {
+    /// Computes the aerial light.
     #[pyo3(signature=(picture, *lights))]
     #[pyo3(text_signature="(cls, picture, *lights)")]
     #[classmethod]
@@ -93,6 +94,7 @@ impl SkyProperties {
         ])
     }
 
+    /// Computes the ambient light table.
     #[classmethod]
     #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
     #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
@@ -168,6 +170,7 @@ impl SkyProperties {
         ])
     }
 
+    /// Returns the multiple scattering table.
     #[classmethod]
     #[pyo3(text_signature="(cls)")]
     fn multiple_scattering<'py>(cls: &Bound<'py, PyType>) -> PyResult<Namespace<'py>> {
@@ -203,6 +206,7 @@ impl SkyProperties {
         ])
     }
 
+    /// Computes the sky view table.
     #[classmethod]
     #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
     #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
@@ -264,6 +268,7 @@ impl SkyProperties {
         ])
     }
 
+    /// Computes the transmittance table.
     #[pyo3(signature=(elevation, /, *, altitude=None))]
     #[pyo3(text_signature="(cls, elevation, /, *, altitude=None)")]
     #[classmethod]
