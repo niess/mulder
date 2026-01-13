@@ -1,4 +1,4 @@
-use crate::simulation::coordinates::HorizontalCoordinates;
+use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
 use super::atmosphere::Atmosphere;
 use super::materials::MaterialData;
 use super::lights::ResolvedLight;
@@ -14,8 +14,8 @@ pub fn illuminate(
     altitude: f64,
     distance: f64,
     normal: [f64;3],
-    normal_horizontal: HorizontalCoordinates,
     view: [f64;3],
+    position: &GeographicCoordinates,
     ambient_light: Vec3,
     directional_lights: &[ResolvedLight],
     material: &MaterialData,
@@ -53,10 +53,14 @@ pub fn illuminate(
 
     let ambient = {
         let (diffuse_sky, specular_sky) = match atmosphere {
-            Some(atmosphere) => (
-                atmosphere.ambient_diffuse(normal_horizontal.elevation),
-                atmosphere.ambient_specular(normal_horizontal.elevation, material.roughness),
-            ),
+            Some(atmosphere) => {
+                let HorizontalCoordinates { elevation, .. } =
+                    HorizontalCoordinates::from_ecef(&normal.0, &position);
+                (
+                    atmosphere.ambient_diffuse(elevation),
+                    atmosphere.ambient_specular(elevation, material.roughness),
+                )
+            },
             None => (Vec3::ZERO, Vec3::ZERO),
         };
         let diffuse_light = diffuse_sky + ambient_light;

@@ -34,19 +34,19 @@ pub struct RawPicture {
     pub materials: Vec<String>, // XXX List / simplify interface?
 }
 
+#[derive(FromPyObject)]
+enum AtmosphereArg {
+    Flag(bool),
+    Index(i32),
+}
+
 #[repr(C)]
 #[derive(Clone)]
 pub struct PictureData {
     pub medium: i32,
     pub altitude: f32,
     pub distance: f32,
-    pub normal: [f32; 2],
-}
-
-#[derive(FromPyObject)]
-enum AtmosphereArg {
-    Flag(bool),
-    Index(i32),
+    pub normal: [f32; 3],
 }
 
 impl_dtype!(
@@ -55,7 +55,7 @@ impl_dtype!(
         ("medium",   "i4"),
         ("altitude", "f4"),
         ("distance", "f4"),
-        ("normal",   "2f4"),
+        ("normal",   "3f4"),
     ]
 );
 
@@ -234,12 +234,7 @@ impl RawPicture {
         let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
         for i in 0..data.size() {
             let PictureData { medium, normal, altitude, distance } = data.get_item(i)?;
-            let unpack = |v: [f32; 2]| {
-                HorizontalCoordinates { azimuth: v[0] as f64, elevation: v[1] as f64 }
-            };
-            let normal = unpack(normal);
-            let normal_ecef = normal
-                .to_ecef(self.position());
+            let normal = std::array::from_fn(|i| normal[i] as f64);
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
             let direction = self.transform.direction(u, v);
@@ -258,7 +253,7 @@ impl RawPicture {
             } else if (medium >= 0) && (medium < materials.len() as i32) {
                 let material = materials.get(medium as usize).unwrap();
                 pbr::illuminate(
-                    u, v, altitude as f64, distance as f64, normal_ecef, normal, view,
+                    u, v, altitude as f64, distance as f64, normal, view, self.position(),
                     ambient, &directionals, material, atmosphere.as_ref(),
                 )
             } else {
@@ -284,29 +279,16 @@ impl RawPicture {
         frame: Option<LocalFrame>,
     ) -> PyResult<NewArray<'py, f32>> {
         let frame = frame.as_ref().unwrap_or_else(|| &self.transform.frame);
-        let transformer = if frame.eq(&self.transform.frame) {
-            None
-        } else {
-            Some(LocalTransformer::new(&self.transform.frame, frame))
-        };
-
         let data = self.pixels.bind(py);
         let mut shape = data.shape();
         shape.push(3);
         let mut normal_array = NewArray::empty(py, shape)?;
         let normal = normal_array.as_slice_mut();
 
-        const DEG: f64 = std::f64::consts::PI / 180.0;
         for i in 0..data.size() {
             let di = data.get_item(i)?;
-            let theta = (90.0 - (di.normal[1] as f64)) * DEG;
-            let phi = (90.0 - (di.normal[0] as f64)) * DEG;
-            let (st, ct) = theta.sin_cos();
-            let (sp, cp) = phi.sin_cos();
-            let mut n = [ st * cp, st * sp, ct ];
-            if let Some(transformer) = &transformer {
-                n = transformer.transform_vector(&n);
-            }
+            let n = std::array::from_fn(|i| di.normal[i] as f64);
+            let n = frame.from_ecef_direction(&n);
             for j in 0..3 {
                 normal[3 * i + j] = n[j] as f32;
             }

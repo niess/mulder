@@ -209,11 +209,7 @@ impl Camera {
             } else {
                 [0.0; 3]
             };
-            let pack = |v: [f64; 3]| -> [f32; 2] {
-                let v = HorizontalCoordinates::from_ecef(&v, &self.position());
-                [v.azimuth as f32, v.elevation as f32]
-            };
-            let normal = pack(normal);
+            let normal = std::array::from_fn(|i| normal[i] as f32);
             picture[i] = picture::PictureData { medium: layer, altitude, distance, normal };
             notifier.tic();
         }
@@ -305,11 +301,7 @@ impl Camera {
             } else {
                 [0.0; 3]
             };
-            let pack = |v: [f64; 3]| -> [f32; 2] {
-                let v = HorizontalCoordinates::from_ecef(&v, &camera_position);
-                [v.azimuth as f32, v.elevation as f32]
-            };
-            let normal = pack(normal);
+            let normal = std::array::from_fn(|i| normal[i] as f32);
             let medium = medium as i32;
             picture[i] = picture::PictureData { medium, altitude, distance, normal };
             notifier.tic();

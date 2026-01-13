@@ -108,8 +108,8 @@ pub struct ResolvedLight {
 impl AmbientLight {
     /// Creates an ambient light source.
     #[new]
-    #[pyo3(signature=(intensity=None, colour=None))]
-    fn new(intensity: Option<f64>, colour: Option<StandardRgb>) -> Self {
+    #[pyo3(signature=(/, *, colour=None, intensity=None))]
+    fn new(colour: Option<StandardRgb>, intensity: Option<f64>) -> Self {
         let intensity = intensity.unwrap_or(Self::DEFAULT_INTENSITY);
         let colour = colour.unwrap_or(Self::DEFAULT_COLOUR);
         Self { colour, intensity }
@@ -136,13 +136,15 @@ impl Default for AmbientLight {
 impl DirectionalLight {
     /// Creates a directional light source.
     #[new]
-    #[pyo3(signature=(azimuth, elevation, *, colour=None, intensity=None))]
+    #[pyo3(signature=(azimuth=None, elevation=None, *, colour=None, intensity=None))]
     fn new(
-        azimuth: f64,
-        elevation: f64,
+        azimuth: Option<f64>,
+        elevation: Option<f64>,
         colour: Option<StandardRgb>,
         intensity: Option<f64>,
     ) -> Self {
+        let azimuth = azimuth.unwrap_or(0.0);
+        let elevation = elevation.unwrap_or(0.0);
         let colour = colour.unwrap_or_else(|| Self::DEFAULT_COLOUR);
         let intensity = intensity.unwrap_or(Self::DEFAULT_INTENSITY);
         Self { azimuth, elevation, colour, intensity }
@@ -310,8 +312,8 @@ impl LightArg {
                 LightModel::Ambient => Light::Ambient(AmbientLight::default()),
                 LightModel::Directional => Light::Directional(
                     DirectionalLight::new(
-                        camera_direction.azimuth + 180.0,
-                        -camera_direction.elevation,
+                        Some(camera_direction.azimuth + 180.0),
+                        Some(-camera_direction.elevation),
                         None,
                         None,
                     )
