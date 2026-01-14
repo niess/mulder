@@ -1,10 +1,12 @@
 use crate::simulation::coordinates::{
     GeographicCoordinates, HorizontalCoordinates, LocalFrame, LocalTransformer,
 };
+use crate::utils::error::{Error, ErrorKind::TypeError};
 use crate::utils::notify::{Notifier, NotifyArg};
-use crate::utils::numpy::{ArrayMethods, NewArray, impl_dtype, PyArray};
+use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray, impl_dtype, PyArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use std::collections::HashMap;
 use super::Transform;
 
 mod atmosphere;
@@ -15,9 +17,9 @@ mod pbr;
 mod vec3;
 
 pub use atmosphere::SkyProperties;
-pub use colours::ColourMap;
 pub use lights::{AmbientLight, DirectionalLight, SunLight};
-pub use materials::{default_materials, OpticalProperties};
+pub use materials::{default_materials, MaterialMap, OpticalProperties};
+use materials::{Material, MaterialData};
 
 
 const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
@@ -32,7 +34,7 @@ pub struct RawPicture {
 
     /// The materials mapping.
     #[pyo3(set)]
-    pub materials: Vec<String>, // XXX List / simplify interface?
+    pub materials: Vec<String>,
 }
 
 #[derive(FromPyObject)]
@@ -138,16 +140,21 @@ impl RawPicture {
     }
 
     /// Renders the picture as a digital image.
-    #[pyo3(signature=(/, *, atmosphere=None, exposure=None, lights=None, notify=None))]
+    #[pyo3(signature=(/, *, atmosphere=None, data=None, exposure=None, lights=None, notify=None))]
     fn render<'py>(
         &self,
         py: Python<'py>,
         atmosphere: Option<AtmosphereArg>,
+        data: Option<HashMap::<String, AnyArray<'py, f64>>>,
         exposure: Option<f64>,
         lights: Option<lights::Lights>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f32>> {
         // Resolve materials.
+        enum Properties {
+            Data(MaterialData),
+            Map(MaterialMap)
+        }
         let materials = Self::materials(py)?;
         let materials = {
             let mut properties = Vec::new();
@@ -155,13 +162,19 @@ impl RawPicture {
                 let property = materials
                     .get_item(material)?
                     .map(|material| {
-                        let material: OpticalProperties = material.extract()?;
-                        Ok::<_, PyErr>(materials::MaterialData::from(&material))
+                        let material: Material = material.extract()?;
+                        let material = match material {
+                            Material::Map(map) => Properties::Map(map),
+                            Material::Properties(material) => {
+                                Properties::Data(MaterialData::from(&material))
+                            },
+                        };
+                        Ok::<_, PyErr>(material)
                     })
                     .transpose()?
-                    .unwrap_or_else(|| materials::MaterialData::from(
+                    .unwrap_or_else(|| Properties::Data(MaterialData::from(
                         &OpticalProperties::default()
-                    ));
+                    )));
                 properties.push(property);
             }
             properties
@@ -225,16 +238,50 @@ impl RawPicture {
         };
 
         // Loop over pixels.
-        let data = self.pixels.bind(py);
-        let mut shape = data.shape();
+        let pixels = self.pixels.bind(py);
+        let mut shape = pixels.shape();
         let (nv, nu) = (shape[0], shape[1]);
         shape.push(3);
         let mut array = NewArray::empty(py, shape)?;
-        let pixels = array.as_slice_mut();
+        let image = array.as_slice_mut();
 
-        let notifier = Notifier::from_arg(notify, data.size(), "developing picture");
-        for i in 0..data.size() {
-            let PictureData { medium, normal, altitude, distance } = data.get_item(i)?;
+        // Flatten any data.
+        let data = match data {
+            Some(mut data) => {
+                let data: Result<Vec<Option<AnyArray<'py, f64>>>, PyErr> = self.materials
+                    .iter()
+                    .map(|material| {
+                        data
+                            .remove(material)
+                            .map(|datum| {
+                                if (datum.ndim() == 0) || (datum.size() == pixels.size()) {
+                                    Ok(datum)
+                                } else {
+                                    let why = format!(
+                                        "{}: expected a size {} array, found size {}",
+                                        material,
+                                        pixels.size(),
+                                        datum.size(),
+                                    );
+                                    let err = Error::new(TypeError)
+                                        .what("data")
+                                        .why(&why)
+                                        .to_err();
+                                    Err(err)
+                                }
+                            })
+                            .transpose()
+                    })
+                    .collect();
+                Some(data?)
+            },
+            None => None,
+        };
+
+        // Loop over pixels.
+        let notifier = Notifier::from_arg(notify, pixels.size(), "developing picture");
+        for i in 0..pixels.size() {
+            let PictureData { medium, normal, altitude, distance } = pixels.get_item(i)?;
             let normal = std::array::from_fn(|i| normal[i] as f64);
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
@@ -253,18 +300,31 @@ impl RawPicture {
                 }
             } else if (medium >= 0) && (medium < materials.len() as i32) {
                 let material = materials.get(medium as usize).unwrap();
+                let material: MaterialData = match material {
+                    Properties::Data(material) => material.clone(),
+                    Properties::Map(material) => {
+                        let alpha = match &data {
+                            Some(data) => match data.get(medium as usize).unwrap() {
+                                Some(datum) => datum.get_item(i)?,
+                                None => 0.0,
+                            },
+                            None => 0.0,
+                        };
+                        (&material.map(alpha)).into()
+                    },
+                };
                 pbr::illuminate(
                     u, v, altitude as f64, distance as f64, normal, view, self.position(),
-                    ambient, &directionals, material, atmosphere.as_ref(),
+                    ambient, &directionals, &material, atmosphere.as_ref(),
                 )
             } else {
                 vec3::Vec3::ZERO
             };
             let srgb = colours::StandardRgb::from(hdr * exposure_compensation);
 
-            pixels[3 * i + 0] = srgb.red() as f32;
-            pixels[3 * i + 1] = srgb.green() as f32;
-            pixels[3 * i + 2] = srgb.blue() as f32;
+            image[3 * i + 0] = srgb.red() as f32;
+            image[3 * i + 1] = srgb.green() as f32;
+            image[3 * i + 2] = srgb.blue() as f32;
 
             notifier.tic();
         }

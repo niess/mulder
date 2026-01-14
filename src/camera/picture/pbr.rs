@@ -21,7 +21,6 @@ pub fn illuminate(
     material: &MaterialData,
     atmosphere: Option<&Atmosphere>,
 ) -> Vec3 {
-    let (diffuse_colour, f0) = material.resolve_colour(altitude);
     let normal = Vec3(normal);
     let view = Vec3(view);
     let nv = Vec3::dot(&normal, &view).clamp(1E-04, 1.0);
@@ -39,8 +38,8 @@ pub fn illuminate(
             view,
             nl,
             nv,
-            diffuse_colour,
-            f0,
+            material.diffuse_colour,
+            material.f0,
             material.roughness,
             r,
         );
@@ -65,8 +64,8 @@ pub fn illuminate(
         };
         let diffuse_light = diffuse_sky + ambient_light;
         let specular_light = specular_sky + ambient_light;
-        let specular_ambient = dfg.0 * f0 + dfg.1;
-        diffuse_colour * diffuse_light + specular_ambient * specular_light
+        let specular_ambient = dfg.0 * material.f0 + dfg.1;
+        material.diffuse_colour * diffuse_light + specular_ambient * specular_light
     };
 
     let aerial = match atmosphere {

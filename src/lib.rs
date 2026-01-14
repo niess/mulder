@@ -86,8 +86,8 @@ fn mulder(module: &Bound<PyModule>) -> PyResult<()> {
     picture.add("MATERIALS", camera::picture::default_materials(py)?)?;
     picture.add_class::<camera::picture::AmbientLight>()?;
     picture.add_class::<camera::Camera>()?;
-    picture.add_class::<camera::picture::ColourMap>()?;
     picture.add_class::<camera::picture::DirectionalLight>()?;
+    picture.add_class::<camera::picture::MaterialMap>()?;
     picture.add_class::<camera::picture::OpticalProperties>()?;
     picture.add_class::<camera::picture::RawPicture>()?;
     picture.add_class::<camera::PixelsCoordinates>()?;

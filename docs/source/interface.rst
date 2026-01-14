@@ -1912,13 +1912,6 @@ might be used. For instance,
 
    .. autoattribute:: resolution
 
-.. autoclass:: mulder.picture.ColourMap
-
-   .. method:: __new__(data, /)
-
-      Creates an new colour mapping.
-
-
 .. autoclass:: mulder.picture.DirectionalLight
 
    .. method:: __new__(azimuth=None, elevation=None, *, colour=None, intensity=None)
@@ -1960,8 +1953,7 @@ might be used. For instance,
    .. autoattribute:: colour
 
       See the :ref:`Colours <sec-colours>` section for instructions on defining
-      a colour. In addition, a :py:class:`~mulder.picture.ColourMap` object
-      might be provided, instead of a fix value.
+      a colour.
 
    .. autoattribute:: metallic
 
@@ -1978,6 +1970,40 @@ might be used. For instance,
       Perceived smoothness (0.0) or roughness (1.0) of the material surface.
       Smooth surfaces exhibit sharp reflections.
 
+.. autoclass:: mulder.picture.MaterialMap
+
+   This class represents a linear blending of :py:class:`Materials
+   <mulder.picture.Material>` parametrised by a scalar observable,
+   :math:`\alpha` (typically, :py:attr:`~mulder.picture.Picture.altitude`
+   values). The mapping is defined by providing nodes, :math:`(\alpha_i, M_i)`,
+   inbetween which the material properties, :math:`M`, are linearly interpolated
+   as function of :math:`\alpha`.
+
+   .. method:: __new__(nodes, /)
+
+      Creates an new material map.
+
+      For instance, the following defines a mapping from a green to brown
+      :py:class:`~mulder.picture.Material` for :math:`\alpha` values (e.g.,
+      altitudes) in :math:`[0, 1000]`.
+
+      >>> mmap = mulder.picture.MaterialMap((
+      ...     (   0, Material(colour="darkgreen")),
+      ...     (1000, Material(colour="saddlebrown")),
+      ... ))
+
+   .. automethod:: material
+
+      This method returns the material properties corresponding to the input
+      :math:`\alpha` value. For instance,
+
+      >>> material = mmap.material(500)
+
+   .. rubric:: Attributes
+     :heading-level: 4
+
+   .. autoattribute:: nodes
+
 .. module:: mulder.picture
 
 .. data:: MATERIALS
@@ -1991,12 +2017,17 @@ might be used. For instance,
 
    >>> mulder.picture.MATERIALS["Rock"].colour = "saddlebrown"
 
-   Additional materials might be defined, for example as
+   Additional materials might be defined as well, for example as
 
    >>> mulder.picture.MATERIALS["Ice"] = mulder.picture.Material(
    ...     metallic = True,
    ...     roughness = 0.1,
    ... )
+
+   .. note::
+
+      A :py:class:`~mulder.picture.MaterialMap` may be used instead of a base
+      :py:class:`~mulder.picture.Material`.
 
 .. autoclass:: mulder.picture.Picture
 
@@ -2041,6 +2072,17 @@ might be used. For instance,
       the picture exposure by a factor of 2,
 
       >>> image = picture.render(exposure=-1)
+
+      The *data* argument specifies a mapping to be used in conjunction with any
+      :py:class:`~mulder.picture.MaterialMap`, as a :py:class:`dict` object
+      mapping material names to parameter values. For instance, the following
+      defines a mapping between the rock material and the picture
+      :py:attr:`~mulder.picture.Picture.altitude` values.
+
+      >>> image = picture.render(data={"Rock": picture.altitude})
+
+      Note that the provided parameter values must be consistent with the
+      picture shape.
 
    .. automethod:: view
 

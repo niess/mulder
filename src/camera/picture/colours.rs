@@ -4,18 +4,6 @@ use pyo3::prelude::*;
 use super::vec3::Vec3;
 
 
-#[derive(Clone, Debug, IntoPyObject, FromPyObject)]
-pub enum MaterialColour {
-    Map(ColourMap),
-    Standard(StandardRgb),
-}
-
-#[derive(Clone, Debug)]
-#[pyclass(module="mulder.picture")]
-pub struct ColourMap {
-    data: Vec<(f64, StandardRgb)>,
-}
-
 pub struct LinearRgb (pub [f64; 3]);
 
 #[derive(Copy, Clone, Debug, IntoPyObject)]
@@ -161,61 +149,5 @@ impl ToneMapping {
         const BASE: Vec3 = Vec3([0.2126, 0.7152, 0.0722]);
         let c = c / (1.0 + Vec3::dot(&c, &BASE));
         c.clamp(0.0, 1.0)
-    }
-}
-
-impl MaterialColour {
-    pub const WHITE: Self = Self::Standard(StandardRgb::WHITE);
-
-    pub fn standard(red: f64, green: f64, blue: f64) -> Self {
-        Self::Standard(StandardRgb(red, green, blue))
-    }
-
-    pub fn to_linear(&self, altitude: f64) -> LinearRgb {
-        let srgb = match self {
-            Self::Map(map) => map.map(altitude),
-            Self::Standard(srgb) => *srgb,
-        };
-        srgb.into()
-    }
-}
-
-#[pymethods]
-impl ColourMap {
-    /// Creates a new colour map.
-    #[pyo3(signature=(data, /))]
-    #[new]
-    pub fn new(mut data: Vec<(f64, StandardRgb)>) -> Self {
-        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        data.dedup_by(|a, b| a.0 == b.0);
-        Self { data }
-    }
-
-    // XXX implement mapping function.
-    // XXX implement data attribute?
-}
-
-impl ColourMap {
-    pub fn map(&self, value: f64) -> StandardRgb {
-        let n = self.data.len();
-        if n == 0 {
-            StandardRgb::WHITE
-        } else {
-            let (mut x0, mut c0) = &self.data[0];
-            for (x1, c1) in self.data.iter() {
-                if value < *x1 {
-                    let t = (value - x0) / (*x1 - x0);
-                    return StandardRgb (
-                        c0.0 * (1.0 - t) + c1.0 * t,
-                        c0.1 * (1.0 - t) + c1.1 * t,
-                        c0.2 * (1.0 - t) + c1.2 * t,
-                    )
-                } else {
-                    x0 = *x1;
-                    c0 = *c1;
-                }
-            }
-            self.data[n - 1].1
-        }
     }
 }
