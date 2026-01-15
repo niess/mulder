@@ -1,5 +1,6 @@
 import mulder
 import mulder.materials as materials
+import mulder.picture as picture
 import numpy
 from numpy.testing import assert_allclose
 from pathlib import Path
@@ -38,10 +39,11 @@ def _docdir(request, doctest_namespace):
 
     doctest_plugin = request.config.pluginmanager.getplugin("doctest")
     if isinstance(request.node, doctest_plugin.DoctestItem):
+        doctest_namespace["assert_allclose"] = assert_allclose
         doctest_namespace["materials"] = materials
         doctest_namespace["mulder"] = mulder
         doctest_namespace["np"] = numpy
-        doctest_namespace["assert_allclose"] = assert_allclose
+        doctest_namespace["picture"] = picture
         tmpdir = request.getfixturevalue("tmpdir")
         with tmpdir.as_cwd():
             if not DOCTEST_INITIALISED:

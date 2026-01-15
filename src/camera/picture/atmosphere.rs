@@ -1,8 +1,10 @@
-use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates};
+use crate::simulation::coordinates::{
+    GeographicCoordinates, HorizontalCoordinates, LocalFrame, PositionExtractor,
+};
 use crate::utils::namespace::Namespace;
 use crate::utils::numpy::{AnyArray, ArrayMethods, NewArray};
 use pyo3::prelude::*;
-use pyo3::types::{PyTuple, PyType};
+use pyo3::types::{PyDict, PyTuple, PyType};
 use super::{RawPicture, Transform};
 use super::colours::StandardRgb;
 use super::DEFAULT_EXPOSURE;
@@ -22,23 +24,29 @@ const DEG: f64 = PI / 180.0;
 const PI: f64 = std::f64::consts::PI;
 const HALF_PI: f64 = 0.5 * PI;
 
-/// Optical properties of the atmosphere.
+/// Graphic properties of the atmosphere.
 #[pyclass(module="mulder.picture", name="Atmosphere")]
 pub struct SkyProperties;
+
+#[derive(FromPyObject)]
+pub enum Lights {
+    Single(Light),
+    Sequence(Vec<Light>),
+}
 
 #[pymethods]
 impl SkyProperties {
     /// Computes the aerial light.
-    #[pyo3(signature=(picture, *lights))]
-    #[pyo3(text_signature="(cls, picture, *lights)")]
+    #[pyo3(signature=(projection, /, *, lights))]
+    #[pyo3(text_signature="(cls, projection, /, *, lights)")]
     #[classmethod]
     fn aerial_view<'py>(
         cls: &Bound<'py, PyType>,
-        picture: &RawPicture,
+        projection: &RawPicture,
         lights: &Bound<'py, PyTuple>,
     ) -> PyResult<Namespace<'py>> {
         let py = cls.py();
-        let position = picture.position();
+        let position = projection.position();
         let lights = {
             let mut directionals = Vec::new();
             for light in lights {
@@ -58,7 +66,7 @@ impl SkyProperties {
             directionals
         };
 
-        let aerial = AerialView::new(&picture.transform, &lights);
+        let aerial = AerialView::new(&projection.transform, &lights);
         let mut u_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.0])?;
         let mut v_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.1])?;
         let mut distance_array = NewArray::<f64>::empty(py, [AerialView::SHAPE.2])?;
@@ -96,24 +104,26 @@ impl SkyProperties {
 
     /// Computes the ambient light table.
     #[classmethod]
-    #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
-    #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
+    #[pyo3(signature=(position=None, /, *, lights, frame=None, **kwargs))]
+    #[pyo3(text_signature="(cls, position=None, /, *, lights, **kwargs)")]
     fn ambient_light<'py>(
         cls: &Bound<'py, PyType>,
-        lights: &Bound<'py, PyTuple>,
-        latitude: Option<f64>,
-        longitude: Option<f64>,
-        altitude: Option<f64>,
+        position: Option<&Bound<PyAny>>,
+        lights: Lights,
+        frame: Option<LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Namespace<'py>> {
         let py = cls.py();
-        let latitude = latitude.unwrap_or(-45.0);
-        let longitude = longitude.unwrap_or(0.0);
-        let altitude = altitude.unwrap_or(0.0);
-        let position = GeographicCoordinates { latitude, longitude, altitude };
+        let position = PositionExtractor::new(
+            py, position, kwargs, frame.as_ref().into(), Some(1)
+        )?;
+        let position = position.extract(0)?.into_geographic();
+        let GeographicCoordinates { latitude, altitude, .. } = position;
+
         let lights = {
             let mut directionals = Vec::new();
+            let lights: Vec<Light> = lights.into();
             for light in lights {
-                let light: Light = light.extract()?;
                 match light {
                     Light::Directional(light) => {
                         directionals.push(light.resolve(&position))
@@ -208,24 +218,25 @@ impl SkyProperties {
 
     /// Computes the sky view table.
     #[classmethod]
-    #[pyo3(signature=(/, *lights, latitude=None, longitude=None, altitude=None))]
-    #[pyo3(text_signature="(cls, /, *lights, latitude=None, longitude=None, altitude=None)")]
+    #[pyo3(signature=(position=None, /, *, lights, frame=None, **kwargs))]
+    #[pyo3(text_signature="(cls, position=None, /, *, lights, **kwargs)")]
     fn sky_view<'py>(
         cls: &Bound<'py, PyType>,
-        lights: &Bound<'py, PyTuple>,
-        latitude: Option<f64>,
-        longitude: Option<f64>,
-        altitude: Option<f64>,
+        position: Option<&Bound<PyAny>>,
+        lights: Lights,
+        frame: Option<LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Namespace<'py>> {
         let py = cls.py();
-        let latitude = latitude.unwrap_or(-45.0);
-        let longitude = longitude.unwrap_or(0.0);
-        let altitude = altitude.unwrap_or(0.0);
-        let position = GeographicCoordinates { latitude, longitude, altitude };
+        let position = PositionExtractor::new(
+            py, position, kwargs, frame.as_ref().into(), Some(1)
+        )?;
+        let position = position.extract(0)?.into_geographic();
+        let GeographicCoordinates { latitude, altitude, .. } = position;
         let lights = {
             let mut directionals = Vec::new();
+            let lights: Vec<Light> = lights.into();
             for light in lights {
-                let light: Light = light.extract()?;
                 match light {
                     Light::Directional(light) => {
                         directionals.push(light.resolve(&position))
@@ -268,7 +279,7 @@ impl SkyProperties {
         ])
     }
 
-    /// Computes the transmittance table.
+    /// Computes the transmittance value(s).
     #[pyo3(signature=(elevation, /, *, altitude=None))]
     #[pyo3(text_signature="(cls, elevation, /, *, altitude=None)")]
     #[classmethod]
@@ -296,6 +307,15 @@ impl SkyProperties {
         }
 
         Ok(array)
+    }
+}
+
+impl From<Lights> for Vec<Light> {
+    fn from(value: Lights) -> Self {
+        match value {
+            Lights::Single(light) => vec![light],
+            Lights::Sequence(lights) => lights,
+        }
     }
 }
 

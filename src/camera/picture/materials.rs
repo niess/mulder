@@ -22,6 +22,7 @@ pub fn default_materials(py: Python) -> PyResult<PyObject> {
     Ok(materials)
 }
 
+/// Graphic properties of a material.
 #[pyclass(module="mulder.picture", name="Material")]
 #[derive(Clone)]
 pub struct OpticalProperties {
@@ -54,6 +55,7 @@ pub enum Material {
     Map(MaterialMap),
 }
 
+/// A Material map.
 #[derive(Clone)]
 #[pyclass(module="mulder.picture")]
 pub struct MaterialMap {

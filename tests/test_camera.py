@@ -28,31 +28,31 @@ def test_camera():
     assert_allclose(camera.focal, 1.732051, atol=1E-05)
 
 
-def test_picture():
-    """Test picture object."""
+def test_projection():
+    """Test projection object."""
 
     geometry = mulder.EarthGeometry(0)
     frame = mulder.LocalFrame(altitude=1)
     camera = frame.camera((9, 13))
-    picture = camera.shoot(geometry)
-    assert picture.frame == frame
-    assert picture.medium.shape == (9, 13)
+    projection = camera.project(geometry)
+    assert projection.frame == frame
+    assert projection.medium.shape == (9, 13)
     expected = numpy.full((9, 13), 0, dtype="i4")
     expected[4:,:] = 1
-    assert_allclose(picture.medium, expected)
+    assert_allclose(projection.medium, expected)
     expected = numpy.full((9, 13), 0, dtype="i4")
     expected[4:,:] = 120E+03
-    assert_allclose(picture.altitude, expected, atol=1E-04)
+    assert_allclose(projection.altitude, expected, atol=1E-04)
 
     geometry = mulder.LocalGeometry(PREFIX / "assets/geometry.toml")
     frame = mulder.LocalFrame(altitude=1)
     camera = frame.camera((9, 13))
-    picture = camera.shoot(geometry)
-    assert picture.frame == frame
-    assert picture.medium.shape == (9, 13)
+    projection = camera.project(geometry)
+    assert projection.frame == frame
+    assert projection.medium.shape == (9, 13)
     expected = numpy.full((9, 13), 1, dtype="i4")
     expected[4:,:] = 0
-    assert_allclose(picture.medium, expected)
+    assert_allclose(projection.medium, expected)
 
 
 def test_pixels():

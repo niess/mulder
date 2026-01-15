@@ -18,7 +18,7 @@ pub struct Camera {
     #[pyo3(get)]
     frame: LocalFrame,
 
-    /// The camera horizontal field-of-view, in degrees.
+    /// The camera horizontal field of view (FOV), in degrees.
     #[pyo3(get)]
     fov: f64,
 
@@ -87,9 +87,9 @@ impl Camera {
         Ok(self.pixels.as_ref().unwrap().clone_ref(py))
     }
 
-    /// Shoot a geometry.
+    /// Projects a geometry.
     #[pyo3(signature=(geometry, /, *, notify=None))]
-    fn shoot<'py>(
+    fn project<'py>(
         &mut self,
         py: Python<'py>,
         geometry: GeometryArg<'py>,
@@ -149,7 +149,7 @@ impl Camera {
         let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
         let picture = array.as_slice_mut();
 
-        let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
+        let notifier = Notifier::from_arg(notify, picture.len(), "projecting geometry");
 
         let mut stepper = geometry.stepper(py)?;
         let layers: Vec<_> = geometry.layers.bind(py).iter().map(
@@ -180,7 +180,7 @@ impl Camera {
         let atmosphere_medium = stepper.layers as i32;
 
         for (i, direction) in self.iter().enumerate() {
-            const WHY: &str = "while shooting geometry";
+            const WHY: &str = "while projecting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             stepper.reset();
@@ -240,7 +240,7 @@ impl Camera {
         let mut array = NewArray::<picture::PictureData>::empty(py, [nv, nu])?;
         let picture = array.as_slice_mut();
 
-        let notifier = Notifier::from_arg(notify, picture.len(), "shooting geometry");
+        let notifier = Notifier::from_arg(notify, picture.len(), "projecting geometry");
 
         let normalised = |mut v: [f64; 3]| -> [f64; 3] {
             let r2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
@@ -268,7 +268,7 @@ impl Camera {
         let tracer = geometry.tracer()?;
 
         for (i, direction) in self.iter().enumerate() {
-            const WHY: &str = "while shooting geometry";
+            const WHY: &str = "while projecting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             let outer_medium = media.len();

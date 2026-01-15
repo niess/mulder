@@ -24,8 +24,8 @@ use materials::{Material, MaterialData};
 
 const DEFAULT_EXPOSURE: f64 = std::f64::consts::PI;
 
-/// A geometry picture.
-#[pyclass(module="mulder.picture", name="Picture")]
+/// A geometry projection.
+#[pyclass(module="mulder.picture", name="Projection")]
 pub struct RawPicture {
     pub(super) transform: Transform,
     pub atmosphere_medium: i32,
@@ -139,7 +139,7 @@ impl RawPicture {
         Ok(())
     }
 
-    /// Renders the picture as a digital image.
+    /// Renders the projection as an image.
     #[pyo3(signature=(/, *, atmosphere=None, data=None, exposure=None, lights=None, notify=None))]
     fn render<'py>(
         &self,
@@ -279,7 +279,7 @@ impl RawPicture {
         };
 
         // Loop over pixels.
-        let notifier = Notifier::from_arg(notify, pixels.size(), "developing picture");
+        let notifier = Notifier::from_arg(notify, pixels.size(), "rendering projection");
         for i in 0..pixels.size() {
             let PictureData { medium, normal, altitude, distance } = pixels.get_item(i)?;
             let normal = std::array::from_fn(|i| normal[i] as f64);
