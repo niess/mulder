@@ -5,7 +5,7 @@ authors = [
 ]
 description = "MUon fLuxme'DER"
 readme = "README.md"
-version = "0.3.1"
+version = "0.3.2"
 requires-python = ">=3.8"
 dependencies = [
     "numpy >= 1.6.0",
@@ -52,7 +52,7 @@ manylinux-x86_64-image = "manylinux2014"
 
 [tool.cibuildwheel.macos]
 build = "cp38-macosx_*"
-environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.12", RUSTFLAGS = "-C link-args=-Wl,-headerpad_max_install_names" }
 
 [tool.cibuildwheel.windows]
 build = [ "cp39-win_amd64", "cp39-win_arm64" ]
