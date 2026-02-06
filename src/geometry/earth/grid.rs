@@ -658,6 +658,7 @@ impl<'a> GeotiffConverter<'a> {
 
 impl<'a> Convert for GeotiffConverter<'a> {
     fn get_z(&self, ix: usize, iy: usize) -> PyResult<f64> {
+        // XXX Cross-check this, or patch.
         let x = if ix == self.nx - 1 { self.x[1] } else { self.x[0] + ix as f64 * self.dx };
         let y = if iy == self.ny - 1 { self.y[1] } else { self.y[0] + iy as f64 * self.dy };
         let z = self.geotiff.get_value_at(&Coord { x, y }, 0)
@@ -671,7 +672,7 @@ fn crs_to_projection(crs: Option<usize>) -> PyResult<Option<String>> {
         Some(crs) => {
             if crs == EPSG_WGS84 {
                 None
-            } else if (crs >= 32601) && (crs <= 32660) {
+            } else if (crs >= 32601) && (crs <= 32660) { // XXX Add EPSG:5490 etc.
                 Some(format!("UTM {}N", crs - 32600))
             } else if (crs >= 32701) && (crs <= 32760) {
                 Some(format!("UTM {}S", crs - 32700))
