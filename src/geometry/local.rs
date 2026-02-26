@@ -303,7 +303,9 @@ impl LocalGeometry {
                         distance += d;
                         tracer.move_(d);
                         let after = tracer.medium() as i32;
-                        if (after >= outer_medium) || !ignore.contains(&after) {
+                        if after == before {
+                            continue
+                        } else if (after >= outer_medium) || !ignore.contains(&after) {
                             break (distance, after)
                         }
                     }

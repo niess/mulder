@@ -271,13 +271,13 @@ impl Camera {
         let media: Vec<_> = geometry.media.bind(py).iter().map(
             |medium| medium.downcast::<Medium>().unwrap().borrow()
         ).collect();
+        let outer_medium = media.len();
         let tracer = geometry.tracer()?;
 
         for (i, direction) in self.iter().enumerate() {
             const WHY: &str = "while projecting geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
-            let outer_medium = media.len();
             let ui = frame.from_ecef_direction(&direction.to_ecef(&camera_position));
             tracer.reset(r0, ui);
             let (distance, after) = match ignore.as_ref() {
@@ -288,7 +288,9 @@ impl Camera {
                         distance += d;
                         tracer.move_(d);
                         let after = tracer.medium();
-                        if after >= outer_medium || !ignore.contains(&(after as i32)) {
+                        if after == camera_medium {
+                            continue
+                        } else if after >= outer_medium || !ignore.contains(&(after as i32)) {
                             break (distance, after)
                         }
                     }
