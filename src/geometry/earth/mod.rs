@@ -12,6 +12,7 @@ use crate::utils::traits::MinMax;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::ptr::{NonNull, null, null_mut};
+use super::IgnoreArg;
 use super::intersections::{GeographicIntersection, IntersectionsArray};
 
 pub mod grid;
@@ -242,13 +243,14 @@ impl EarthGeometry {
     /// Performs a tracing step of the Earth geometry.
     #[pyo3(
         name="trace",
-        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, ignore=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, ignore=None, notify=None, **kwargs)",
     )]
     fn py_trace<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        ignore: Option<IgnoreArg>,
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
@@ -259,6 +261,7 @@ impl EarthGeometry {
         let size = coordinates.size();
         let shape = coordinates.shape();
 
+        let ignore = ignore.map(|ignore| ignore.into_vec());
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
@@ -277,7 +280,7 @@ impl EarthGeometry {
             let (position, direction) = coordinates
                 .extract(i)?
                 .into_geographic();
-            let intersection = stepper.trace(position, direction)?.0;
+            let intersection = stepper.trace(position, direction, ignore.as_ref())?.0;
             intersections.set_geographic(i, intersection, coordinates.frame());
             notifier.tic();
         }
@@ -389,7 +392,8 @@ impl EarthGeometryStepper {
     pub fn trace(
         &mut self,
         position: GeographicCoordinates,
-        direction: HorizontalCoordinates
+        direction: HorizontalCoordinates,
+        ignore: Option<&Vec<i32>>,
     ) -> PyResult<(GeographicIntersection, i32)> {
         let mut r = position.to_ecef();
         let mut index = [ -2; 2 ];
@@ -409,15 +413,16 @@ impl EarthGeometryStepper {
             },
             None::<&str>,
         )?;
+        let top_layer = (self.layers + 1) as i32;
         let start_layer = index[0];
         let mut di = 0.0;
         let position = if (start_layer >= 1) &&
-                          (start_layer as usize <= self.layers + 1) {
+                          (start_layer <= top_layer) {
 
             // Iterate until a boundary is hit.
             let u = direction.to_ecef(&position);
             let mut step = 0.0_f64;
-            while index[0] == start_layer {
+            loop {
                 error::to_result(
                     unsafe {
                         turtle::stepper_step(
@@ -435,13 +440,25 @@ impl EarthGeometryStepper {
                     None::<&str>,
                 )?;
                 di += step;
-            }
+                if index[0] == start_layer {
+                    continue
+                } else {
+                    // Push the particle through the boundary.
+                    const EPS: f64 = f32::EPSILON as f64;
+                    di += EPS;
+                    for i in 0..3 {
+                        r[i] += EPS * u[i];
+                    }
+                }
 
-            // Push the particle through the boundary.
-            const EPS: f64 = f32::EPSILON as f64;
-            di += EPS;
-            for i in 0..3 {
-                r[i] += EPS * u[i];
+                if (index[0] < 1) || (index[0] > top_layer) {
+                    break
+                } else {
+                    match ignore {
+                        Some(ignore) => if !ignore.contains(&(index[0] - 1)) { break },
+                        None => break,
+                    }
+                }
             }
             GeographicCoordinates::from_ecef(&r)
         } else {

@@ -14,6 +14,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::ffi::OsStr;
 use std::path::Path;
+use super::IgnoreArg;
 use super::intersections::{LocalIntersection, IntersectionsArray};
 
 
@@ -253,13 +254,14 @@ impl LocalGeometry {
     /// Performs a tracing step of the local geometry.
     #[pyo3(
         name="trace",
-        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, ignore=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, ignore=None, notify=None, **kwargs)",
     )]
     fn py_trace<'py>(
         &self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        ignore: Option<IgnoreArg>,
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
@@ -272,6 +274,8 @@ impl LocalGeometry {
         let shape = coordinates.shape();
         let transformer = coordinates.transformer(&self.frame);
 
+        let ignore = ignore.map(|ignore| ignore.into_vec());
+        let outer_medium = self.media.bind(py).len() as i32;
         let tracer = self.tracer()?;
         let notifier = Notifier::from_arg(notify, size, "tracing geometry");
 
@@ -291,9 +295,26 @@ impl LocalGeometry {
                 .into_local(&self.frame, transformer.as_ref());
             tracer.reset(ri, ui);
             let before = tracer.medium() as i32;
-            let distance = tracer.trace();
-            tracer.move_(distance);
-            let after = tracer.medium() as i32;
+            let (distance, after) = match ignore.as_ref() {
+                Some(ignore) => {
+                    let mut distance = 0.0;
+                    loop {
+                        let d = tracer.trace();
+                        distance += d;
+                        tracer.move_(d);
+                        let after = tracer.medium() as i32;
+                        if (after >= outer_medium) || !ignore.contains(&after) {
+                            break (distance, after)
+                        }
+                    }
+                },
+                None => {
+                    let distance = tracer.trace();
+                    tracer.move_(distance);
+                    let after = tracer.medium() as i32;
+                    (distance, after)
+                },
+            };
             let position = tracer.position();
             let intersection = LocalIntersection {
                 before, after, position, distance

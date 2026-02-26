@@ -91,6 +91,9 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       >>> intersection["distance"]  # doctest: +SKIP
       3.0
 
+      During the tracing process, specific layers can be excluded by providing
+      their indices as the optional *ignore* argument.
+
    .. rubric:: Attributes
      :heading-level: 4
 
@@ -457,6 +460,9 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       >>> intersection = geometry.trace(position=[0, 0, 1], direction=[0, 0, -1])
       >>> intersection["distance"]  # doctest: +SKIP
       1.0
+
+      During the tracing process, specific media can be excluded by providing
+      their indices as the optional *ignore* argument.
 
    .. rubric:: Attributes
      :heading-level: 4
@@ -1909,6 +1915,10 @@ may be employed. For instance,
       For instance,
 
       >>> projection = camera.project(geometry)
+
+
+      Specific media can be made transparent by providing their indices as the
+      optional *ignore* argument.
 
    .. rubric:: Attributes
      :heading-level: 4

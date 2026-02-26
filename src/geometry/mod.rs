@@ -32,6 +32,12 @@ pub enum GeometryArg<'py> {
     Local(local::LocalArg<'py>),
 }
 
+#[derive(FromPyObject)]
+pub enum IgnoreArg {
+    Integer(i32),
+    Sequence(Vec<i32>),
+}
+
 impl Geometry {
     pub fn bind<'a, 'py>(&'a self, py: Python<'py>) -> BoundGeometry<'a, 'py> {
         match self {
@@ -87,5 +93,14 @@ impl<'py> GeometryArg<'py> {
             },
         };
         Ok(geometry)
+    }
+}
+
+impl IgnoreArg {
+    pub fn into_vec(self) -> Vec<i32> {
+        match self {
+            Self::Integer(i) => vec![i],
+            Self::Sequence(s) => s,
+        }
     }
 }

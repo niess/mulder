@@ -1,4 +1,4 @@
-use crate::geometry::{Geometry, GeometryArg};
+use crate::geometry::{Geometry, GeometryArg, IgnoreArg};
 use crate::geometry::earth::{EarthGeometry, Layer};
 use crate::geometry::local::{LocalGeometry, Medium};
 use crate::simulation::coordinates::{GeographicCoordinates, HorizontalCoordinates, LocalFrame};
@@ -88,22 +88,24 @@ impl Camera {
     }
 
     /// Projects a geometry.
-    #[pyo3(signature=(geometry, /, *, notify=None))]
+    #[pyo3(signature=(geometry, /, *, ignore=None, notify=None))]
     fn project<'py>(
         &mut self,
         py: Python<'py>,
         geometry: GeometryArg<'py>,
+        ignore: Option<IgnoreArg>,
         notify: Option<NotifyArg>,
     ) -> PyResult<picture::RawPicture> {
         let geometry = geometry.into_geometry(py)?;
+        let ignore = ignore.map(|ignore| ignore.into_vec());
         match geometry {
             Geometry::Earth(geometry) => {
                 let mut geometry = geometry.bind(py).borrow_mut();
-                self.shoot_earth(py, &mut geometry, notify)
+                self.shoot_earth(py, &mut geometry, ignore, notify)
             },
             Geometry::Local(geometry) => {
                 let mut geometry = geometry.bind(py).borrow_mut();
-                self.shoot_local(py, &mut geometry, notify)
+                self.shoot_local(py, &mut geometry, ignore, notify)
             },
         }
     }
@@ -142,6 +144,7 @@ impl Camera {
         &mut self,
         py: Python<'py>,
         geometry: &mut EarthGeometry,
+        ignore: Option<Vec<i32>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<picture::RawPicture> {
         let nu = self.resolution.width();
@@ -184,7 +187,9 @@ impl Camera {
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
 
             stepper.reset();
-            let (intersection, data_index) = stepper.trace(self.position(), direction)?;
+            let (intersection, data_index) = stepper.trace(
+                self.position(), direction, ignore.as_ref()
+            )?;
             let (backface, layer) = if intersection.after >= camera_medium {
                 (true, camera_medium)
             } else {
@@ -233,6 +238,7 @@ impl Camera {
         &mut self,
         py: Python<'py>,
         geometry: &mut LocalGeometry,
+        ignore: Option<Vec<i32>>,
         notify: Option<NotifyArg>,
     ) -> PyResult<picture::RawPicture> {
         let nu = self.resolution.width();
@@ -274,9 +280,26 @@ impl Camera {
             let outer_medium = media.len();
             let ui = frame.from_ecef_direction(&direction.to_ecef(&camera_position));
             tracer.reset(r0, ui);
-            let distance = tracer.trace();
-            tracer.move_(distance);
-            let after = tracer.medium();
+            let (distance, after) = match ignore.as_ref() {
+                Some(ignore) => {
+                    let mut distance = 0.0;
+                    loop {
+                        let d = tracer.trace();
+                        distance += d;
+                        tracer.move_(d);
+                        let after = tracer.medium();
+                        if after >= outer_medium || !ignore.contains(&(after as i32)) {
+                            break (distance, after)
+                        }
+                    }
+                },
+                None => {
+                    let distance = tracer.trace();
+                    tracer.move_(distance);
+                    let after = tracer.medium();
+                    (distance, after)
+                },
+            };
             let ri = tracer.position();
             let GeographicCoordinates { altitude, .. } = frame.to_geographic_position(&ri);
 
