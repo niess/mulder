@@ -230,6 +230,24 @@ impl LocalFrame {
         format!("LocalFrame({})", args)
     }
 
+    /// The latitude coordinate of the frame origin, in deg.
+    #[getter]
+    fn get_latitude(&self) -> f64 {
+        self.origin.latitude
+    }
+
+    /// The longitude coordinate of the frame origin, in deg.
+    #[getter]
+    fn get_longitude(&self) -> f64 {
+        self.origin.longitude
+    }
+
+    /// The altitude coordinate of the frame origin, in m.
+    #[getter]
+    fn get_altitude(&self) -> f64 {
+        self.origin.altitude
+    }
+
     /// Spawns a new camera.
     #[pyo3(signature=(resolution=None, /, *, focal=None, fov=None, ratio=None))]
     fn camera(&self,
@@ -283,22 +301,22 @@ impl LocalFrame {
         Ok(array)
     }
 
-    /// The latitude coordinate of the frame origin, in deg.
-    #[getter]
-    fn get_latitude(&self) -> f64 {
-        self.origin.latitude
-    }
-
-    /// The longitude coordinate of the frame origin, in deg.
-    #[getter]
-    fn get_longitude(&self) -> f64 {
-        self.origin.longitude
-    }
-
-    /// The altitude coordinate of the frame origin, in m.
-    #[getter]
-    fn get_altitude(&self) -> f64 {
-        self.origin.altitude
+    /// Returns a translated local frame.
+    #[pyo3(signature=(v, /))]
+    fn translated<'py>(&self, v: [f64; 3]) -> Self {
+        let v = self.to_ecef_direction(&v);
+        let translation = [
+            self.translation[0] + v[0],
+            self.translation[1] + v[1],
+            self.translation[2] + v[2],
+        ];
+        let origin = GeographicCoordinates::from_ecef(&translation);
+        let direction = HorizontalCoordinates { azimuth: self.azimuth, elevation: self.elevation };
+        let direction = direction.to_ecef(&self.origin);
+        let HorizontalCoordinates { azimuth, elevation } = HorizontalCoordinates::from_ecef(
+            &direction, &origin
+        );
+        Self { origin, azimuth, elevation, rotation: self.rotation, translation }
     }
 }
 
@@ -835,7 +853,8 @@ impl<'a> ExtractedCoordinates<'a> {
             Self::Geographic { position, direction } => (position, direction),
             Self::Local { position, direction, frame } => {
                 let position = frame.to_geographic_position(&position);
-                let direction = frame.to_horizontal(&direction);
+                let direction = frame.to_ecef_direction(&direction);
+                let direction = HorizontalCoordinates::from_ecef(&direction, &position);
                 (position, direction)
             },
         }

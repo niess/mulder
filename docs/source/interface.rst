@@ -384,6 +384,14 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
       >>> ex = frame0.transform((1, 0, 0), destination=frame1, mode="vector")
 
+   .. automethod:: translated
+
+      The translation vector *v* is expressed in the local coordinates of the
+      initial frame. For instance, the following returns a frame translated by
+      1 meter along the x-axis of the initial frame.
+
+      >>> frame1 = frame0.translated((1, 0, 0))
+
    .. rubric:: Position attributes
      :heading-level: 4
 
