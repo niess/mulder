@@ -38,3 +38,7 @@ def test_frame():
     assert_allclose(frame1.altitude, frame2.altitude)
     assert_allclose(frame1.azimuth, frame2.azimuth)
     assert_allclose(frame1.elevation, frame2.elevation)
+
+    frame1 = frame0.looking_at(position=(1, 0, 0))
+    assert_allclose(frame1.azimuth, 90.0, atol=1E-07)
+    assert_allclose(frame1.elevation, 0.0, atol=1E-07)

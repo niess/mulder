@@ -259,6 +259,32 @@ impl LocalFrame {
         Camera::new(self, resolution, focal, fov, ratio)
     }
 
+    /// Returns a rotated local frame.
+    #[pyo3(
+        signature=(position=None, /, *, frame=None, **kwargs),
+        text_signature="(self, position=None, /, **kwargs)",
+    )]
+    fn looking_at(
+        &self,
+        py: Python,
+        position: Option<&Bound<PyAny>>,
+        frame: Option<LocalFrame>,
+        kwargs: Option<&Bound<PyDict>>,
+    ) -> PyResult<Self> {
+        let frame = Maybe::always(frame.as_ref(), self);
+        let position = PositionExtractor::new(py, position, kwargs, frame, Some(1))?;
+        let target = position.extract(0)?.into_geographic().to_ecef();
+        let origin = self.origin.to_ecef();
+        let direction = [
+            target[0] - origin[0],
+            target[1] - origin[1],
+            target[2] - origin[2],
+        ];
+        let direction = HorizontalCoordinates::from_ecef(&direction, &self.origin);
+        let frame = Self::new(self.origin, direction.azimuth, direction.elevation);
+        Ok(frame)
+    }
+
     /// Transforms point(s) or vector(s) to another local frame.
     #[pyo3(signature=(q, /, *, destination, mode))]
     fn transform<'py>(
@@ -694,6 +720,7 @@ impl<'py> PositionExtractor<'py> {
         frame: Maybe<&LocalFrame>,
         expected_size: Option<usize>,
     ) -> PyResult<Self> {
+        // XXX Solve ambiguous states case (e.g., passing directly a vector of coordinates).
         let extractor = match states {
             Some(states) => {
                 if frame.is_explicit() || kwargs.is_some() {

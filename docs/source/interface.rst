@@ -368,6 +368,20 @@ which is discussed in the :doc:`Geometry <geometry>` section.
          The *focal* and *fov* arguments cannot be specified simultaneously
          since these two quantities are directly related.
 
+   .. automethod:: looking_at
+
+      The *position* argument specifies the target point using the `Position
+      interface <States interface_>`_. For example, the following returns a
+      local frame oriented along the x-axis of the initial frame.
+
+      .. doctest::
+         :hide:
+
+         >>> frame0 = frame
+         >>> frame1 = mulder.LocalFrame()
+
+      >>> frame1 = frame0.looking_at(position=(1, 0, 0))
+
    .. automethod:: transform
 
       The quantity, *q*, is transformed from the *self* :py:class:`LocalFrame`
@@ -375,12 +389,6 @@ which is discussed in the :doc:`Geometry <geometry>` section.
       (i.e., :python:`"point"` or :python:`"vector"`). For example, the
       following computes the coordinates, in :python:`frame1`, of the
       :math:`\vec{e}_x` basis vector of :python:`frame0`.
-
-      .. doctest::
-         :hide:
-
-         >>> frame0 = frame
-         >>> frame1 = mulder.LocalFrame()
 
       >>> ex = frame0.transform((1, 0, 0), destination=frame1, mode="vector")
 
