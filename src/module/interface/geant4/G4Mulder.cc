@@ -47,6 +47,7 @@ namespace G4Mulder {
         const G4VPhysicalVolume * GetWorld() const;
 
         std::vector<const G4VPhysicalVolume *> volumes;
+        std::vector<const G4VPhysicalVolume *> mothers;
         std::unordered_map<const G4VPhysicalVolume *, size_t> mediaIndices;
     };
 
@@ -162,7 +163,20 @@ static struct mulder_medium * geometry_get_medium(
     size_t index
 ){
     auto geometry = (G4Mulder::Geometry *)self;
-    return new G4Mulder::Medium(geometry->volumes.at(index));
+    auto medium = new G4Mulder::Medium(geometry->volumes.at(index));
+
+    // Compute global transform.
+    auto mother = geometry->mothers.at(index);
+    while (mother != nullptr) {
+        medium->transform = G4AffineTransform(
+            mother->GetRotation(),
+            mother->GetTranslation()
+        ) * medium->transform;
+        auto motherIndex = geometry->mediaIndices[mother];
+        mother = geometry->mothers.at(motherIndex);
+    }
+
+    return medium;
 }
 
 static struct mulder_locator * geometry_locator(
@@ -184,19 +198,22 @@ static struct mulder_tracer * geometry_tracer(
 
 static void append(
     std::vector<const G4VPhysicalVolume *> &volumes,
+    std::vector<const G4VPhysicalVolume *> &mothers,
     std::unordered_map<const G4VPhysicalVolume *, size_t> &mediaIndices,
-    const G4VPhysicalVolume * current
+    const G4VPhysicalVolume * current,
+    const G4VPhysicalVolume * mother
 ){
     if (mediaIndices.count(current) == 0) {
         size_t n = volumes.size();
         mediaIndices.insert({current, n});
         volumes.push_back(current);
+        mothers.push_back(mother);
     }
     auto && logical = current->GetLogicalVolume();
     G4int n = logical->GetNoDaughters();
     for (G4int i = 0; i < n; i++) {
         auto && volume = logical->GetDaughter(i);
-        append(volumes, mediaIndices, volume);
+        append(volumes, mothers, mediaIndices, volume, current);
     }
 }
 
@@ -213,8 +230,10 @@ G4Mulder::Geometry::Geometry(
     // Scan volumes hierarchy.
     append(
         this->volumes,
+        this->mothers,
         this->mediaIndices,
-        world
+        world,
+        nullptr
     );
 }
 
