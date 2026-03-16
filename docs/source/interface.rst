@@ -452,16 +452,16 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: locate
 
-      The method returns the layer index(es) that correspond to the input
+      The method returns the media index(es) that correspond to the input
       position(s). For instance,
 
-      >>> layer = geometry.locate(position=[0, 0, 1])
+      >>> media = geometry.locate(position=[0, 0, 1])
 
    .. automethod:: scan
 
       The method returns an :py:class:`array <numpy.ndarray>` containing the
-      thicknesses of the layers along the line(s) of sight specified by the
-      input *coordinates*. For instance,
+      thicknesses of the media along the line(s) of sight specified by the input
+      *coordinates*. For instance,
 
       >>> thickness = geometry.scan(position=[0, 0, 1], direction=[0, 0, -1])
       >>> thickness[0]  # doctest: +SKIP
