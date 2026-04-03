@@ -85,6 +85,14 @@ def test_earth():
                       frame=mulder.LocalFrame(altitude=1))
     assert_allclose(d, [1, 1000], atol=1E-06)
 
+    import numpy
+    i = geometry.scan(altitude=-1001, elevation=90, output="intersections")
+    assert_allclose(i[0].tolist(), (0, 1, 0.0, 0.0, -1000.0, 1.0), atol=1E-07)
+    assert_allclose(i[1].tolist(), (1, 2, 0.0, 0.0,     0.0, 1.0E+03),
+                    atol=1E-07)
+    assert_allclose(i[2].tolist(), (2, 3, 0.0, 0.0, 1.2E+05, 1.2E+05),
+                    atol=1E-07)
+
 
 @pytest.mark.requires_calzone
 def test_local():

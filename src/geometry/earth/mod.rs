@@ -4,6 +4,7 @@ use crate::simulation::coordinates::{
     CoordinatesExtractor, GeographicCoordinates, HorizontalCoordinates, LocalFrame,
     PositionExtractor,
 };
+use crate::utils::convert::ScanOutput;
 use crate::utils::error;
 use crate::utils::notify::{Notifier, NotifyArg};
 use crate::utils::numpy::NewArray;
@@ -138,17 +139,17 @@ impl EarthGeometry {
         Ok(array)
     }
 
-    /// Performs a detailed tracing of the Earth geometry.
+    /// Performs a scan of the Earth geometry.
     #[pyo3(
-        signature=(coordinates=None, /, *, intersections=None, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, intersections=None, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, notify=None, output=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, notify=None, output=None, **kwargs)",
     )]
     fn scan<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
-        intersections: Option<bool>,
         notify: Option<NotifyArg>,
+        output: Option<ScanOutput>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
@@ -162,7 +163,7 @@ impl EarthGeometry {
             shape.push(n);
             (size, shape, n)
         };
-        let intersections = intersections.unwrap_or(false);
+        let output = output.unwrap_or_else(|| ScanOutput::default());
 
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
@@ -180,12 +181,12 @@ impl EarthGeometry {
                 current: Vec<EcefIntersection>,
             },
         }
-        let mut output = match intersections {
-            false => {
+        let mut output = match output {
+            ScanOutput::Thickness => {
                 let array = NewArray::<f64>::zeros(py, shape)?;
                 Output::Thickness { array }
             },
-            true => {
+            ScanOutput::Intersections => {
                 let list = Vec::new();
                 let current = Vec::new();
                 Output::Intersection { list, current }

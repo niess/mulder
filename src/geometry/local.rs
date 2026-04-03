@@ -3,6 +3,7 @@
 use crate::materials::{MaterialsSet, MaterialsSubscriber};
 use crate::module::{CGeometry, CLocator, CMedium, CModule, CTracer, Module};
 use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, Maybe, PositionExtractor};
+use crate::utils::convert::ScanOutput;
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::{TypeError, ValueError};
 use crate::utils::io::PathString;
@@ -185,17 +186,17 @@ impl LocalGeometry {
     }
 
     // XXX sum & grammage mode?
-    /// Performs a detailed tracing of the local geometry.
+    /// Performs a scan of the local geometry.
     #[pyo3(
-        signature=(coordinates=None, /, *, intersections=None, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, intersections=None, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, notify=None, output=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, notify=None, output=None, **kwargs)",
     )]
     fn scan<'py>(
         &self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
-        intersections: Option<bool>,
         notify: Option<NotifyArg>,
+        output: Option<ScanOutput>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Bound<'py, PyAny>> {
@@ -211,7 +212,7 @@ impl LocalGeometry {
             shape.push(n);
             (size, shape, n)
         };
-        let intersections = intersections.unwrap_or(false);
+        let output = output.unwrap_or_else(|| ScanOutput::default());
 
         let tracer = self.tracer()?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
@@ -223,12 +224,12 @@ impl LocalGeometry {
                 current: Vec<LocalIntersection>,
             },
         }
-        let mut output = match intersections {
-            false => {
+        let mut output = match output {
+            ScanOutput::Thickness => {
                 let array = NewArray::<f64>::zeros(py, shape)?;
                 Output::Thickness { array }
             },
-            true => {
+            ScanOutput::Intersections => {
                 let list = Vec::new();
                 let current = Vec::new();
                 Output::Intersection { list, current }
