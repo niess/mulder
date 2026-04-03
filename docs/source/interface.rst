@@ -299,6 +299,10 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
       >>> assert altitudes.shape == (181, 361)
 
+      The optional *frame* argument specifies the coordinates system (as a
+      :py:class:`~mulder.LocalFrame`) in which the altitude should be expressed.
+      If this argument is omitted, the geographic altitude is returned.
+
    .. automethod:: normal
 
       This method returns the normal to the top surface at the latitude
@@ -308,8 +312,8 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
       The optional *frame* argument specifies the coordinates system (as a
       :py:class:`~mulder.LocalFrame`) in which the normal should be expressed.
-      If this argument is omitted, geocentric (`ECEF`_) coordinates will be used
-      instead.
+      If this argument is omitted, geocentric (`ECEF`_) coordinates will be
+      used.
 
    .. rubric:: Attributes
      :heading-level: 4

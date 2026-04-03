@@ -1,5 +1,5 @@
 use crate::bindings::turtle;
-use crate::simulation::coordinates::LocalFrame;
+use crate::simulation::coordinates::{GeographicCoordinates, LocalFrame};
 use crate::utils::error::{self, Error};
 use crate::utils::error::ErrorKind::ValueError;
 use crate::utils::notify::{Notifier, NotifyArg};
@@ -119,11 +119,12 @@ impl Layer {
     }
 
     /// Computes the layer top altitude(s) at coordinate(s).
-    #[pyo3(name="altitude", signature=(latitude_or_latlon, longitude=None, /, *, notify=None))]
+    #[pyo3(name="altitude", signature=(latitude_or_latlon, longitude=None, /, *, frame=None, notify=None))]
     fn py_altitude<'py>(
         &mut self,
         latitude_or_latlon: AnyArray<'py, f64>,
         longitude: Option<AnyArray<'py, f64>>,
+        frame: Option<LocalFrame>,
         notify: Option<NotifyArg>,
     ) -> PyResult<NewArray<'py, f64>> {
         let py = latitude_or_latlon.py();
@@ -143,7 +144,14 @@ impl Layer {
                         if (index % 100) == 0 { error::check_ctrlc(WHY)? }
 
                         let lon = longitude.get_item(ix)?;
-                        z[iy * nx + ix] = self.altitude(lat, lon)?.0;
+                        let mut altitude = self.altitude(lat, lon)?.0;
+                        if let Some(frame) = frame.as_ref() {
+                            let r = GeographicCoordinates {
+                                latitude: lat, longitude: lon, altitude
+                            };
+                            altitude = frame.from_ecef_position(r.to_ecef())[2];
+                        }
+                        z[iy * nx + ix] = altitude;
                         notifier.tic();
                     }
                 }
@@ -162,7 +170,14 @@ impl Layer {
 
                     let lat = latlon.get_item(2 * i)?;
                     let lon = latlon.get_item(2 * i + 1)?;
-                    z[i] = self.altitude(lat, lon)?.0;
+                    let mut altitude = self.altitude(lat, lon)?.0;
+                    if let Some(frame) = frame.as_ref() {
+                        let r = GeographicCoordinates {
+                            latitude: lat, longitude: lon, altitude
+                        };
+                        altitude = frame.from_ecef_position(r.to_ecef())[2];
+                    }
+                    z[i] = altitude;
                     notifier.tic();
                 }
                 array
