@@ -2291,7 +2291,7 @@ Configuration data can be accessed via the :python:`mulder.config` singleton
 class. For instance, as
 
 >>> mulder.config.VERSION
-'0.3.3'
+'0.3.4'
 
 The available configuration data are listed below.
 
