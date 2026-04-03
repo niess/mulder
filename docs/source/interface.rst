@@ -73,13 +73,18 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: scan
 
-      The method returns an :py:class:`array <numpy.ndarray>` containing the
-      thicknesses of the layers along the line(s) of sight specified by the
-      input *coordinates*. For instance,
+      By default, this method returns an :py:class:`array <numpy.ndarray>`
+      containing the thicknesses of the layers along the line(s) of sight
+      specified by the input *coordinates*. For instance,
 
       >>> thickness = geometry.scan(latitude=45, elevation=10)
       >>> thickness[0]  # doctest: +SKIP
       3.0
+
+      If *intersections* is :python:`True`, then, for each input coordinate,
+      this method returns an :py:class:`array <numpy.ndarray>` containing the
+      successive tracing intersections, as obtained per the :py:meth:`trace`
+      method.
 
    .. automethod:: trace
 
@@ -463,13 +468,18 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: scan
 
-      The method returns an :py:class:`array <numpy.ndarray>` containing the
-      thicknesses of the media along the line(s) of sight specified by the input
-      *coordinates*. For instance,
+      By default, this method returns an :py:class:`array <numpy.ndarray>`
+      containing the thicknesses of the media along the line(s) of sight
+      specified by the input *coordinates*. For instance,
 
       >>> thickness = geometry.scan(position=[0, 0, 1], direction=[0, 0, -1])
       >>> thickness[0]  # doctest: +SKIP
       1.0
+
+      If *intersections* is :python:`True`, then, for each input coordinate,
+      this method returns an :py:class:`array <numpy.ndarray>` containing the
+      successive tracing intersections, as obtained per the :py:meth:`trace`
+      method.
 
    .. automethod:: trace
 

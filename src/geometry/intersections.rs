@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GeographicIntersection {
     pub before: i32,
     pub after: i32,
@@ -15,7 +15,7 @@ pub struct GeographicIntersection {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LocalIntersection {
     pub before: i32,
     pub after: i32,

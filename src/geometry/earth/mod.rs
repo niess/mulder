@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::ptr::{NonNull, null, null_mut};
 use super::IgnoreArg;
-use super::intersections::{GeographicIntersection, IntersectionsArray};
+use super::intersections::{GeographicIntersection, IntersectionsArray, LocalIntersection};
 
 pub mod grid;
 pub mod layer;
@@ -140,17 +140,18 @@ impl EarthGeometry {
 
     /// Performs a detailed tracing of the Earth geometry.
     #[pyo3(
-        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, intersections=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, intersections=None, notify=None, **kwargs)",
     )]
     fn scan<'py>(
         &mut self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        intersections: Option<bool>,
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, f64>> {
+    ) -> PyResult<Bound<'py, PyAny>> {
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame.as_ref().into(), None
         )?;
@@ -161,12 +162,36 @@ impl EarthGeometry {
             shape.push(n);
             (size, shape, n)
         };
+        let intersections = intersections.unwrap_or(false);
 
         let mut stepper = self.stepper(py)?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
-        let mut array = NewArray::<f64>::zeros(py, shape)?;
-        let distances = array.as_slice_mut();
+        struct EcefIntersection {
+            before: i32,
+            after: i32,
+            position: [f64; 3],
+            distance: f64,
+        }
+        enum Output<'a> {
+            Thickness { array: NewArray<'a, f64> },
+            Intersection {
+                list: Vec<IntersectionsArray<'a>>,
+                current: Vec<EcefIntersection>,
+            },
+        }
+        let mut output = match intersections {
+            false => {
+                let array = NewArray::<f64>::zeros(py, shape)?;
+                Output::Thickness { array }
+            },
+            true => {
+                let list = Vec::new();
+                let current = Vec::new();
+                Output::Intersection { list, current }
+            },
+        };
+
         for i in 0..size {
             const WHY: &str = "while scanning geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
@@ -222,9 +247,23 @@ impl EarthGeometry {
                     di += step;
                 }
 
-                let current = current as usize;
-                if current <= n {
-                    distances[i * n + current - 1]+= di;
+                match &mut output {
+                    Output::Thickness { array } => {
+                        let current = current as usize;
+                        if current <= n {
+                            let distances = array.as_slice_mut();
+                            distances[i * n + current - 1] += di;
+                        }
+                    },
+                    Output::Intersection { current: intersections, .. } => {
+                        let intersection = EcefIntersection {
+                            before: current - 1,
+                            after: index[0] - 1,
+                            position: r,
+                            distance: di,
+                        };
+                        intersections.push(intersection);
+                    },
                 }
 
                 // Push the particle through the boundary.
@@ -234,10 +273,58 @@ impl EarthGeometry {
                 }
             }
 
+            if let Output::Intersection { list, current } = &mut output {
+                let array = if coordinates.is_geographic() {
+                    let mut array = NewArray::<GeographicIntersection>::empty(
+                        py, [current.len()]
+                    )?;
+                    let intersections = array.as_slice_mut();
+                    for (i, intersection) in current.iter().enumerate() {
+                        let position = GeographicCoordinates::from_ecef(&intersection.position);
+                        intersections[i] = GeographicIntersection {
+                            before: intersection.before,
+                            after: intersection.after,
+                            latitude: position.latitude,
+                            longitude: position.longitude,
+                            altitude: position.altitude,
+                            distance: intersection.distance,
+                        };
+                    }
+                    IntersectionsArray::Geographic(array)
+                } else {
+                    let mut array = NewArray::<LocalIntersection>::empty(
+                        py, [current.len()]
+                    )?;
+                    let intersections = array.as_slice_mut();
+                    for (i, intersection) in current.iter().enumerate() {
+                        let position = coordinates
+                            .frame()
+                            .unwrap()
+                            .from_ecef_position(intersection.position);
+                        intersections[i] = LocalIntersection {
+                            before: intersection.before,
+                            after: intersection.after,
+                            distance: intersection.distance,
+                            position,
+                        };
+                    }
+                    IntersectionsArray::Local(array)
+                };
+                list.push(array);
+                current.clear();
+            }
+
             notifier.tic();
         }
 
-        Ok(array)
+        match output {
+            Output::Thickness { array } => Ok(array.into_bound().into_any()),
+            Output::Intersection { mut list, .. } => if coordinates.shape().is_empty() {
+                list.pop().into_pyobject(py)
+            } else {
+                list.into_pyobject(py)
+            },
+        }
     }
 
     /// Performs a tracing step of the Earth geometry.

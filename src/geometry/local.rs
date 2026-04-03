@@ -187,17 +187,18 @@ impl LocalGeometry {
     // XXX sum & grammage mode?
     /// Performs a detailed tracing of the local geometry.
     #[pyo3(
-        signature=(coordinates=None, /, *, notify=None, frame=None, **kwargs),
-        text_signature="(self, coordinates=None, /, *, notify=None, **kwargs)",
+        signature=(coordinates=None, /, *, intersections=None, notify=None, frame=None, **kwargs),
+        text_signature="(self, coordinates=None, /, *, intersections=None, notify=None, **kwargs)",
     )]
     fn scan<'py>(
         &self,
         py: Python<'py>,
         coordinates: Option<&Bound<PyAny>>,
+        intersections: Option<bool>,
         notify: Option<NotifyArg>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
-    ) -> PyResult<NewArray<'py, f64>> {
+    ) -> PyResult<Bound<'py, PyAny>> {
         let frame = Maybe::always(frame.as_ref(), &self.frame);
         let coordinates = CoordinatesExtractor::new(
             py, coordinates, kwargs, frame, None
@@ -210,12 +211,30 @@ impl LocalGeometry {
             shape.push(n);
             (size, shape, n)
         };
+        let intersections = intersections.unwrap_or(false);
 
         let tracer = self.tracer()?;
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
-        let mut array = NewArray::<f64>::zeros(py, shape)?;
-        let distances = array.as_slice_mut();
+        enum Output<'a> {
+            Thickness { array: NewArray<'a, f64> },
+            Intersection {
+                list: Vec<IntersectionsArray<'a>>,
+                current: Vec<LocalIntersection>,
+            },
+        }
+        let mut output = match intersections {
+            false => {
+                let array = NewArray::<f64>::zeros(py, shape)?;
+                Output::Thickness { array }
+            },
+            true => {
+                let list = Vec::new();
+                let current = Vec::new();
+                Output::Intersection { list, current }
+            },
+        };
+
         for i in 0..size {
             const WHY: &str = "while scanning geometry";
             if (i % 100) == 0 { error::check_ctrlc(WHY)? }
@@ -229,8 +248,22 @@ impl LocalGeometry {
             loop {
                 if medium < n {
                     let distance = tracer.trace();
-                    distances[i * n + medium] += distance;
                     tracer.move_(distance);
+                    match &mut output {
+                        Output::Thickness { array } => {
+                            let distances = array.as_slice_mut();
+                            distances[i * n + medium] += distance;
+                        },
+                        Output::Intersection { current: intersections, .. } => {
+                            let intersection = LocalIntersection {
+                                before: medium as i32,
+                                after: tracer.medium() as i32,
+                                position: tracer.position(),
+                                distance,
+                            };
+                            intersections.push(intersection);
+                        },
+                    }
                     medium = tracer.medium();
                 } else if !inside {
                     let distance = tracer.trace();
@@ -245,10 +278,35 @@ impl LocalGeometry {
                     break
                 }
             }
+
+            if let Output::Intersection { list, current } = &mut output {
+                let shape = [ current.len() ];
+                let mut array = if coordinates.is_geographic() {
+                    IntersectionsArray::Geographic(NewArray::empty(py, shape)?)
+                } else {
+                    IntersectionsArray::Local(NewArray::empty(py, shape)?)
+                };
+                let mut intersections = array.as_slice_mut();
+                for (i, intersection) in current.iter().enumerate() {
+                    intersections.set_local(
+                        i, intersection.clone(), Some(&self.frame), transformer.as_ref()
+                    );
+                }
+                list.push(array);
+                current.clear();
+            }
+
             notifier.tic();
         }
 
-        Ok(array)
+        match output {
+            Output::Thickness { array } => Ok(array.into_bound().into_any()),
+            Output::Intersection { mut list, .. } => if coordinates.shape().is_empty() {
+                list.pop().into_pyobject(py)
+            } else {
+                list.into_pyobject(py)
+            },
+        }
     }
 
     /// Performs a tracing step of the local geometry.
