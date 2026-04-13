@@ -839,6 +839,13 @@ impl Material {
         }
     }
 
+    pub fn get_density(&self, py: Python<'_>) -> PyResult<f64> {
+        match self {
+            Self::Mixture(mixture) => Ok(mixture.density),
+            Self::Composite(composite) => composite.get_density(py),
+        }
+    }
+
     pub fn into_composite(self) -> Option<Composite> {
         match self {
             Self::Composite(composite) => Some(composite),

@@ -15,7 +15,7 @@ Geometry interface
 
 To represent an Earth-like geometry, typically described by a Digital Elevation
 Model (`DEM`_), Mulder provides a dedicated :py:class:`~mulder.EarthGeometry`
-object. Alternatively, a `Calzone`_ geometry might be imported as a
+object. Alternatively, a `Calzone`_ (`Geant4`_) geometry can be imported as a
 :py:class:`~mulder.LocalGeometry` object. Other use cases might be implemented
 as an external :py:class:`~mulder.Module` (using Mulder's C interface). Mulder
 geometry objects rely on a common model, inherited from `Pumas`_ [Nie22]_,
@@ -73,18 +73,22 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: scan
 
-      By default, this method returns an :py:class:`array <numpy.ndarray>`
-      containing the thicknesses of the layers along the line(s) of sight
-      specified by the input *coordinates*. For instance,
+      The *output* argument determines the returned data. The possible values
+      are :python:`"grammage"` (i.e., :math:`\int{\rho(s) ds}`, a.k.a. opacity
+      in the context of muography), :python:`"intersections"` and
+      :python:`"thickness"` (which is the default setting). For instance, the
+      following returns an :py:class:`array <numpy.ndarray>` containing the
+      thicknesses of the layers along the line(s) of sight specified by the
+      input *coordinates*, as
 
       >>> thickness = geometry.scan(latitude=45, elevation=10)
       >>> thickness[0]  # doctest: +SKIP
       3.0
 
-      If *intersections* is :python:`True`, then, for each input coordinate,
-      this method returns an :py:class:`array <numpy.ndarray>` containing the
-      successive tracing intersections, as obtained per the :py:meth:`trace`
-      method.
+      If *output* is set to :python:`"intersections"`, then, for each input
+      coordinate, this method returns an :py:class:`array <numpy.ndarray>`
+      containing the successive tracing intersections, as obtained per the
+      :py:meth:`trace` method.
 
    .. automethod:: trace
 
@@ -468,18 +472,22 @@ which is discussed in the :doc:`Geometry <geometry>` section.
 
    .. automethod:: scan
 
-      By default, this method returns an :py:class:`array <numpy.ndarray>`
-      containing the thicknesses of the media along the line(s) of sight
-      specified by the input *coordinates*. For instance,
+      The *output* argument determines the returned data. The possible values
+      are :python:`"grammage"` (i.e., :math:`\int{\rho(s) ds}`, a.k.a. opacity
+      in the context of muography), :python:`"intersections"` and
+      :python:`"thickness"` (which is the default setting). For instance, the
+      following returns an :py:class:`array <numpy.ndarray>` containing the
+      thicknesses of the media along the line(s) of sight specified by the
+      input *coordinates*, as
 
       >>> thickness = geometry.scan(position=[0, 0, 1], direction=[0, 0, -1])
       >>> thickness[0]  # doctest: +SKIP
       1.0
 
-      If *intersections* is :python:`True`, then, for each input coordinate,
-      this method returns an :py:class:`array <numpy.ndarray>` containing the
-      successive tracing intersections, as obtained per the :py:meth:`trace`
-      method.
+      If *output* is set to :python:`"intersections"`, then, for each input
+      coordinate, this method returns an :py:class:`array <numpy.ndarray>`
+      containing the successive tracing intersections, as obtained per the
+      :py:meth:`trace` method.
 
    .. automethod:: trace
 
@@ -2359,6 +2367,7 @@ The available configuration data are listed below.
 .. _EGM96 Grid: https://web.archive.org/web/20130218141358/http://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/egm96.html
 .. _EPSG: https://epsg.io/
 .. _Filament: https://google.github.io/filament/Filament.md.html
+.. _Geant4: https://geant4.web.cern.ch/
 .. _GeoTIFF: https://fr.wikipedia.org/wiki/GeoTIFF
 .. _HGT: http://fileformats.archiveteam.org/wiki/HGT
 .. _IGRF14: https://doi.org/10.1186/s40623-020-01288-x

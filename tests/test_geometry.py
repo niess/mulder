@@ -1,4 +1,5 @@
 import mulder
+from mulder.materials import Material
 from numpy.testing import assert_allclose
 from pathlib import Path
 import pytest
@@ -85,13 +86,17 @@ def test_earth():
                       frame=mulder.LocalFrame(altitude=1))
     assert_allclose(d, [1, 1000], atol=1E-06)
 
-    import numpy
     i = geometry.scan(altitude=-1001, elevation=90, output="intersections")
     assert_allclose(i[0].tolist(), (0, 1, 0.0, 0.0, -1000.0, 1.0), atol=1E-07)
     assert_allclose(i[1].tolist(), (1, 2, 0.0, 0.0,     0.0, 1.0E+03),
                     atol=1E-07)
     assert_allclose(i[2].tolist(), (2, 3, 0.0, 0.0, 1.2E+05, 1.2E+05),
                     atol=1E-07)
+
+    rock = Material("Rock")
+    water = Material("Water")
+    g = geometry.scan(altitude=-1001, elevation=90, output="grammage")
+    assert_allclose(g, [1.0 * rock.density, 1E+03 * water.density])
 
 
 @pytest.mark.requires_calzone
@@ -198,3 +203,16 @@ def test_local():
 
     n = geometry.media[0].normal(position=[0, 0, 1000])
     assert_allclose(n, [0, 0, 1])
+
+    i = geometry.scan(position=[0.0, 0.0, -996.0], direction=[0, 0, 1],
+                      frame=frame, output="intersections")
+    assert_allclose(i["before"], [1, 0])
+    assert_allclose(i["after"], [0, 2])
+    assert_allclose(i["position"], [[0, 0, -1.0], [0, 0, 999.0]], atol=1E-07)
+    assert_allclose(i["distance"], [995, 1000])
+
+    g = geometry.scan(position=[0.0, 0.0, -995.0], direction=[0, 0, 1],
+                      output="grammage")
+    air = Material("G4_AIR")
+    soil = Material("G4_CALCIUM_CARBONATE")
+    assert_allclose(g, [1000 * air.density, 995 * soil.density])

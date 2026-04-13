@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::materials::{MaterialsSet, MaterialsSubscriber};
+use crate::materials::{MaterialsBroker, MaterialsSet, MaterialsSubscriber};
 use crate::module::{CGeometry, CLocator, CMedium, CModule, CTracer, Module};
 use crate::simulation::coordinates::{CoordinatesExtractor, LocalFrame, Maybe, PositionExtractor};
 use crate::utils::convert::ScanOutput;
@@ -185,7 +185,6 @@ impl LocalGeometry {
         Ok(array)
     }
 
-    // XXX sum & grammage mode?
     /// Performs a scan of the local geometry.
     #[pyo3(
         signature=(coordinates=None, /, *, notify=None, output=None, frame=None, **kwargs),
@@ -218,21 +217,40 @@ impl LocalGeometry {
         let notifier = Notifier::from_arg(notify, size, "scanning geometry");
 
         enum Output<'a> {
-            Thickness { array: NewArray<'a, f64> },
+            Grammage { array: NewArray<'a, f64>, densities: Vec<f64>, },
             Intersection {
                 list: Vec<IntersectionsArray<'a>>,
                 current: Vec<LocalIntersection>,
             },
+            Thickness { array: NewArray<'a, f64> },
         }
         let mut output = match output {
-            ScanOutput::Thickness => {
+            ScanOutput::Grammage => {
                 let array = NewArray::<f64>::zeros(py, shape)?;
-                Output::Thickness { array }
+                let media = self.media.bind(py);
+                let broker = MaterialsBroker::new(py)?;
+                let mut densities = Vec::with_capacity(media.len());
+                for medium in media.iter() {
+                    let binding: &Bound<Medium> = medium.downcast().unwrap();
+                    let medium = binding.borrow();
+                    match medium.density {
+                        Some(density) => densities.push(density),
+                        None => {
+                            let material = broker.get_material(medium.material.as_str())?;
+                            densities.push(material.get_density(py)?);
+                        },
+                    }
+                }
+                Output::Grammage { array, densities }
             },
             ScanOutput::Intersections => {
                 let list = Vec::new();
                 let current = Vec::new();
                 Output::Intersection { list, current }
+            },
+            ScanOutput::Thickness => {
+                let array = NewArray::<f64>::zeros(py, shape)?;
+                Output::Thickness { array }
             },
         };
 
@@ -251,9 +269,9 @@ impl LocalGeometry {
                     let distance = tracer.trace();
                     tracer.move_(distance);
                     match &mut output {
-                        Output::Thickness { array } => {
-                            let distances = array.as_slice_mut();
-                            distances[i * n + medium] += distance;
+                        Output::Grammage { array, densities } => {
+                            let grammages = array.as_slice_mut();
+                            grammages[i * n + medium] += distance * densities[medium];
                         },
                         Output::Intersection { current: intersections, .. } => {
                             let intersection = LocalIntersection {
@@ -263,6 +281,10 @@ impl LocalGeometry {
                                 distance,
                             };
                             intersections.push(intersection);
+                        },
+                        Output::Thickness { array } => {
+                            let distances = array.as_slice_mut();
+                            distances[i * n + medium] += distance;
                         },
                     }
                     medium = tracer.medium();
@@ -301,12 +323,13 @@ impl LocalGeometry {
         }
 
         match output {
-            Output::Thickness { array } => Ok(array.into_bound().into_any()),
+            Output::Grammage { array, .. } => Ok(array.into_bound().into_any()),
             Output::Intersection { mut list, .. } => if coordinates.shape().is_empty() {
                 list.pop().into_pyobject(py)
             } else {
                 list.into_pyobject(py)
             },
+            Output::Thickness { array } => Ok(array.into_bound().into_any()),
         }
     }
 

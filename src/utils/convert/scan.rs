@@ -6,9 +6,10 @@ use pyo3::prelude::*;
 #[derive(Clone, Copy, Default, EnumVariantsStrings, PartialEq)]
 #[enum_variants_strings_transform(transform="snake_case")]
 pub enum ScanOutput {
+    Grammage,
+    Intersections,
     #[default]
     Thickness,
-    Intersections,
 }
 
 impl Convert for ScanOutput {

@@ -1,5 +1,5 @@
 use crate::bindings::turtle;
-use crate::materials::set::{MaterialsSet, MaterialsSubscriber};
+use crate::materials::{MaterialsBroker, MaterialsSet, MaterialsSubscriber};
 use crate::simulation::coordinates::{
     CoordinatesExtractor, GeographicCoordinates, HorizontalCoordinates, LocalFrame,
     PositionExtractor,
@@ -175,21 +175,40 @@ impl EarthGeometry {
             distance: f64,
         }
         enum Output<'a> {
-            Thickness { array: NewArray<'a, f64> },
+            Grammage { array: NewArray<'a, f64>, densities: Vec<f64>, },
             Intersection {
                 list: Vec<IntersectionsArray<'a>>,
                 current: Vec<EcefIntersection>,
             },
+            Thickness { array: NewArray<'a, f64> },
         }
         let mut output = match output {
-            ScanOutput::Thickness => {
+            ScanOutput::Grammage => {
                 let array = NewArray::<f64>::zeros(py, shape)?;
-                Output::Thickness { array }
+                let layers = self.layers.bind(py);
+                let broker = MaterialsBroker::new(py)?;
+                let mut densities = Vec::with_capacity(layers.len());
+                for layer in layers.iter() {
+                    let binding: &Bound<Layer> = layer.downcast().unwrap();
+                    let layer = binding.borrow();
+                    match layer.density {
+                        Some(density) => densities.push(density),
+                        None => {
+                            let material = broker.get_material(layer.material.as_str())?;
+                            densities.push(material.get_density(py)?);
+                        },
+                    }
+                }
+                Output::Grammage { array, densities }
             },
             ScanOutput::Intersections => {
                 let list = Vec::new();
                 let current = Vec::new();
                 Output::Intersection { list, current }
+            },
+            ScanOutput::Thickness => {
+                let array = NewArray::<f64>::zeros(py, shape)?;
+                Output::Thickness { array }
             },
         };
 
@@ -249,11 +268,11 @@ impl EarthGeometry {
                 }
 
                 match &mut output {
-                    Output::Thickness { array } => {
+                    Output::Grammage { array, densities } => {
                         let current = current as usize;
                         if current <= n {
                             let distances = array.as_slice_mut();
-                            distances[i * n + current - 1] += di;
+                            distances[i * n + current - 1] += di * densities[current - 1];
                         }
                     },
                     Output::Intersection { current: intersections, .. } => {
@@ -264,6 +283,13 @@ impl EarthGeometry {
                             distance: di,
                         };
                         intersections.push(intersection);
+                    },
+                    Output::Thickness { array } => {
+                        let current = current as usize;
+                        if current <= n {
+                            let distances = array.as_slice_mut();
+                            distances[i * n + current - 1] += di;
+                        }
                     },
                 }
 
@@ -319,12 +345,13 @@ impl EarthGeometry {
         }
 
         match output {
-            Output::Thickness { array } => Ok(array.into_bound().into_any()),
+            Output::Grammage { array, .. } => Ok(array.into_bound().into_any()),
             Output::Intersection { mut list, .. } => if coordinates.shape().is_empty() {
                 list.pop().into_pyobject(py)
             } else {
                 list.into_pyobject(py)
             },
+            Output::Thickness { array } => Ok(array.into_bound().into_any()),
         }
     }
 
