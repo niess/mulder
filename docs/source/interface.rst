@@ -596,7 +596,7 @@ definition has been established, it cannot be modified or removed.
    composite has been mapped. However, a specific material may be disabled by
    setting its mass fraction to zero.
 
-   .. method:: __new__(name, /, **kwargs)
+   .. method:: __new__(name, /)
 
       Gets a composite definition.
 

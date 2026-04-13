@@ -6,11 +6,12 @@ import numpy as np
 
 
 # Define the materials.
-composite = materials.Composite("HumidRock", composition=("Rock", "Water"))
+composite = materials.Composite.define("HumidRock",
+                                       composition=("Rock", "Water"))
 for i, f in enumerate((0.25, 0.50, 0.75)):
     composite["Rock"] = 1.0 - f
     composite["Water"] = f
-    materials.Material(
+    materials.Material.define(
         f"HRM_{i}",
         composition=(("Rock", 1.0 - f), ("Water", f)),
         density = composite.density
