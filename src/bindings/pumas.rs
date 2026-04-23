@@ -307,6 +307,15 @@ extern "C" {
         value: *mut c_double,
     ) -> c_uint;
 
+    #[link_name="pumas_physics_property_kinetic_energy"]
+    pub fn physics_property_kinetic_energy(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        range: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
     #[link_name="pumas_physics_property_range"]
     pub fn physics_property_range(
         physics: *const Physics,

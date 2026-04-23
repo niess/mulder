@@ -964,6 +964,12 @@ tabulated physical properties.
          Soft elastic collisions are taken into account in the multiple
          scattering (see the :py:meth:`transport_path` method).
 
+   .. automethod:: inverse_range
+
+      This method returns the inverse of the CSDA range, i.e. the required muon
+      kinetic energy, in GeV, for a given range, expressed in metres. See the
+      :py:meth:`range` method for further details.
+
    .. automethod:: range
 
       The CSDA range is expressed in metres. See the :py:meth:`stopping_power`

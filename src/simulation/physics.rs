@@ -724,6 +724,49 @@ impl CompiledMaterial {
         Ok(array)
     }
 
+    /// Returns the inverse of the muon CSDA range.
+    #[pyo3(signature=(range, /, *, mode=None, notify=None))]
+    fn inverse_range<'py>(
+        &self,
+        range: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        let py = range.py();
+
+        let mode = match mode {
+            Some(mode) => mode.to_pumas_mode(),
+            None => pumas::MODE_CSDA,
+        };
+        let physics = self.physics.as_ref().0.as_ptr();
+        let registry = &Registry::get(py)?.read().unwrap();
+        let density = match registry.material(self.name.as_str()) {
+            Material::Composite(composite) => {
+                update_composite(&composite.read(), physics, self.index)?;
+                composite.get_density(py)?
+            }
+            Material::Mixture(mixture) => mixture.density,
+        };
+
+        let mut array = NewArray::empty(py, range.shape())?;
+        let n = array.size();
+        let values = array.as_slice_mut();
+        let notifier = notify::Notifier::from_arg(notify, n, "computing inverse range(s)");
+        for i in 0..n {
+            let ri = range.get_item(i)?;
+            let mut vi = 0.0;
+            unsafe {
+                pumas::physics_property_kinetic_energy(
+                    physics, mode, self.index, ri * density, &mut vi,
+                );
+            }
+            values[i] = vi;
+            notifier.tic();
+        }
+
+        Ok(array)
+    }
+
     /// Returns the muon CSDA range.
     #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
     fn range<'py>(
