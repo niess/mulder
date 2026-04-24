@@ -316,6 +316,24 @@ extern "C" {
         value: *mut c_double,
     ) -> c_uint;
 
+    #[link_name="pumas_physics_property_magnetic_rotation"]
+    pub fn physics_property_magnetic_rotation(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
+    #[link_name="pumas_physics_property_proper_time"]
+    pub fn physics_property_proper_time(
+        physics: *const Physics,
+        mode: c_int,
+        material: c_int,
+        energy: c_double,
+        value: *mut c_double,
+    ) -> c_uint;
+
     #[link_name="pumas_physics_property_range"]
     pub fn physics_property_range(
         physics: *const Physics,

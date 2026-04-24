@@ -558,8 +558,12 @@ fn update_composite(
 
 enum Operation {
     Divide,
+    DivideC,
+    DivideDeg,
     Multiply,
 }
+
+const SPEED_OF_LIGHT: f64 = 299_792_458.0;
 
 macro_rules! compute_property {
     ($func:ident, $msg:literal, $op:expr, $slf:ident, $nrg:ident, $ntf:ident) => {
@@ -577,6 +581,8 @@ macro_rules! compute_property {
             };
             let factor = match $op {
                 Operation::Divide => 1.0 / density,
+                Operation::DivideC => 1.0 / (density * SPEED_OF_LIGHT),
+                Operation::DivideDeg => 180.0 / (std::f64::consts::PI * density),
                 Operation::Multiply => density,
             };
 
@@ -619,6 +625,8 @@ macro_rules! compute_property {
             };
             let factor = match $op {
                 Operation::Divide => 1.0 / density,
+                Operation::DivideC => 1.0 / (density * SPEED_OF_LIGHT),
+                Operation::DivideDeg => 180.0 / (std::f64::consts::PI * density),
                 Operation::Multiply => density,
             };
 
@@ -765,6 +773,44 @@ impl CompiledMaterial {
         }
 
         Ok(array)
+    }
+
+    /// Returns the magnetic gyration coefficient.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn magnetic_gyration<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_magnetic_rotation,
+            "computing gyration coefficient(s)",
+            Operation::DivideDeg,
+            self,
+            mode,
+            energy,
+            notify
+        )
+    }
+
+    /// Returns the muon proper time.
+    #[pyo3(signature=(energy, /, *, mode=None, notify=None))]
+    fn proper_time<'py>(
+        &self,
+        energy: AnyArray<'py, f64>,
+        mode: Option<TransportMode>,
+        notify: Option<notify::NotifyArg>,
+    ) -> PyResult<NewArray<'py, f64>> {
+        compute_property!(
+            physics_property_proper_time,
+            "computing proper time(s)",
+            Operation::DivideC,
+            self,
+            mode,
+            energy,
+            notify
+        )
     }
 
     /// Returns the muon CSDA range.

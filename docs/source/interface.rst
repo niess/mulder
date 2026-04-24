@@ -970,6 +970,25 @@ tabulated physical properties.
       kinetic energy, in GeV, for a given range, expressed in metres. See the
       :py:meth:`range` method for further details.
 
+   .. automethod:: magnetic_gyration
+
+      This method returns the magnetic gyration coefficient, :math:`g`, over the
+      total muon range, assuming continuous energy loss. The gyration
+      coefficient is defined as
+
+      .. math::
+
+         g = \frac{\theta}{B_\perp} ,
+
+      where :math:`B_\perp` is the magnetic field transverse to the muon
+      direction, and :math:`\theta` the resulting rotation angle. The returned
+      gyration coefficient is expressed in deg / T.
+
+   .. automethod:: proper_time
+
+      This method returns the ellapsed proper time of a particle over its total
+      range, in seconds. Continuous energy loss is assumed.
+
    .. automethod:: range
 
       The CSDA range is expressed in metres. See the :py:meth:`stopping_power`
