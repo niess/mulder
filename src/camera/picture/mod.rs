@@ -197,7 +197,7 @@ impl RawPicture {
             } else {
                 lights::Lights::DIRECTIONAL
             })
-            .into_vec(self.direction());
+            .into_vec(self.geographic_direction());
 
         let (ambient, directionals) = {
             let mut ambient = vec3::Vec3::ZERO;
@@ -285,7 +285,7 @@ impl RawPicture {
             let normal = std::array::from_fn(|i| normal[i] as f64);
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
-            let direction = self.transform.direction(u, v);
+            let direction = self.transform.geographic_direction(u, v);
             let view = direction
                 .to_ecef(self.position());
             let view = core::array::from_fn(|i| -view[i]);
@@ -379,21 +379,16 @@ impl RawPicture {
         let mut view_array = NewArray::empty(py, shape)?;
         let view = view_array.as_slice_mut();
 
-        const DEG: f64 = std::f64::consts::PI / 180.0;
         for i in 0..data.size() {
             let u = Transform::uv(i % nu, nu);
             let v = Transform::uv(i / nu, nv);
-            let direction = self.transform.direction(u, v);
-            let theta = (90.0 - direction.elevation) * DEG;
-            let phi = (90.0 - direction.azimuth) * DEG;
-            let (st, ct) = theta.sin_cos();
-            let (sp, cp) = phi.sin_cos();
-            let mut v = [ st * cp, st * sp, ct ];
+            let mut v = self.transform.local_direction(u, v);
             if let Some(transformer) = &transformer {
                 v = transformer.transform_vector(&v);
             }
+            let norm = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
             for j in 0..3 {
-                view[3 * i + j] = v[j] as f32;
+                view[3 * i + j] = (v[j] / norm) as f32;
             }
         }
 
@@ -411,8 +406,8 @@ impl RawPicture {
     }
 
     #[inline]
-    fn direction(&self) -> HorizontalCoordinates {
-        self.transform.direction(0.5, 0.5)
+    fn geographic_direction(&self) -> HorizontalCoordinates {
+        self.transform.geographic_direction(0.5, 0.5)
     }
 
     #[inline]

@@ -458,7 +458,7 @@ impl Iterator for Iter {
         if (i < self.nv) && (j < self.nu) {
             let uj = Transform::uv(j, self.nu);
             let vi = Transform::uv(i, self.nv);
-            let horizontal = self.transform.direction(uj, vi);
+            let horizontal = self.transform.geographic_direction(uj, vi);
             Some(horizontal)
         } else {
             None
@@ -468,8 +468,13 @@ impl Iterator for Iter {
 
 impl Transform {
     #[inline]
-    fn direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
-        self.frame.to_horizontal(&[u - 0.5, self.f, (v - 0.5) / self.ratio])
+    fn geographic_direction(&self, u: f64, v: f64) -> HorizontalCoordinates {
+        self.frame.to_horizontal(&self.local_direction(u, v))
+    }
+
+    #[inline]
+    fn local_direction(&self, u: f64, v: f64) -> [f64; 3] {
+        [u - 0.5, self.f, (v - 0.5) / self.ratio]
     }
 
     #[inline]

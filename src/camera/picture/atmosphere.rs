@@ -631,7 +631,7 @@ impl AerialView {
         for (iv, v) in lut.iter_v().enumerate() {
             for (iu, u) in lut.iter_u().enumerate() {
                 let (mu, azimuth) = {
-                    let direction = transform.direction(u, v);
+                    let direction = transform.geographic_direction(u, v);
                     let mu = (direction.elevation * DEG).sin();
                     let azimuth = direction.azimuth * DEG;
                     (mu, azimuth)
