@@ -167,7 +167,7 @@ impl EarthMagnet {
                 ri.altitude,
             )?;
             if let PositionExtractor::Local { frame, .. } = &position {
-                let field_frame = LocalFrame::new(ri, 0.0, 0.0);
+                let field_frame = LocalFrame::new(ri, 0.0, 0.0, 0.0);
                 let ecef = field_frame.to_ecef_direction(&fi);
                 fi = frame.from_ecef_direction(&ecef);
             }

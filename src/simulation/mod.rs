@@ -1457,7 +1457,7 @@ impl<'a> Agent<'a> {
                 self.geographic.altitude,
             ).unwrap();
 
-            let frame = LocalFrame::new(self.geographic, 0.0, 0.0);
+            let frame = LocalFrame::new(self.geographic, 0.0, 0.0, 0.0);
             self.geomagnet_field = frame.to_ecef_direction(&enu);
             self.geomagnet_position = self.state.position;
         }

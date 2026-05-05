@@ -36,6 +36,10 @@ pub struct LocalFrame {
     #[pyo3(get)]
     pub elevation: f64,
 
+    /// The frame skew angle (a.k.a. roll angle), in deg.
+    #[pyo3(get)]
+    pub skew: f64,
+
     pub rotation: [[f64; 3]; 3],
     pub translation: [f64; 3],
 }
@@ -160,12 +164,13 @@ impl_dtype!(
 impl LocalFrame {
     #[new]
     #[pyo3(
-        signature=(coordinates=None, /, *, frame=None, **kwargs),
-        text_signature="(coordinates=None, /, **kwargs)",
+        signature=(coordinates=None, /, *, skew=None, frame=None, **kwargs),
+        text_signature="(coordinates=None, /, *, skew=None, **kwargs)",
     )]
     fn py_new(
         py: Python,
         coordinates: Option<&Bound<PyAny>>,
+        skew: Option<f64>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
@@ -173,7 +178,8 @@ impl LocalFrame {
             py, coordinates, kwargs, frame.as_ref().into(), Some(1)
         )?;
         let (origin, direction) = coordinates.extract(0)?.into_geographic();
-        let frame = Self::new(origin, direction.azimuth, direction.elevation);
+        let skew = skew.unwrap_or(0.0);
+        let frame = Self::new(origin, direction.azimuth, direction.elevation, skew);
         Ok(frame)
     }
 
@@ -183,7 +189,7 @@ impl LocalFrame {
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         // This ensures that no field is omitted.
-        let Self { origin, azimuth, elevation, rotation, translation } = self;
+        let Self { origin, azimuth, elevation, skew, rotation, translation } = self;
         let GeographicCoordinates { latitude, longitude, altitude } = origin;
 
         let state = PyDict::new(py);
@@ -192,6 +198,7 @@ impl LocalFrame {
         state.set_item("altitude", altitude)?;
         state.set_item("azimuth", azimuth)?;
         state.set_item("elevation", elevation)?;
+        state.set_item("skew", skew)?;
         state.set_item("rotation", rotation)?;
         state.set_item("translation", translation)?;
         Ok(state)
@@ -207,6 +214,7 @@ impl LocalFrame {
             origin,
             azimuth: state.get_item("azimuth")?.unwrap().extract()?,
             elevation: state.get_item("elevation")?.unwrap().extract()?,
+            skew: state.get_item("skew")?.unwrap().extract()?,
             rotation: state.get_item("rotation")?.unwrap().extract()?,
             translation: state.get_item("translation")?.unwrap().extract()?,
         };
@@ -225,6 +233,9 @@ impl LocalFrame {
         }
         if self.elevation != 0.0 {
             args.push(format!("elevation={}", self.elevation));
+        }
+        if self.skew != 0.0 {
+            args.push(format!("skew={}", self.skew));
         }
         let args = args.join(", ");
         format!("LocalFrame({})", args)
@@ -261,13 +272,14 @@ impl LocalFrame {
 
     /// Returns a rotated local frame.
     #[pyo3(
-        signature=(position=None, /, *, frame=None, **kwargs),
-        text_signature="(self, position=None, /, **kwargs)",
+        signature=(position=None, /, *, skew=None, frame=None, **kwargs),
+        text_signature="(self, position=None, /, *, skew=None, **kwargs)",
     )]
     fn looking_at(
         &self,
         py: Python,
         position: Option<&Bound<PyAny>>,
+        skew: Option<f64>,
         frame: Option<LocalFrame>,
         kwargs: Option<&Bound<PyDict>>,
     ) -> PyResult<Self> {
@@ -281,7 +293,8 @@ impl LocalFrame {
             target[2] - origin[2],
         ];
         let direction = HorizontalCoordinates::from_ecef(&direction, &self.origin);
-        let frame = Self::new(self.origin, direction.azimuth, direction.elevation);
+        let skew = skew.unwrap_or(0.0);
+        let frame = Self::new(self.origin, direction.azimuth, direction.elevation, skew);
         Ok(frame)
     }
 
@@ -342,7 +355,7 @@ impl LocalFrame {
         let HorizontalCoordinates { azimuth, elevation } = HorizontalCoordinates::from_ecef(
             &direction, &origin
         );
-        Self { origin, azimuth, elevation, rotation: self.rotation, translation }
+        Self { origin, azimuth, elevation, skew: self.skew, rotation: self.rotation, translation }
     }
 }
 
@@ -430,7 +443,7 @@ impl LocalFrame {
         HorizontalCoordinates::from_ecef(&ecef, &self.origin)
     }
 
-    pub fn new(origin: GeographicCoordinates, azimuth: f64, elevation: f64) -> Self {
+    pub fn new(origin: GeographicCoordinates, azimuth: f64, elevation: f64, skew: f64) -> Self {
         // Compute transform from ECEF to ENU.
         let mut rotation = [[0.0; 3]; 3];
         unsafe {
@@ -459,8 +472,18 @@ impl LocalFrame {
             );
         }
 
+        if skew != 0.0 {
+            let (s, c) = skew.to_radians().sin_cos();
+            let ux = rotation[0].clone();
+            let uz = rotation[2].clone();
+            for j in 0..3 {
+                rotation[0][j] = c * ux[j] + s * uz[j];
+                rotation[2][j] = -s * ux[j] + c * uz[j];
+            }
+        }
+
         let translation = origin.to_ecef();
-        Self { rotation, translation, origin, azimuth, elevation }
+        Self { rotation, translation, origin, azimuth, elevation, skew }
     }
 }
 
@@ -471,7 +494,7 @@ impl Default for LocalFrame {
             longitude: 0.0,
             altitude: 0.0
         };
-        Self::new(origin, 0.0, 0.0)
+        Self::new(origin, 0.0, 0.0, 0.0)
     }
 }
 

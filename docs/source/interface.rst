@@ -431,10 +431,12 @@ which is discussed in the :doc:`Geometry <geometry>` section.
    .. note::
 
       The :py:attr:`azimuth` and :py:attr:`elevation` attributes refer to
-      the y-axis direction.
+      the y-axis direction. The skew angle (a.k.a. roll angle) is a rotation
+      around the transformed y-axis.
 
    .. autoattribute:: azimuth
    .. autoattribute:: elevation
+   .. autoattribute:: skew
 
 ----
 
