@@ -221,11 +221,7 @@ impl RawPicture {
         };
 
         // Instanciate the atmosphere.
-        let atmosphere = if
-            (atmosphere_medium >= 0) &&
-            (self.camera_medium == atmosphere_medium) &&
-            (directionals.len() > 0)
-        {
+        let atmosphere = if (atmosphere_medium >= 0) && (directionals.len() > 0) {
             Some(atmosphere::Atmosphere::new(self, &directionals))
         } else {
             None

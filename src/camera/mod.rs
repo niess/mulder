@@ -280,36 +280,63 @@ impl Camera {
 
             let ui = frame.from_ecef_direction(&direction.to_ecef(&camera_position));
             tracer.reset(r0, ui);
-            let (distance, after) = match ignore.as_ref() {
+            let (distance, medium, backface) = match ignore.as_ref() {
                 Some(ignore) => {
+                    let mut before = camera_medium;
                     let mut distance = 0.0;
                     loop {
                         let d = tracer.trace();
                         distance += d;
                         tracer.move_(d);
                         let after = tracer.medium();
-                        if after == camera_medium {
+                        if after == outer_medium {
+                            if ignore.contains(&(before as i32)) {
+                                break (distance, outer_medium, false)
+                            } else {
+                                break (distance, before, true)
+                            }
+                        } else if after < before {
+                            if ignore.contains(&(before as i32)) {
+                                if ignore.contains(&(after as i32)) {
+                                    before = after;
+                                    continue
+                                } else {
+                                    break (distance, after, true)
+                                }
+                            } else {
+                                break (distance, before, true)
+                            }
+                        } else if after > before {
+                            if ignore.contains(&(after as i32)) {
+                                continue
+                            } else {
+                                break (distance, after, false)
+                            }
+                        } else {
                             continue
-                        } else if after >= outer_medium || !ignore.contains(&(after as i32)) {
-                            break (distance, after)
                         }
                     }
                 },
                 None => {
-                    let distance = tracer.trace();
-                    tracer.move_(distance);
-                    let after = tracer.medium();
-                    (distance, after)
+                    let mut distance = 0.0;
+                    loop {
+                        let d = tracer.trace();
+                        distance += d;
+                        tracer.move_(d);
+                        let after = tracer.medium();
+                        if (after == outer_medium) || (after < camera_medium) {
+                            break (distance, camera_medium, true)
+                        } else if after > camera_medium {
+                            break (distance, after, false)
+                        } else {
+                            continue
+                        }
+                    }
                 },
             };
             let ri = tracer.position();
             let GeographicCoordinates { altitude, .. } = frame.to_geographic_position(&ri);
 
-            let (backface, medium) = if (after == outer_medium) || (after <= camera_medium) {
-                (true, camera_medium)
-            } else {
-                (false, after)
-            };
             let altitude = altitude as f32;
             let distance = distance as f32;
             let normal = if medium < outer_medium {
@@ -341,7 +368,7 @@ impl Camera {
 
         let transform = self.transform();
 
-        let atmosphere_medium = 0;
+        let atmosphere_medium = outer_medium as i32;
         let camera_medium = camera_medium as i32;
         let picture = picture::RawPicture {
             transform, atmosphere_medium, camera_medium, materials, pixels,
